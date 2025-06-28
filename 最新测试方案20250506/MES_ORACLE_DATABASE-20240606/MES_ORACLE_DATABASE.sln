@@ -1,0 +1,37 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.2.32616.157
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MES_ORACLE_DATABASE", "MES_ORACLE_DATABASE.csproj", "{F1AABAD4-EED4-4977-9154-B8C7E4EE8CE6}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "processdatarecord", "..\processdatarecord\processdatarecord.csproj", "{1FEAD6F5-FB25-405E-AC3B-36C2FFC0B099}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "oracletest", "..\oracletest-母排绑定过程数据报工\oracletest.csproj", "{C44162BF-CDF5-46BE-A513-A4C064A495E0}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{F1AABAD4-EED4-4977-9154-B8C7E4EE8CE6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F1AABAD4-EED4-4977-9154-B8C7E4EE8CE6}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F1AABAD4-EED4-4977-9154-B8C7E4EE8CE6}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F1AABAD4-EED4-4977-9154-B8C7E4EE8CE6}.Release|Any CPU.Build.0 = Release|Any CPU
+		{1FEAD6F5-FB25-405E-AC3B-36C2FFC0B099}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1FEAD6F5-FB25-405E-AC3B-36C2FFC0B099}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1FEAD6F5-FB25-405E-AC3B-36C2FFC0B099}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1FEAD6F5-FB25-405E-AC3B-36C2FFC0B099}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C44162BF-CDF5-46BE-A513-A4C064A495E0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C44162BF-CDF5-46BE-A513-A4C064A495E0}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C44162BF-CDF5-46BE-A513-A4C064A495E0}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C44162BF-CDF5-46BE-A513-A4C064A495E0}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {15B9C3D3-85BC-49A7-9147-AD189BB1C9E7}
+	EndGlobalSection
+EndGlobal
