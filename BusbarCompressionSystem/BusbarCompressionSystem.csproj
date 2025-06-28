@@ -118,6 +118,9 @@
     <Compile Include="Model\FaraVision\FaraVisionDataModel.cs" />
     <Compile Include="Model\FaraVision\Convertor.cs" />
     <Compile Include="Model\FaraVision\Hobject2Bitmap.cs" />
+    <Compile Include="Model\FaraVision\ModelWindow.xaml.cs">
+      <DependentUpon>ModelWindow.xaml</DependentUpon>
+    </Compile>
     <Compile Include="Model\FaraVision\SettingForm.xaml.cs">
       <DependentUpon>SettingForm.xaml</DependentUpon>
     </Compile>
@@ -154,6 +157,10 @@
       <DependentUpon>MainWindow.xaml</DependentUpon>
       <SubType>Code</SubType>
     </Compile>
+    <Page Include="Model\FaraVision\ModelWindow.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
     <Page Include="Model\FaraVision\SettingForm.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>

@@ -354,9 +354,9 @@ namespace BusbarCompressionSystem.Model.FaraVision
         {
             try
             {
-                //string shmfilename = $"{vml.Main.DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{vml.Main.DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{vml.Main.DataModel.FaraVisionDataModel.Processmodel.Tools[vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool.Index - 1].Index}.shm";
-                //ModelWindow modelWindow = new ModelWindow(t.Image, shmfilename);
-                //modelWindow.ShowDialog();
+                string shmfilename = $"{vml.Main.DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{vml.Main.DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{vml.Main.DataModel.FaraVisionDataModel.Processmodel.Tools[vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool.Index - 1].Index}.shm";
+                ModelWindow modelWindow = new ModelWindow(t.Image, shmfilename);
+                modelWindow.ShowDialog();
             }
             catch { }
 

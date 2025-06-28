@@ -43,6 +43,8 @@ namespace BusbarCompressionSystem.ViewModel
             ////}
 
             SimpleIoc.Default.Register<MainViewModel>();
+            SimpleIoc.Default.Register<PositionDetect.ViewModel.PositionDetectViewModel>();
+
         }
 
         public MainViewModel Main
@@ -52,7 +54,13 @@ namespace BusbarCompressionSystem.ViewModel
                 return ServiceLocator.Current.GetInstance<MainViewModel>();
             }
         }
-        
+        public PositionDetect.ViewModel.PositionDetectViewModel PositionDetectViewModel
+        {
+            get
+            {
+                return ServiceLocator.Current.GetInstance<PositionDetect.ViewModel.PositionDetectViewModel>();
+            }
+        }
         public static void Cleanup()
         {
             // TODO Clear the ViewModels
