@@ -1,4 +1,5 @@
-﻿using GalaSoft.MvvmLight;
+﻿using BusbarCompressionSystem.FaraVision;
+using GalaSoft.MvvmLight;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -20,6 +21,7 @@ namespace BusbarCompressionSystem.Model
         [XmlElement("配置模型")]
         public SettingModel Settingmodel { get; set; } = new SettingModel();
 
+        public FaraVisionDataModel FaraVisionDataModel { set; get; } = new FaraVisionDataModel();
 
 
         #endregion

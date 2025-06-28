@@ -1,0 +1,319 @@
+﻿using BusbarCompressionSystem.Model.FaraVision.Tool;
+using BusbarCompressionSystem.Model.Setting;
+using GalaSoft.MvvmLight;
+using HalconDotNet;
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Windows.Media.Imaging;
+using System.Windows.Media;
+using System.Xml.Serialization;
+
+namespace BusbarCompressionSystem.FaraVision
+{
+    public class FaraVisionDataModel
+    {
+        #region 数据模型
+        [XmlElement("过程参数模型")]
+        public Processmodel Processmodel { get; set; } = new Processmodel();
+
+        [XmlElement("日志模型")]
+        public RecordModel Recordmodel { get; set; } = new RecordModel();
+
+        [XmlElement("配置模型")]
+        public SettingModel Settingmodel { get; set; } = new SettingModel();
+
+        #endregion
+    }
+    public class RecordModel : ObservableObject
+    {
+        [XmlElement("通讯过程数据")]
+        public ObservableCollection<ConnectRecord> ComuncationLog { get; set; } = new ObservableCollection<ConnectRecord>();
+
+        [XmlElement("日志")]
+        public ObservableCollection<string> workLog { set; get; } = new ObservableCollection<string>();
+
+        [XmlElement("错误")]
+        public ObservableCollection<string> ErrorLog { set; get; } = new ObservableCollection<string>();
+    }
+
+    public class Processmodel : ObservableObject
+    {
+        [XmlIgnore]
+        [XmlElement("二维码累积内容")]
+        public string Barcodes { set; get; } = string.Empty;
+
+        //[XmlElement("容器编号")]
+        //public string RQSN { set; get; }=string.Empty;
+
+
+        [XmlElement]
+        [XmlIgnore]
+        public string BarcodeStr { set; get; }
+
+        [XmlElement]
+        [XmlIgnore]
+        public string RCMD { get; set; } = string.Empty;
+
+
+        [XmlIgnore]
+        public int ToolIndex { set; get; } = -1;
+
+        [XmlElement("工具模型")]
+        public ObservableCollection<ToolModel> Tools { get; set; } = new ObservableCollection<ToolModel>();
+
+        [XmlElement("当前工具")]
+        public ToolModel tool { set; get; } = new ToolModel();
+
+        [XmlElement("选择工具序号")]
+        public int selectedindex { set; get; } = -1;
+
+        //public HWindowControlWPF HWindow = null;
+        [XmlIgnore]
+        public HWindow HWindow = null;
+
+        [XmlIgnore]
+        public int ImageNum { set; get; } = 0;
+
+
+        [XmlIgnore]
+        [XmlElement("胶路高度检测触发")]
+        public IO Trig_IO { get; set; } = new IO();
+
+
+
+
+        [XmlElement("状态颜色")]
+        ///透明,等待
+        ///黄色，运行中
+        ///绿色，OK
+        ///红色, NG
+        [XmlIgnore]
+        public SolidColorBrush StatusColor
+        {
+
+            get
+            {
+                switch (_Status)
+                {
+                    case ToolStatus.识别中:
+                        {
+                            return Brushes.Orange;
+                        }
+                    case ToolStatus.OK:
+                        {
+                            return Brushes.GreenYellow;
+                        }
+                    case ToolStatus.NG:
+                    case ToolStatus.NG2:
+                        {
+                            return Brushes.OrangeRed;
+                        }
+                    default:
+                        {
+                            // return new SolidColorBrush(Color.FromArgb(100, 255, 255, 255));
+                            return Brushes.Gray;
+                        }
+                }
+            }
+
+        }
+
+
+        private ToolStatus _Status = ToolStatus.等待中;
+        [XmlElement("测试状态")]
+
+
+        public ToolStatus Status
+        {
+            set
+            {
+                _Status = value;
+                RaisePropertyChanged(() => Status);
+                RaisePropertyChanged(() => StatusColor);
+
+            }
+            get { return _Status; }
+        }
+
+        [XmlElement("扫码枪接收信息")]
+        public string Scannerstr { set; get; } = string.Empty;
+
+        [XmlElement("SN列表")]
+        public ObservableCollection<string> SNList { set; get; } = new ObservableCollection<string>();
+
+        [XmlIgnore]
+        [XmlElement("显示照片")]
+        public BitmapSource ShowBitmapSource { set; get; }
+
+    }
+
+
+    public class SettingModel : ObservableObject
+    {
+        [XmlIgnore]
+        public HWindow HWindow { get; set; } = null;
+
+        [XmlIgnore]
+        [XmlElement("相机配置")]
+        public Camera.DATA camedata { set; get; } = new Camera.DATA();
+
+
+
+
+        [XmlElement("照片保存设置")]
+        public ImageSaveSetting ImageSaveSetting { get; set; } = new ImageSaveSetting();
+
+        [XmlElement("扫码器")]
+        public Scanner.ScannerModel ScannerModel { set; get; } = new Scanner.ScannerModel();
+
+        [XmlElement("霍尼韦尔扫码器")]
+
+        public Honeywell.HF800 HF800 { set; get; } = new Honeywell.HF800();
+
+
+        public string ScannerMode { set; get; } = "HF800";
+
+        #region 工程配置
+        [XmlElement("工程路径")]
+        public string Prjdir { set; get; } = $"{Environment.CurrentDirectory}\\工程文件";
+        [XmlIgnore]
+        [XmlElement("工程名称清单")]
+        public ObservableCollection<string> Prjs { set; get; } = new ObservableCollection<string>();
+
+        [XmlElement("选中工程序号")]
+        public int prjselected { set; get; } = -1;
+
+        [XmlElement("工程名称")]
+        public string Name { set; get; } = "999";
+        [XmlIgnore]
+        [XmlElement("权限")]
+        public bool permission { get; set; } = false;
+        #endregion
+
+        #region 通讯配置
+
+        [XmlElement("机器人")]
+        public TcpSetting RobotConnect { set; get; } = new TcpSetting();
+        [XmlElement("上位机")]
+        public TcpSetting SoftConnect { set; get; } = new TcpSetting();
+
+        [XmlElement("扫码报工服务器")]
+        public TcpSetting BarcodeReporter { set; get; } = new TcpSetting();
+
+
+
+        #region PLC配置
+        [XmlElement("PLC通讯IP")]
+        public string PLC_IP { set; get; } = "10.23.8.20";
+        [XmlElement("PLC通讯端口")]
+        public int PLC_Port { set; get; } = 502;
+        [XmlElement("信号交互地址")]
+        public int AddressStart { set; get; } = 7080;
+
+
+        #endregion
+
+
+
+
+
+        [XmlIgnore]
+        public TcpClientHelper.TcpClientH TcpClientH { set; get; } = new TcpClientHelper.TcpClientH();
+
+        [XmlIgnore]
+        public TcpServerHelper.TCPServerH TcpServerRobot { set; get; } = new TcpServerHelper.TCPServerH();
+        [XmlIgnore]
+        public TcpServerHelper.TCPServerH TcpServerSoft { set; get; } = new TcpServerHelper.TCPServerH();
+
+        #endregion
+
+
+        [XmlElement("测试延时")]
+
+        public int delaytime { set; get; } = 1000;
+
+
+        [XmlElement("缩放照片尺寸")]
+        public int ImageSize { set; get; } = 140;
+
+
+        [XmlElement("自动记录识别过程日志")]
+        public bool SaveProcessData { set; get; } = true;
+
+        [XmlElement("扫码检索服务器地址")]
+        public string SNlistServerIP { set; get; } = "10.23.8.28";
+
+
+
+    }
+
+    public enum IOstatus
+    {
+        连接失败,
+        高电平,
+        低电平
+    }
+
+    public class IO : ObservableObject
+    {
+
+        private int _IOstatus = -1;
+        [XmlIgnore]
+        public int IOstatus
+        {
+            get
+            {
+                return _IOstatus;
+            }
+            set
+            {
+                _IOstatus = value;
+                RaisePropertyChanged(() => IOstatusBackGround);
+                RaisePropertyChanged(() => IOStatusForeGround);
+            }
+        }
+        [XmlIgnore]
+        public SolidColorBrush IOstatusBackGround
+        {
+            get
+            {
+                if (_IOstatus == -1)
+                {
+                    return Brushes.WhiteSmoke;
+                }
+
+                else if (IOstatus == 1)
+                {
+                    return Brushes.GreenYellow;
+                }
+                else
+                {
+                    return Brushes.Black;
+                }
+            }
+        }
+        public SolidColorBrush IOStatusForeGround
+        {
+            get
+            {
+                if (_IOstatus == -1)
+                {
+                    return Brushes.Black;
+                }
+                else if (_IOstatus == 1)
+                {
+                    return Brushes.OrangeRed;
+                }
+                else
+                {
+                    return Brushes.White;
+                }
+            }
+        }
+    }
+
+}

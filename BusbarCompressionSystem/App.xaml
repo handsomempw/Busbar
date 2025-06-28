@@ -1,10 +1,36 @@
-<Application x:Class="BusbarCompressionSystem.App" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="clr-namespace:BusbarCompressionSystem" StartupUri="MainWindow.xaml" xmlns:d="http://schemas.microsoft.com/expression/blend/2008" d1p1:Ignorable="d" xmlns:d1p1="http://schemas.openxmlformats.org/markup-compatibility/2006">
+<Application 
+    x:Class="BusbarCompressionSystem.App"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" 
+    xmlns:local="clr-namespace:BusbarCompressionSystem" 
+    StartupUri="MainWindow.xaml" 
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    d1p1:Ignorable="d"
+    xmlns:d1p1="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:FaraVision="clr-namespace:BusbarCompressionSystem.Model.FaraVision"
+    >
     <Application.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
                 <ResourceDictionary Source="pack://application:,,,/Panuon.WPF.UI;component/Control.xaml" />
             </ResourceDictionary.MergedDictionaries>
             <vm:ViewModelLocator x:Key="Locator" d:IsDataSource="True" xmlns:vm="clr-namespace:BusbarCompressionSystem.ViewModel" />
+
+            <FaraVision:Bool2OKNG_Converter               x:Key="Bool2OKNG_Converter"/>
+            <FaraVision:Bool2OKNG_Converter_INV           x:Key="Bool2OKNG_Converter_INV"/>
+            <FaraVision:Bool2SolidColor_Converter         x:Key="Bool2SolidColor_Converter"/>
+            <FaraVision:Bool2SolidColor_Converter_INV     x:Key="Bool2SolidColor_Converter_INV"/>
+            <FaraVision:Status2BackGround_Converter       x:Key="Status2BackGround_Converter"/>
+            <FaraVision:Status2ForeGround_Converter       x:Key="Status2ForeGround_Converter"/>
+            <FaraVision:Status2ZH_Converter               x:Key="Status2ZH_Converter"/>
+            <FaraVision:Bool2Visible_Converter            x:Key="Bool2Visible_Converter"/>
+            <FaraVision:Bool2Visible_Converter_INV        x:Key="Bool2Visible_Converter_INV"/>
+            <FaraVision:BoolINV_Converter                 x:Key="BoolINV_Converter"/>
+            <FaraVision:permission2lockorunlock_Converter x:Key="permission2lockorunlock_Converter"/>
+            <FaraVision:TestMode2Visibility_Barcode       x:Key="TestMode2Visibility_Barcode"/>
+            <FaraVision:TestMode2Visibility_Dimension     x:Key="TestMode2Visibility_Dimension"/>
+            <FaraVision:TestMode2Visibility_ShapeMatch    x:Key="TestMode2Visibility_ShapeMatch"/>
+
         </ResourceDictionary>
     </Application.Resources>
 </Application>

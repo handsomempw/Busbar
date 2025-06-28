@@ -19,6 +19,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SQLITEDATABASE", "SQLITEDAT
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MES_ORACLE_DATABASE", "最新测试方案20250506\MES_ORACLE_DATABASE-20240606\MES_ORACLE_DATABASE.csproj", "{F1AABAD4-EED4-4977-9154-B8C7E4EE8CE6}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PositionDetect", "PositionDetect\PositionDetect.csproj", "{AC2CA99B-7A0B-4F36-AE44-23105CCA4332}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -57,6 +59,10 @@ Global
 		{F1AABAD4-EED4-4977-9154-B8C7E4EE8CE6}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{F1AABAD4-EED4-4977-9154-B8C7E4EE8CE6}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{F1AABAD4-EED4-4977-9154-B8C7E4EE8CE6}.Release|Any CPU.Build.0 = Release|Any CPU
+		{AC2CA99B-7A0B-4F36-AE44-23105CCA4332}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{AC2CA99B-7A0B-4F36-AE44-23105CCA4332}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{AC2CA99B-7A0B-4F36-AE44-23105CCA4332}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{AC2CA99B-7A0B-4F36-AE44-23105CCA4332}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
