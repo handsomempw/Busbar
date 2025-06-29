@@ -6,7 +6,7 @@
         xmlns:local="clr-namespace:BusbarCompressionSystem"
          xmlns:p="https://opensource.panuon.com/wpf-ui"
         mc:Ignorable="d"
-        p:WindowXCaption.Background="OrangeRed"
+        p:WindowXCaption.Background="Orange"
         p:WindowXCaption.Foreground="White"
         p:WindowXCaption.Height="60"
         Title="输入批号" Height="250" Width="350"
@@ -30,7 +30,7 @@
         <TextBox p:TextBoxHelper.CornerRadius="15 " Height="30" Padding=" 15,0" Margin="5 "  Grid.Row="0" Grid.Column="1"  Text="{Binding Processmodel.wocodeinputstr,UpdateSourceTrigger=PropertyChanged}" />
         <TextBlock  Margin="5 "  Grid.Row="1" Grid.Column="1"  Text="{Binding Processmodel.PartNOID}"/>
 
-        <Button Margin="5 "  Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2" p:ButtonHelper.CornerRadius="15" Background="Orange" Foreground="White" Click="Button_Click">下发参数</Button>
+        <Button Margin="5 "  Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2" p:ButtonHelper.CornerRadius="15" Background="OrangeRed" Foreground="White" Click="Button_Click">下发参数</Button>
         
         
         

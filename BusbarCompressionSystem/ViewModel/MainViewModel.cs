@@ -1137,9 +1137,19 @@ namespace BusbarCompressionSystem.ViewModel
 
                 App.Current.Dispatcher.BeginInvoke(new Action(() =>
                 {
+                    #region 仅保存照片
                     OnReceiveProcess(DataModel.Settingmodel.HWindow4, myEventArgs.Image, myEventArgs.Height, myEventArgs.Width, 4);
                     SaveImage(myEventArgs.Image, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, "外观检测", 1, "OK");
                     SendMsgRobot("OK");
+                    #endregion
+
+
+                    #region AOI识别
+                    //OnReceiveProcessAOI(DataModel.Settingmodel.HWindow4, myEventArgs.Image, myEventArgs.Height, myEventArgs.Width, 4);
+                    OnReceiveProcessAOI(myEventArgs.Image, myEventArgs.Height, myEventArgs.Width);
+
+                    #endregion
+
                     GC.Collect();
                 }));
 
@@ -1155,11 +1165,10 @@ namespace BusbarCompressionSystem.ViewModel
             try
             {
                 writeLog($"相机->视觉:接收照片", false);
-
                 MyEventArgs myEventArgs = e as MyEventArgs;
-
                 App.Current.Dispatcher.BeginInvoke(new Action(() =>
                 {
+                    #region 仅保存照片
                     OnReceiveProcess(DataModel.Settingmodel.HWindow4, myEventArgs.Image, myEventArgs.Height, myEventArgs.Width, 5);
                     SaveImage(myEventArgs.Image, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, "外观检测", 1, "OK");
 
@@ -1174,10 +1183,14 @@ namespace BusbarCompressionSystem.ViewModel
                             true);
                     }
                     SendMsgRobot("OK");
+                    #endregion
+
+                    #region AOI识别
+                    OnReceiveProcessAOI(myEventArgs.Image, myEventArgs.Height, myEventArgs.Width);
+                    #endregion
 
                     GC.Collect();
                 }));
-
             }
             catch (Exception ex)
             {
@@ -1200,31 +1213,21 @@ namespace BusbarCompressionSystem.ViewModel
             hwindow.ClearWindow();
             hwindow.DispObj(Image);
             #endregion
-
         }
 
         public void OnReceiveProcessAOI(HObject Image, int H, int W)
         {
-
-
             try
             {
-
                 #region 图片接收
-
                 //Image
-
-
                 HOperatorSet.CountChannels(Image, out var channels);
-
                 if (channels == 1)
                 {
                     HOperatorSet.Compose3(Image, Image, Image, out var multiChannelImage);
                     Image.Dispose();
                     Image = multiChannelImage;
                 }
-
-
 
                 HWindow hwindow = DataModel.FaraVisionDataModel.Settingmodel.HWindow;
                 hwindow.ClearWindow();
@@ -1241,12 +1244,8 @@ namespace BusbarCompressionSystem.ViewModel
                         {
                             DataModel.FaraVisionDataModel.Processmodel.Status = ToolStatus.识别中;
                         }
-
                         DataModel.FaraVisionDataModel.Processmodel.ToolIndex = i + 1;
-
                         ToolModel tool = DataModel.FaraVisionDataModel.Processmodel.Tools[i];
-
-
                         Bitmap bmp;
                         try
                         {
@@ -1799,6 +1798,8 @@ namespace BusbarCompressionSystem.ViewModel
 
                 if (cmd.StartsWith("A"))
                 {
+
+                    #region 临时拍照代码
                     string s = cmd.Replace("A", "");
                     int cmdint = -1;
                     if (int.TryParse(s, out cmdint))
@@ -1812,6 +1813,44 @@ namespace BusbarCompressionSystem.ViewModel
                             DataModel.Settingmodel.camedata5.CameraModel.camera.bnTriggerExec_Click();
                         }
                     }
+
+                    #endregion
+
+
+                    #region 正确拍照代码
+
+                    for (int i = 0; i < DataModel.FaraVisionDataModel.Processmodel.Tools.Count; i++)
+                    {
+                        if (DataModel.FaraVisionDataModel.Processmodel.Tools[i].Command == cmd)
+                        {
+                            if (i == 0)
+                            {
+                                ClearTools();
+                            }
+                            writeLog($"机器人->视觉:{cmd}开始设置参数", false);
+                            DataModel.FaraVisionDataModel.Processmodel.ToolIndex = i + 1;
+                            int cameraindex = DataModel.FaraVisionDataModel.Processmodel.Tools[i].CameraIndex;
+
+                            DataModel.FaraVisionDataModel.Processmodel.CameraList[cameraindex].CameraModel.exposuretime = DataModel.FaraVisionDataModel.Processmodel.Tools[i].ExposureTime;
+                            DataModel.FaraVisionDataModel.Processmodel.CameraList[cameraindex].CameraModel.camera.Exposure = DataModel.FaraVisionDataModel.Processmodel.Tools[i].ExposureTime;
+                            DataModel.FaraVisionDataModel.Processmodel.CameraList[cameraindex].CameraModel.camera.bnSetParam_Click();
+                            Thread.Sleep(DataModel.FaraVisionDataModel.Settingmodel.delaytime);
+                            writeLog($"机器人->视觉:{cmd}开始触发", false);
+                            DataModel.FaraVisionDataModel.Processmodel.CameraList[cameraindex].CameraModel.camera.bnTriggerExec_Click();
+                            writeLog($"机器人->视觉:{cmd}触发完成", false);
+
+                            break;
+                        }
+                    }
+
+
+                    #endregion
+
+
+
+
+
+
                 }
                 else if (cmd == "CHECK1")
                 {
@@ -1934,7 +1973,7 @@ namespace BusbarCompressionSystem.ViewModel
             catch (Exception ex) {; }
             return false;
         }
-      
+
 
 
 

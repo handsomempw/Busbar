@@ -7,7 +7,7 @@
         xmlns:control="clr-namespace:BusbarCompressionSystem.View"
         mc:Ignorable="d"
            Title="法拉电子-母排压合系统" Height="1080" Width="1920"
-        p:WindowXCaption.Background="OrangeRed"
+        p:WindowXCaption.Background="Orange"
         p:WindowXCaption.Foreground="White"
         p:WindowXCaption.Height="60"
         xmlns:halcon="clr-namespace:HalconDotNet;assembly=halcondotnet"
@@ -34,14 +34,21 @@
                     <ColumnDefinition Width="auto"/>
                 </Grid.ColumnDefinitions>
                 <TextBlock VerticalAlignment="Center" Margin="30,0" FontSize="20">法拉电子-母排压合系统</TextBlock>
-                <Button Grid.Column="6" p:WindowX.IsDragMoveArea="False" Margin="5" Height="30" Width="30" FontSize="18" FontFamily="{StaticResource PanuonIconFont}"
+                <Button Grid.Column="6" p:WindowX.IsDragMoveArea="False" 
+                        Margin="5" Height="30" Width="30" FontSize="18" 
+                        FontFamily="{StaticResource PanuonIconFont}"
+                        Background="OrangeRed" Foreground="White"
+                        p:ButtonHelper.CornerRadius="15"
                        Content="&#xe98f;" Click="Button_Click_3" />
-                <TextBlock Grid.Column="1" VerticalAlignment="Center" FontSize="20" Text="{Binding Source={StaticResource Locator},Path=Main.DataModel.Processmodel.PartNOID}"/>
-                <Button p:WindowX.IsDragMoveArea="False" Grid.Column="8" Margin="5" p:ButtonHelper.CornerRadius="50" Background="{Binding Source={StaticResource Locator},Path=Main.DataModel.FaraVisionDataModel.Settingmodel.permission,Converter={StaticResource Bool2SolidColor_Converter}}" 
+                <TextBlock Grid.Column="1" VerticalAlignment="Center" FontSize="20" 
+                           Text="{Binding Source={StaticResource Locator},Path=Main.DataModel.Processmodel.PartNOID}"/>
+                <Button p:WindowX.IsDragMoveArea="False" Grid.Column="8" Margin="5" p:ButtonHelper.CornerRadius="50" 
+                        Background="{Binding Source={StaticResource Locator},Path=Main.DataModel.FaraVisionDataModel.Settingmodel.permission,Converter={StaticResource Bool2SolidColor_Converter}}" 
                    Foreground="WhiteSmoke"  Name="permissionbtn" Click="permissionbtn_Click"
                    Height="30" Width="30" FontSize="18"
                    FontFamily="{StaticResource PanuonIconFont}"
-                   Content="{Binding Source={StaticResource Locator},Path=Main.DataModel.FaraVisionDataModel.Settingmodel.permission,Converter={StaticResource permission2lockorunlock_Converter }}" ToolTip="权限"
+                   Content="{Binding Source={StaticResource Locator},Path=Main.DataModel.FaraVisionDataModel.Settingmodel.permission,Converter={StaticResource permission2lockorunlock_Converter }}" 
+                   ToolTip="权限"
                     ></Button>
 
             </Grid>

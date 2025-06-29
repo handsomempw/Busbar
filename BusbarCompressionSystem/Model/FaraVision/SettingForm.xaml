@@ -88,6 +88,7 @@
                         <RowDefinition/>
                         <RowDefinition/>
                         <RowDefinition/>
+                        <RowDefinition/>
                     </Grid.RowDefinitions>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="auto"/>
@@ -108,6 +109,14 @@
                     <TextBox Grid.Row="3" Grid.Column="1"   Margin="2" Text="{Binding Command}" />
                     <TextBox Grid.Row="4" Grid.Column="1"   Margin="2" Text="{Binding ExposureTime}" />
                     <TextBox Grid.Row="5" Grid.Column="1"   Margin="2" Text="{Binding ProductPositionNO}" />
+
+                    <TextBlock Grid.Row="6" Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right">相机:</TextBlock>
+                    <!--<ComboBox Grid.Row="6"  Grid.Column="1" Margin="2"  Text="{Binding CameraID,UpdateSourceTrigger=PropertyChanged}" IsEditable="True"  IsReadOnly="True" 
+                            ItemsSource="{Binding Source={StaticResource Locator},Path=Main.DataModel.FaraVisionDataModel.Processmodel.CameraIDList}"/>-->
+
+                    <ComboBox Grid.Row="6"  Grid.Column="1" Margin="2"  SelectedIndex="{Binding CameraIndex,UpdateSourceTrigger=PropertyChanged}" IsEditable="True"  IsReadOnly="True" 
+                            ItemsSource="{Binding Source={StaticResource Locator},Path=Main.DataModel.FaraVisionDataModel.Processmodel.CameraIDList}"/>
+
 
                 </Grid>
                 <GroupBox Header="二维码识别" Grid.Row="2" p:GroupBoxHelper.HeaderBackground="YellowGreen" BorderBrush="YellowGreen" Margin="0,5"

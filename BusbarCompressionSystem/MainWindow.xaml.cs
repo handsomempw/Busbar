@@ -54,6 +54,18 @@ namespace BusbarCompressionSystem
 
             vml.Main.InitHwindow(Hwindow4.HalconWindow);
 
+            InitFaraVisionCamera();
+        }
+
+
+        public void InitFaraVisionCamera()
+        {
+            vml.Main.DataModel.FaraVisionDataModel.Processmodel.CameraIDList.Add(vml.Main.DataModel.Settingmodel.camedata4.CameraModel.CameraID);
+            vml.Main.DataModel.FaraVisionDataModel.Processmodel.CameraIDList.Add(vml.Main.DataModel.Settingmodel.camedata5.CameraModel.CameraID);
+
+            vml.Main.DataModel.FaraVisionDataModel.Processmodel.CameraList.Add(vml.Main.DataModel.Settingmodel.camedata4);
+            vml.Main.DataModel.FaraVisionDataModel.Processmodel.CameraList.Add(vml.Main.DataModel.Settingmodel.camedata5);
+
         }
 
 
@@ -148,12 +160,12 @@ namespace BusbarCompressionSystem
                 }
                 else if (!r3.Success)
                 {
-                    NoticeBox.Show("耐压工位3参数下发失败","错误",MessageBoxIcon.Error);
+                    NoticeBox.Show("耐压工位3参数下发失败", "错误", MessageBoxIcon.Error);
                 }
 
                 else
                 {
-                    NoticeBox.Show("参数下发完成","成功",MessageBoxIcon.Success,true,5000);
+                    NoticeBox.Show("参数下发完成", "成功", MessageBoxIcon.Success, true, 5000);
                 }
             }).Start();
         }

@@ -25,6 +25,13 @@ namespace BusbarCompressionSystem.Model.FaraVision.Tool
         public byte ProductPositionNO { set; get; } = 0;
 
 
+        //[XmlElement("相机ID")]
+        //public string CameraID { set; get; } = string.Empty;
+
+        [XmlElement("相机序号")]
+        public int CameraIndex { set; get; } = 0;
+
+
 
         [XmlIgnore]
         public QRCode.Reg Reg = new QRCode.Reg();

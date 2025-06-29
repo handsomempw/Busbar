@@ -14,7 +14,7 @@ using System.Xml.Serialization;
 
 namespace BusbarCompressionSystem.FaraVision
 {
-    public class FaraVisionDataModel:ObservableObject
+    public class FaraVisionDataModel : ObservableObject
     {
         #region 数据模型
         [XmlElement("过程参数模型")]
@@ -42,6 +42,12 @@ namespace BusbarCompressionSystem.FaraVision
 
     public class Processmodel : ObservableObject
     {
+
+        public ObservableCollection<string> CameraIDList { get; set; } = new ObservableCollection<string>();
+
+        public ObservableCollection<Camera.DATA> CameraList { set; get; }=new ObservableCollection<Camera.DATA>();
+
+
         [XmlIgnore]
         [XmlElement("二维码累积内容")]
         public string Barcodes { set; get; } = string.Empty;
