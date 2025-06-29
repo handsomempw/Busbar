@@ -41,6 +41,8 @@ namespace BusbarCompressionSystem.Model.FaraVision
         public SettingForm()
         {
             InitializeComponent();
+            vml = this.FindResource("Locator") as ViewModelLocator;
+            t = (ToolModel)DataContext;
         }
 
         private void Button_Click(object sender, RoutedEventArgs e)

@@ -8,8 +8,9 @@
         xmlns:sys="clr-namespace:System;assembly=mscorlib"
         xmlns:faravision="clr-namespace:BusbarCompressionSystem.Model.FaraVision"
         mc:Ignorable="d"
-        Title="SettingForm" Height="450" Width="800"
-            SizeChanged = "WindowX_SizeChanged"
+        WindowStartupLocation="CenterScreen" WindowState="Maximized"
+        Title="工具设置" Height="1020" Width="1200"
+           SizeChanged="WindowX_SizeChanged"
         >
     <p:WindowX.DataContext>
         <Binding Source="{StaticResource Locator}" Path="Main.DataModel .FaraVisionDataModel.Processmodel.tool"/>
