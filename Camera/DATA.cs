@@ -55,13 +55,25 @@ namespace Camera
 
         public void init(string filename)
         {
+            init1(filename);
+            init2();
+        }
+
+        public void init1(string filename)
+        {
             load_setting(filename);
+            
+        }
+        public void init2()
+        {
             CameraModel.camera.init(CameraModel.CameraID);
             CameraModel.camera.bnOpen_Click();
             CameraModel.camera.bnStartGrab_Click();
             CameraModel.camera.Exposure = CameraModel.exposuretime;
             CameraModel.camera.bnGetParam_Click();
         }
+
+
         public void closing(string filename)
         {
             save_setting(filename);

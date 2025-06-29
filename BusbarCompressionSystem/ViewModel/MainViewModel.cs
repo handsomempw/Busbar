@@ -988,11 +988,27 @@ namespace BusbarCompressionSystem.ViewModel
         #region 相机初始化
         public void InitCamera()
         {
-            DataModel.Settingmodel.camedata1.init($"{Environment.CurrentDirectory}\\配置\\相机配置1.xml");
-            DataModel.Settingmodel.camedata2.init($"{Environment.CurrentDirectory}\\配置\\相机配置2.xml");
-            DataModel.Settingmodel.camedata3.init($"{Environment.CurrentDirectory}\\配置\\相机配置3.xml");
-            DataModel.Settingmodel.camedata4.init($"{Environment.CurrentDirectory}\\配置\\相机配置4.xml");
-            DataModel.Settingmodel.camedata5.init($"{Environment.CurrentDirectory}\\配置\\相机配置5.xml");
+            DataModel.Settingmodel.camedata1.init1($"{Environment.CurrentDirectory}\\配置\\相机配置1.xml");
+            DataModel.Settingmodel.camedata2.init1($"{Environment.CurrentDirectory}\\配置\\相机配置2.xml");
+            DataModel.Settingmodel.camedata3.init1($"{Environment.CurrentDirectory}\\配置\\相机配置3.xml");
+            DataModel.Settingmodel.camedata4.init1($"{Environment.CurrentDirectory}\\配置\\相机配置4.xml");
+            DataModel.Settingmodel.camedata5.init1($"{Environment.CurrentDirectory}\\配置\\相机配置5.xml");
+
+            DataModel.Settingmodel.camedata1.CameraModel.camera.ErrorReceived += OnCameraErrorReceive;
+            DataModel.Settingmodel.camedata2.CameraModel.camera.ErrorReceived += OnCameraErrorReceive;
+            DataModel.Settingmodel.camedata3.CameraModel.camera.ErrorReceived += OnCameraErrorReceive;
+            DataModel.Settingmodel.camedata4.CameraModel.camera.ErrorReceived += OnCameraErrorReceive;
+            DataModel.Settingmodel.camedata5.CameraModel.camera.ErrorReceived += OnCameraErrorReceive;
+
+            DataModel.Settingmodel.camedata1.init2();
+            DataModel.Settingmodel.camedata2.init2();
+            DataModel.Settingmodel.camedata3.init2();
+            DataModel.Settingmodel.camedata4.init2();
+            DataModel.Settingmodel.camedata5.init2();
+
+
+
+
             start();
         }
 
@@ -1017,8 +1033,25 @@ namespace BusbarCompressionSystem.ViewModel
             DataModel.Settingmodel.camedata2.CameraModel.camera.ImageReceived += OnCamera2Receive;
             DataModel.Settingmodel.camedata3.CameraModel.camera.ImageReceived += OnCamera3Receive;
             DataModel.Settingmodel.camedata4.CameraModel.camera.ImageReceived += OnCamera4Receive;
-            DataModel.Settingmodel.camedata5.CameraModel.camera.ImageReceived += OnCamera5Receive;
+            DataModel.Settingmodel.camedata5.CameraModel.camera.ImageReceived += OnCamera5Receive;           
+
         }
+
+
+
+
+        private void OnCameraErrorReceive(object sender, EventArgs e)
+        {
+            try
+            {
+                Camera.ErrorEventArgs errorEventArgs = e as Camera.ErrorEventArgs;
+                NoticeBox.Show($"{errorEventArgs.Error}", $"相机错误-{errorEventArgs.CameraID}", MessageBoxIcon.Error,true,10000);
+            }
+            catch (Exception ex) { }
+        }
+
+
+
         private void OnCamera1Receive(object sender, EventArgs e)
         {
 

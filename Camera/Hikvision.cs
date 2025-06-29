@@ -24,6 +24,12 @@ namespace Camera
         public int Height { set; get; }
         public int Width { set; get; }
     }
+    public class ErrorEventArgs : EventArgs
+    {
+        public string CameraID { set; get; }
+        public string Error { set; get; }
+    }
+
 
     public class CamImageFormatConvert
     {
@@ -331,7 +337,16 @@ namespace Camera
                 case MyCamera.MV_E_NETER: errorMsg += " Network error "; break;
             }
 
-            MessageBox.Show(errorMsg, "PROMPT");
+            //MessageBox.Show(errorMsg, "PROMPT");
+            try
+            {
+
+                ErrorReceived.Invoke(this, new ErrorEventArgs()
+                {
+                    CameraID=CameraID,
+                    Error = errorMsg
+                });
+            }catch (Exception ex) {; }
         }
 
         public Boolean IsMonoData(MyCamera.MvGvspPixelType enGvspPixelType)
@@ -1088,6 +1103,7 @@ namespace Camera
         }
 
         public event EventHandler ImageReceived;
+        public event EventHandler ErrorReceived;
 
         #region Command
         [XmlIgnore]
