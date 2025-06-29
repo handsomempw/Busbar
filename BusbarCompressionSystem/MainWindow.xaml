@@ -241,7 +241,7 @@
                             </ListBox.ItemTemplate>
                         </ListBox>
                         <Grid Grid.Row="1" Grid.Column="2" 
-                              IsEnabled="{Binding FaraVisionDataModel.Settingmodel.permission }"
+                              IsEnabled="{Binding DataModel. FaraVisionDataModel.Settingmodel.permission }"
                               DataContext="{Binding Source={StaticResource Locator},Path=Main}"
                               >
                           
