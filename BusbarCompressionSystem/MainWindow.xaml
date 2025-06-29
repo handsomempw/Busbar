@@ -204,7 +204,11 @@
                             <TextBlock Grid.Column="0" VerticalAlignment="Center" Margin="5">工程名称</TextBlock>
                             <ComboBox Grid.Column="1" IsEditable="False" SelectedIndex="{Binding FaraVisionDataModel.Settingmodel .prjselected,UpdateSourceTrigger=PropertyChanged}"  p:ComboBoxHelper.CornerRadius="15,0,0,15" Padding="15,0" ItemsSource="{Binding FaraVisionDataModel.Settingmodel.Prjs}" />
                             <Button Grid.Column="2" x:Name="ChangePrj" p:ButtonHelper.CornerRadius="0,15,15,0" Background="#101010" Foreground="WhiteSmoke"  Click="ChangePrj_Click" >切换工程</Button>
-                            <ListBox Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2" p:ListBoxHelper.CornerRadius="5"
+                        
+
+                        </Grid>
+
+                        <ListBox Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2" p:ListBoxHelper.CornerRadius="5"
                  BorderBrush="#55222222" Background="Gray"
                  p:ListBoxHelper.ItemsSelectedBackground="#55FF0000" 
                  SelectionChanged="ListBox_SelectionChanged"
@@ -212,23 +216,19 @@
                  MouseDoubleClick="ListBox_MouseDoubleClick" Margin="5,0,5,0"  
                  ItemsSource="{Binding FaraVisionDataModel.Processmodel.Tools}" 
                  >
-                                <ListBox.ItemsPanel>
-                                    <ItemsPanelTemplate>
-                                        <StackPanel  Orientation="Horizontal"/>
-                                    </ItemsPanelTemplate>
-                                </ListBox.ItemsPanel>
-                                <ListBox.ItemTemplate>
-                                    <DataTemplate>
-                                        <!--<ctr:Toolcontrol MinHeight="{Binding Source={StaticResource Locator},Path=Main.DataModel.FaraVisionDataModel.Settingmodel.ImageSize}" 
+                            <ListBox.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel  Orientation="Horizontal"/>
+                                </ItemsPanelTemplate>
+                            </ListBox.ItemsPanel>
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <!--<ctr:Toolcontrol MinHeight="{Binding Source={StaticResource Locator},Path=Main.DataModel.FaraVisionDataModel.Settingmodel.ImageSize}" 
                                      MinWidth="{Binding Source={StaticResource Locator},Path=Main.DataModel.FaraVisionDataModel.Settingmodel.ImageSize}" 
                                      DataContext="{Binding}"/>-->
-                                    </DataTemplate>
-                                </ListBox.ItemTemplate>
-                            </ListBox>
-
-
-                        </Grid>
-
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
 
 
                     </Grid>
