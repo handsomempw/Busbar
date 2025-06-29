@@ -1033,24 +1033,18 @@ namespace BusbarCompressionSystem.ViewModel
             DataModel.Settingmodel.camedata2.CameraModel.camera.ImageReceived += OnCamera2Receive;
             DataModel.Settingmodel.camedata3.CameraModel.camera.ImageReceived += OnCamera3Receive;
             DataModel.Settingmodel.camedata4.CameraModel.camera.ImageReceived += OnCamera4Receive;
-            DataModel.Settingmodel.camedata5.CameraModel.camera.ImageReceived += OnCamera5Receive;           
-
+            DataModel.Settingmodel.camedata5.CameraModel.camera.ImageReceived += OnCamera5Receive;
         }
-
-
-
 
         private void OnCameraErrorReceive(object sender, EventArgs e)
         {
             try
             {
                 Camera.ErrorEventArgs errorEventArgs = e as Camera.ErrorEventArgs;
-                NoticeBox.Show($"{errorEventArgs.Error}", $"相机错误-{errorEventArgs.CameraID}", MessageBoxIcon.Error,true,10000);
+                NoticeBox.Show($"{errorEventArgs.Error}", $"相机错误-{errorEventArgs.CameraID}", MessageBoxIcon.Error, true, 10000);
             }
             catch (Exception ex) { }
         }
-
-
 
         private void OnCamera1Receive(object sender, EventArgs e)
         {
@@ -1103,7 +1097,6 @@ namespace BusbarCompressionSystem.ViewModel
 
         private void OnCamera3Receive(object sender, EventArgs e)
         {
-
             try
             {
                 writeLog($"相机->视觉:接收照片", false);
@@ -1117,7 +1110,6 @@ namespace BusbarCompressionSystem.ViewModel
                     DataModel.Settingmodel.camedata3.CameraModel.finished = true;
                     GC.Collect();
                 }));
-
             }
             catch (Exception ex)
             {
