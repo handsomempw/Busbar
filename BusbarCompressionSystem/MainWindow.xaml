@@ -28,11 +28,22 @@
                     <ColumnDefinition />
                     <ColumnDefinition Width="auto"/>
                     <ColumnDefinition Width="auto"/>
+                    <ColumnDefinition Width="auto"/>
+                    <ColumnDefinition Width="auto"/>
+                    <ColumnDefinition Width="auto"/>
+                    <ColumnDefinition Width="auto"/>
                 </Grid.ColumnDefinitions>
                 <TextBlock VerticalAlignment="Center" Margin="30,0" FontSize="20">法拉电子-母排压合系统</TextBlock>
                 <Button Grid.Column="6" p:WindowX.IsDragMoveArea="False" Margin="5" Height="30" Width="30" FontSize="18" FontFamily="{StaticResource PanuonIconFont}"
                        Content="&#xe98f;" Click="Button_Click_3" />
                 <TextBlock Grid.Column="1" VerticalAlignment="Center" FontSize="20" Text="{Binding Source={StaticResource Locator},Path=Main.DataModel.Processmodel.PartNOID}"/>
+                <Button p:WindowX.IsDragMoveArea="False" Grid.Column="8" Margin="5" p:ButtonHelper.CornerRadius="50" Background="{Binding Source={StaticResource Locator},Path=Main.DataModel.FaraVisionDataModel.Settingmodel.permission,Converter={StaticResource Bool2SolidColor_Converter}}" 
+                   Foreground="WhiteSmoke"  Name="permissionbtn" Click="permissionbtn_Click"
+                   Height="30" Width="30" FontSize="18"
+                   FontFamily="{StaticResource PanuonIconFont}"
+                   Content="{Binding Source={StaticResource Locator},Path=Main.DataModel.FaraVisionDataModel.Settingmodel.permission,Converter={StaticResource permission2lockorunlock_Converter }}" ToolTip="权限"
+                    ></Button>
+
             </Grid>
         </DataTemplate>
     </p:WindowXCaption.HeaderTemplate>
@@ -204,7 +215,7 @@
                             <TextBlock Grid.Column="0" VerticalAlignment="Center" Margin="5">工程名称</TextBlock>
                             <ComboBox Grid.Column="1" IsEditable="False" SelectedIndex="{Binding FaraVisionDataModel.Settingmodel .prjselected,UpdateSourceTrigger=PropertyChanged}"  p:ComboBoxHelper.CornerRadius="15,0,0,15" Padding="15,0" ItemsSource="{Binding FaraVisionDataModel.Settingmodel.Prjs}" />
                             <Button Grid.Column="2" x:Name="ChangePrj" p:ButtonHelper.CornerRadius="0,15,15,0" Background="#101010" Foreground="WhiteSmoke"  Click="ChangePrj_Click" >切换工程</Button>
-                        
+
 
                         </Grid>
 
@@ -223,13 +234,168 @@
                             </ListBox.ItemsPanel>
                             <ListBox.ItemTemplate>
                                 <DataTemplate>
-                                    <!--<ctr:Toolcontrol MinHeight="{Binding Source={StaticResource Locator},Path=Main.DataModel.FaraVisionDataModel.Settingmodel.ImageSize}" 
+                                    <ctr:Toolcontrol MinHeight="{Binding Source={StaticResource Locator},Path=Main.DataModel.FaraVisionDataModel.Settingmodel.ImageSize}" 
                                      MinWidth="{Binding Source={StaticResource Locator},Path=Main.DataModel.FaraVisionDataModel.Settingmodel.ImageSize}" 
-                                     DataContext="{Binding}"/>-->
+                                     DataContext="{Binding}"/>
                                 </DataTemplate>
                             </ListBox.ItemTemplate>
                         </ListBox>
+                        <Grid Grid.Row="1" Grid.Column="2" 
+                              IsEnabled="{Binding FaraVisionDataModel.Settingmodel.permission }"
+                              DataContext="{Binding Source={StaticResource Locator},Path=Main}"
+                              >
+                          
+                            <!--<Grid Grid.Row="1" Grid.Column="2" Visibility="{Binding DataModel.Settingmodel.permission ,Converter={StaticResource Bool2Visible_Converter}}" >-->
+                            <Grid.RowDefinitions>
+                                <RowDefinition/>
+                                <RowDefinition/>
+                                <RowDefinition/>
+                            </Grid.RowDefinitions>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition/>
+                                <ColumnDefinition/>
+                            </Grid.ColumnDefinitions>
+                            <Button   Grid.Row="0" Grid.Column="0"   Background="#101010" Foreground="White"  Command="{Binding AddToolCMD}"    p:ButtonHelper.CornerRadius="15,0,0,0">追加</Button>
+                            <Button   Grid.Row="0" Grid.Column="1"   Background="#101010" Foreground="White"  Command="{Binding InsertToolCMD}" >插入</Button>
+                            <Button   Grid.Row="1" Grid.Column="0"   Background="#101010" Foreground="White"  Command="{Binding CopyToolCMD}" Grid.ColumnSpan="2"  >复制</Button>
+                            <Button   Grid.Row="2" Grid.Column="0"   Background="#101010" Foreground="White"  Command="{Binding DeleteToolCMD}" >删除</Button>
+                            <Button   Grid.Row="2" Grid.Column="1"   Background="#101010" Foreground="White"  Command="{Binding ClearToolCMD}"  p:ButtonHelper.CornerRadius="0,0,15,0">清空</Button>
+                        </Grid>
+                        <Grid Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" >
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="auto"/>
+                                <RowDefinition Height="auto"/>
+                                <RowDefinition/>
+                                <RowDefinition Height="auto"/>
+                            </Grid.RowDefinitions>
 
+                            <GroupBox>
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="auto"/>
+                                        <RowDefinition Height="auto"/>
+                                        <RowDefinition Height="auto"/>
+                                        <RowDefinition Height="auto"/>
+                                    </Grid.RowDefinitions>
+
+                                    <WrapPanel>
+                                        <TextBlock Text="{Binding FaraVisionDataModel.Processmodel.tool.Index}"/>
+                                        <TextBlock Text="{Binding FaraVisionDataModel.Processmodel.tool.Name}"/>
+                                    </WrapPanel>
+                                    <Grid Grid.Row="1"   Visibility="{Binding FaraVisionDataModel.Processmodel.tool.TestMode,Converter={StaticResource TestMode2Visibility_Barcode}}">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition/>
+                                            <RowDefinition/>
+                                            <RowDefinition/>
+                                            <RowDefinition/>
+                                            <RowDefinition/>
+                                            <RowDefinition/>
+                                        </Grid.RowDefinitions>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="auto"/>
+                                            <ColumnDefinition/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right" Visibility="{Binding FaraVisionDataModel.Processmodel.tool.TestMode,Converter={StaticResource TestMode2Visibility_Barcode}}">二维码内容:</TextBlock>
+
+                                        <TextBlock Grid.Row="0" Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Center" Text="{Binding FaraVisionDataModel.Processmodel.tool.BarcodeStr}" />
+                                    </Grid>
+
+                                    <Grid Grid.Row="2"  Visibility="{Binding FaraVisionDataModel.Processmodel.tool.TestMode,Converter={StaticResource TestMode2Visibility_ShapeMatch}}">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition/>
+                                            <RowDefinition/>
+                                            <RowDefinition/>
+                                            <RowDefinition/>
+                                            <RowDefinition/>
+                                            <RowDefinition/>
+                                        </Grid.RowDefinitions>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="auto"/>
+                                            <ColumnDefinition/>
+                                            <ColumnDefinition Width="auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right">X坐标:</TextBlock>
+                                        <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right">Y坐标:</TextBlock>
+                                        <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right">X偏移:</TextBlock>
+                                        <TextBlock Grid.Row="3" Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right">Y偏移:</TextBlock>
+                                        <TextBlock Grid.Row="4" Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right">角度:</TextBlock>
+                                        <TextBlock Grid.Row="5" Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right">分值:</TextBlock>
+
+                                        <TextBlock Grid.Row="0" Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Center" Text="{Binding FaraVisionDataModel.Processmodel.tool.ActualX,StringFormat={}{0:F1}}"/>
+                                        <TextBlock Grid.Row="1" Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Center" Text="{Binding FaraVisionDataModel.Processmodel.tool.ActualY,StringFormat={}{0:F1}}"/>
+                                        <TextBlock Grid.Row="2" Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Center" Text="{Binding FaraVisionDataModel.Processmodel.tool.DeltaX,StringFormat={}{0:F4}}"/>
+                                        <TextBlock Grid.Row="3" Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Center" Text="{Binding FaraVisionDataModel.Processmodel.tool.DeltaY,StringFormat={}{0:F4}}"/>
+                                        <TextBlock Grid.Row="4" Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Center" Text="{Binding FaraVisionDataModel.Processmodel.tool.ActualAngle,StringFormat={}{0:F3}}"/>
+                                        <TextBlock Grid.Row="5" Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Center" Text="{Binding FaraVisionDataModel.Processmodel.tool.ActualScore,StringFormat={}{0:F3}}"/>
+
+
+                                        <TextBlock Grid.Row="0" Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Right" Visibility="Collapsed">pixel</TextBlock>
+                                        <TextBlock Grid.Row="1" Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Right" Visibility="Collapsed">pixel</TextBlock>
+                                        <!--<TextBlock Grid.Row="2" Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Right">mm</TextBlock>-->
+                                        <!--<TextBlock Grid.Row="3" Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Right">mm</TextBlock>-->
+
+                                    </Grid>
+                                    <Grid Grid.Row="2"  Visibility="{Binding FaraVisionDataModel.Processmodel.tool.TestMode,Converter={StaticResource TestMode2Visibility_Dimension}}">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition/>
+                                            <RowDefinition/>
+                                            <RowDefinition/>
+                                            <RowDefinition/>
+                                            <RowDefinition/>
+                                        </Grid.RowDefinitions>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="auto"/>
+                                            <ColumnDefinition/>
+                                            <ColumnDefinition Width="auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right">实际面积:</TextBlock>
+
+                                        <TextBlock Grid.Row="0" Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Center" Text="{Binding FaraVisionDataModel.Processmodel.tool.ActualDimension,StringFormat={}{0:F1}}"/>
+
+
+
+
+                                    </Grid>
+
+
+                                </Grid>
+                            </GroupBox>
+                            <GroupBox Header="累积二维码" Grid.Row="1">
+                                <TextBox IsEnabled="False" FontSize="12" TextWrapping="Wrap" MaxWidth="400" MinWidth="300" MinHeight="100"  Text="{Binding FaraVisionDataModel.Processmodel.Barcodes}" />
+
+
+                            </GroupBox>
+                            <DataGrid ItemsSource="{Binding FaraVisionDataModel.Recordmodel.workLog}" AutoGenerateColumns="False" Grid.Row="2" >
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Binding="{Binding}" FontSize="12" />
+                                </DataGrid.Columns>
+                            </DataGrid>
+
+                            <ListBox ItemsSource="{Binding FaraVisionDataModel.Processmodel.SNList}" Grid.Row="3" MinHeight="40" Padding="5" Margin="2">
+
+                            </ListBox>
+                        </Grid>
+
+                        <halcon:HSmartWindowControlWPF Grid.Row="3" Grid.Column="0" Margin="5"  Name="Hwindow4" ></halcon:HSmartWindowControlWPF>
+                        <TextBlock Grid.Row="2" Grid.Column="0"  Text="{Binding FaraVisionDataModel.Processmodel.Status}" 
+                   HorizontalAlignment="Left"
+                   Margin="20,5,5,5"
+                   FontSize="20"
+                   Foreground="{Binding  FaraVisionDataModel.Processmodel.StatusColor }"
+                   
+                   />
+                        <WrapPanel Grid.Row="4" HorizontalAlignment="Center" Grid.ColumnSpan="3" >
+
+                            <TextBlock Margin="10,0" Text="{Binding FaraVisionDataModel.Processmodel.ToolIndex,StringFormat=工具编号:{0}}"/>
+                            <TextBlock Margin="10,0" Text="{Binding FaraVisionDataModel.Processmodel.RCMD,StringFormat=接收:{0}}"/>
+                            <TextBlock Margin="10,0" Text="{Binding FaraVisionDataModel.Processmodel.Trig_IO.IOstatus,StringFormat=触发:{0}}" 
+                       Background="{Binding FaraVisionDataModel.Processmodel.Trig_IO.IOstatusBackGround}" 
+                       Foreground="{Binding FaraVisionDataModel.Processmodel.Trig_IO.IOStatusForeGround}"
+                       Padding="10,2"
+                       />
+                            <Button Name="tooltest" Click="tooltest_Click" Content="照片测试" />
+
+                        </WrapPanel>
 
                     </Grid>
 
@@ -237,7 +403,6 @@
 
                 </Border>
 
-                <halcon:HSmartWindowControlWPF Visibility="Hidden" Grid.Row="1" Grid.Column="0" Margin="5" Grid.ColumnSpan="6" Name="Hwindow4" ></halcon:HSmartWindowControlWPF>
                 <TextBlock Grid.Row="0" Grid.Column="0">批号:</TextBlock>
                 <TextBlock Grid.Row="0" Grid.Column="2">编号:</TextBlock>
 

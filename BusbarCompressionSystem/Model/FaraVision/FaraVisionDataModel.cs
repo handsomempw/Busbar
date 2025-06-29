@@ -14,7 +14,7 @@ using System.Xml.Serialization;
 
 namespace BusbarCompressionSystem.FaraVision
 {
-    public class FaraVisionDataModel
+    public class FaraVisionDataModel:ObservableObject
     {
         #region 数据模型
         [XmlElement("过程参数模型")]

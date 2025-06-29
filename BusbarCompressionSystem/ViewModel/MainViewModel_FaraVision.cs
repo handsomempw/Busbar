@@ -14,11 +14,26 @@ using BusbarCompressionSystem.Model.FaraVision;
 using System.IO;
 using Panuon.WPF.UI;
 using System.Xml.Serialization;
+using GalaSoft.MvvmLight.Command;
+using BusbarCompressionSystem.FaraVision;
 
 namespace BusbarCompressionSystem.ViewModel
 {
     public partial class MainViewModel : ViewModelBase
     {
+
+        public void Initrelaycommand()
+        {
+            DeleteToolCMD = new RelayCommand(DeleteTool);
+            AddToolCMD = new RelayCommand(AddTool);
+            ClearToolCMD = new RelayCommand(ClearTool);
+            CopyToolCMD = new RelayCommand(CopyTool);
+            InsertToolCMD = new RelayCommand(InsertTool);
+
+            NEW_PRJCMD = new RelayCommand(NEW_PRJCMD_process);
+            SAVE_PRJCMD = new RelayCommand(SAVE_PRJ_process);
+        }
+
 
 
         public void InitHwindow(HWindow _HWindow)
@@ -126,7 +141,6 @@ namespace BusbarCompressionSystem.ViewModel
         {
             DataModel.FaraVisionDataModel.Settingmodel.Name = PrjName;
             Load_Prj();
-
         }
 
         public void LoadPrjXmls()
@@ -220,6 +234,7 @@ namespace BusbarCompressionSystem.ViewModel
             //    DataModel.Processmodel.Tools[i].Index = i + 1;
             //}
         }
+
         private ToolModel LoadPrjXml(int index)
         {
             string dir = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}";
@@ -241,6 +256,51 @@ namespace BusbarCompressionSystem.ViewModel
             return null;
         }
 
+        public void SavePrjXmls()
+        {
+            try
+            {
+                #region 删除旧xml文件
+                foreach (string s in Directory.GetFiles($"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}"))
+                {
+                    if (s.ToUpper().EndsWith(".XML"))
+                    {
+                        try
+                        {
+                            File.Delete(s);
+                        }
+                        catch (Exception ex) { continue; }
+                    }
+                }
+                #endregion
+                for (int i = 0; i < DataModel.FaraVisionDataModel.Processmodel.Tools.Count; i++)
+                {
+                    SavePrjXml(DataModel.FaraVisionDataModel.Processmodel.Tools[i], i + 1);
+                }
+            }
+            catch (Exception ex) {; }
+        }
+
+        private void SavePrjXml(ToolModel td, int index)
+        {
+            string filename = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{index}.xml";
+            string dir = Path.GetDirectoryName(filename);
+            if (!Directory.Exists(dir))
+            {
+                Directory.CreateDirectory(dir);
+            }
+
+            using (var stream = File.Open(filename, FileMode.Create))
+            {
+                try
+                {
+                    var serializer = new XmlSerializer(typeof(ToolModel));
+                    serializer.Serialize(stream, td);
+                    return;
+                }
+                catch {; }
+            }
+        }
 
         public bool LoadBitmapSource()
         {
@@ -267,6 +327,624 @@ namespace BusbarCompressionSystem.ViewModel
 
 
         }
+
+        #region Command
+        public RelayCommand DeleteToolCMD { set; get; } = null;
+        public RelayCommand AddToolCMD { set; get; } = null;
+        public RelayCommand ClearToolCMD { set; get; } = null;
+        public RelayCommand CopyToolCMD { set; get; } = null;
+        public RelayCommand InsertToolCMD { set; get; } = null;
+
+
+        public void DeleteTool()
+        {
+            int index = DataModel.FaraVisionDataModel.Processmodel.selectedindex;
+            DeleteTool(index);
+
+        }
+        public void DeleteTool(int index)
+        {
+            try
+            {
+                if (index < 0)
+                {
+
+                    NoticeBox.Show($"请先选择需要删除的工具", "失败", MessageBoxIcon.Error, true, 5000);
+                    return;
+                }
+                if (MessageBoxX.Show("是否确定删除工具？", "提示", System.Windows.MessageBoxButton.YesNo, MessageBoxIcon.Question, DefaultButton.NoCancel) == System.Windows.MessageBoxResult.Yes)
+                {
+
+                    string jpgsrc1 = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{index + 1}.jpg";
+                    string xmlsrc1 = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{index + 1}.xml";
+                    string shmsrc1 = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{index + 1}.shm";
+
+                    DeleteFile(jpgsrc1);
+                    DeleteFile(xmlsrc1);
+                    DeleteFile(shmsrc1);
+
+                    if (index != DataModel.FaraVisionDataModel.Processmodel.Tools.Count - 1)
+                    {
+
+                        for (int i = index; i < DataModel.FaraVisionDataModel.Processmodel.Tools.Count - 1; i++)
+                        {
+                            string jpgsrc = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{i + 1}.jpg";
+                            string xmlsrc = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{i + 1}.xml";
+                            string shmsrc = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{i + 1}.shm";
+
+                            string jpgdst = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{i + 2}.jpg";
+                            string xmldst = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{i + 2}.xml";
+                            string shmdst = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{i + 2}.shm";
+
+                            MoveFile(jpgdst, jpgsrc);
+                            MoveFile(xmldst, xmlsrc);
+                            MoveFile(shmdst, shmsrc);
+
+
+                        }
+                    }
+                    if (index >= 0)
+                    {
+                        DataModel.FaraVisionDataModel.Processmodel.Tools.RemoveAt(index);
+                    }
+                    autoindex();
+                }
+            }
+            catch (Exception ex)
+            {
+            }
+        }
+
+
+        public void DeleteFile(string path)
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+
+
+
+
+        public void AddTool()
+        {
+            int index = DataModel.FaraVisionDataModel.Processmodel.Tools.Count;
+            DataModel.FaraVisionDataModel.Processmodel.selectedindex = 0;
+            InsertTool(index);
+
+        }
+        public void InsertTool(int index, ToolModel tool = null)
+        {
+            try
+            {
+
+                if (DataModel.FaraVisionDataModel.Processmodel.selectedindex < 0)
+                {
+
+                    NoticeBox.Show($"请先选择需要插入工具的位置", "失败", MessageBoxIcon.Error, true, 5000);
+                    return;
+                }
+
+                for (int i = DataModel.FaraVisionDataModel.Processmodel.Tools.Count - 1; i >= index; i--)
+                {
+                    string jpgsrc = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{i + 1}.jpg";
+                    string xmlsrc = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{i + 1}.xml";
+                    string shmsrc = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{i + 1}.shm";
+
+                    string jpgdst = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{i + 2}.jpg";
+                    string xmldst = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{i + 2}.xml";
+                    string shmdst = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{i + 2}.shm";
+
+                    MoveFile(jpgsrc, jpgdst);
+                    MoveFile(xmlsrc, xmldst);
+                    MoveFile(shmsrc, shmdst);
+
+
+                }
+
+                if (tool == null)
+                {
+                    tool = new ToolModel();
+                }
+                DataModel.FaraVisionDataModel.Processmodel.Tools.Insert(index, tool);
+                DataModel.FaraVisionDataModel.Processmodel.selectedindex = index;
+                autoindex();
+
+            }
+            catch (Exception ex) { }
+        }
+
+        public void MoveFile(string srcfile, string dstfilename)
+        {
+            if (File.Exists(srcfile))
+            {
+                File.Move(srcfile, dstfilename);
+            }
+        }
+
+
+        public void ClearTool()
+        {
+            try
+            {
+                if (MessageBoxX.Show("是否确定清空所有工具？", "提示", System.Windows.MessageBoxButton.YesNo, MessageBoxIcon.Question, DefaultButton.NoCancel) == System.Windows.MessageBoxResult.Yes)
+                {
+                    DataModel.FaraVisionDataModel.Processmodel.Tools.Clear();
+                    #region 删除对应目录下面的工具文件
+                    string dir = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}";
+                    var files = Directory.GetFiles(dir);
+                    for (int i = 0; i < files.Length; i++)
+                    {
+                        try
+                        {
+                            //if (files[i].ToUpper().EndsWith(".XML"))
+                            //{
+                            //    File.Delete(files[i]);
+                            //}
+
+                            File.Delete(files[i]);
+                        }
+                        catch (Exception ex) { continue; }
+                        #endregion
+                    }
+                }
+            }
+            catch (Exception ex) {; }
+        }
+        public void CopyTool()
+        {
+            try
+            {
+                if (DataModel.FaraVisionDataModel.Processmodel.selectedindex < 0)
+                {
+
+                    NoticeBox.Show($"请先选择需要复制的工具", "失败", MessageBoxIcon.Error, true, 5000);
+                    return;
+                }
+
+                if (MessageBoxX.Show("是否确定复制选中的工具？", "提示", System.Windows.MessageBoxButton.YesNo, MessageBoxIcon.Question, DefaultButton.NoCancel) == System.Windows.MessageBoxResult.Yes)
+                {
+
+                    CopyTool(DataModel.FaraVisionDataModel.Processmodel.selectedindex + 1, New_Tool_Model(DataModel.FaraVisionDataModel.Processmodel.Tools[DataModel.FaraVisionDataModel.Processmodel.selectedindex]));
+
+
+
+                    autoindex();
+                }
+            }
+            catch (Exception ex) { }
+        }
+        public void CopyTool(int index, ToolModel tool)
+        {
+            try
+            {
+
+                if (DataModel.FaraVisionDataModel.Processmodel.selectedindex < 0)
+                {
+
+                    NoticeBox.Show($"请先选择需要插入工具的位置", "失败", MessageBoxIcon.Error, true, 5000);
+                    return;
+                }
+
+                for (int i = DataModel.FaraVisionDataModel.Processmodel.Tools.Count - 1; i >= index - 1; i--)
+                {
+                    string jpgsrc = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{i + 1}.jpg";
+                    string xmlsrc = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{i + 1}.xml";
+                    string shmsrc = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{i + 1}.shm";
+
+                    string jpgdst = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{i + 2}.jpg";
+                    string xmldst = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{i + 2}.xml";
+                    string shmdst = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{i + 2}.shm";
+
+                    CopyFile(jpgsrc, jpgdst);
+                    CopyFile(xmlsrc, xmldst);
+                    CopyFile(shmsrc, shmdst);
+
+
+                }
+
+                DataModel.FaraVisionDataModel.Processmodel.Tools.Insert(index, tool);
+                DataModel.FaraVisionDataModel.Processmodel.selectedindex = index;
+                autoindex();
+
+            }
+            catch (Exception ex) { }
+        }
+
+        public void CopyFile(string srcfile, string dstfilename)
+        {
+            if (File.Exists(srcfile))
+            {
+                File.Copy(srcfile, dstfilename, true);
+            }
+        }
+
+        public ROI New_ROI(ROI roi)
+        {
+            ROI r = new ROI();
+            r.Row1 = roi.Row1;
+            r.Row2 = roi.Row2;
+            r.Col1 = roi.Col1;
+            r.Col2 = roi.Col2;
+            return r;
+
+        }
+
+        public ToolModel New_Tool_Model(ToolModel tool)
+        {
+            ToolModel t = new ToolModel();
+            t.Index = tool.Index;
+            t.Command = tool.Command;
+            t.Name = tool.Name;
+            //t.DecodeBarcode = tool.DecodeBarcode;
+            t.BarcodeStr = tool.BarcodeStr;
+            t.BarCodeROI = New_ROI(tool.BarCodeROI);
+            //t.PositionDetect = tool.PositionDetect;
+            t.ModelFileName = tool.ModelFileName;
+            t.MinScore = tool.MinScore;
+            t.ActualScore = tool.ActualScore;
+            t.K = tool.K;
+            t.InitX = tool.InitX;
+            t.InitY = tool.InitY;
+            t.ActualX = tool.ActualX;
+            t.ActualY = tool.ActualY;
+            t.ActualAngle = tool.ActualAngle;
+            t.AllowAngleDelta = tool.AllowAngleDelta;
+            t.DeltaX = tool.DeltaX;
+            t.DeltaY = tool.DeltaY;
+            //t.DirectX = tool.DirectX;
+            //t.DirectY = tool.DirectY;
+            //t.InvertXY = tool.InvertXY;
+            t.SendStatus = tool.SendStatus;
+            //t.SendBarcodeData = tool.SendBarcodeData;
+            //t.SendPositionData = tool.SendPositionData;
+            //t.InvertResult = tool.InvertResult;
+            t.Allow_X_Delta = tool.Allow_X_Delta;
+            t.Allow_Y_Delta = tool.Allow_Y_Delta;
+            //t.StatusColor = tool.StatusColor;
+            t.PositionROI = New_ROI(tool.PositionROI);
+
+            t.DimensionROI = New_ROI(tool.DimensionROI);
+            //t.DimensionDetect = tool.DimensionDetect;
+            t.ActualDimension = tool.ActualDimension;
+            t.MinDimension = tool.MinDimension;
+            t.MaxDimension = tool.MaxDimension;
+            t.GrayMode = tool.GrayMode;
+            t.RedChannelEnabled = tool.RedChannelEnabled;
+            t.GreenChannelEnabled = tool.GreenChannelEnabled;
+            t.BlueChannelEnabled = tool.BlueChannelEnabled;
+            t.MinGray = tool.MinGray;
+            t.MaxGray = tool.MaxGray;
+            t.MinRed = tool.MinRed;
+            t.MaxRed = tool.MaxRed;
+            t.MinGreen = tool.MinGreen;
+            t.MaxGreen = tool.MaxGreen;
+            t.MinBlue = tool.MinBlue;
+            t.MaxBlue = tool.MaxBlue;
+            t.MinAreaFilter = tool.MinAreaFilter;
+            t.MaxAreaFilter = tool.MaxAreaFilter;
+            t.BitmapSource = null;
+            t.CurrentBitmapSource = null;
+            t.BitmapSource = tool.BitmapSource.Clone();
+            t.CurrentBitmapSource = tool.CurrentBitmapSource.Clone();
+            t.CurrentBitmapFileName = tool.CurrentBitmapFileName;
+            t.Image = tool.Image.Clone();
+
+
+
+            return t;
+        }
+        public void InsertTool()
+        {
+            int index = DataModel.FaraVisionDataModel.Processmodel.selectedindex;
+            InsertTool(index);
+        }
+
+        public string autoindex()
+        {
+            string error = string.Empty;
+            for (int i = 0; i < DataModel.FaraVisionDataModel.Processmodel.Tools.Count; i++)
+            {
+                int initindex = DataModel.FaraVisionDataModel.Processmodel.Tools[i].Index;
+                int newindex = i + 1;
+
+                if (initindex != newindex)
+                {
+                    DataModel.FaraVisionDataModel.Processmodel.Tools[i].Index = i + 1;
+
+                    string s1 = ChangeToolIndex(initindex, newindex, "xml");
+                    string s2 = ChangeToolIndex(initindex, newindex, "shm");
+                    string s3 = ChangeToolIndex(initindex, newindex, "jpg");
+
+                    if (!string.IsNullOrEmpty(s1))
+                    {
+                        error += $"工具{initindex}修改序号错误:{s1}";
+                    }
+                    if (!string.IsNullOrEmpty(s2))
+                    {
+                        error += $"工具{initindex}修改序号错误:{s2}";
+                    }
+                    if (!string.IsNullOrEmpty(s3))
+                    {
+                        error += $"工具{initindex}修改序号错误:{s3}";
+                    }
+                }
+            }
+            return error;
+        }
+
+        public string ChangeToolIndex(int InitIndex, int NewIndex, string type)
+        {
+            try
+            {
+                string initfilename = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{InitIndex}.{type}";
+                string newfilename = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{NewIndex}.{type}";
+
+                if (File.Exists(initfilename))
+                {
+                    File.Move(initfilename, newfilename);
+                }
+                return string.Empty;
+            }
+            catch (Exception e)
+            {
+                return e.Message;
+            }
+        }
+
+        #endregion
+
+
+        #region 界面menuitem
+        public RelayCommand NEW_PRJCMD { set; get; } = null;
+
+        public void NEW_PRJCMD_process()
+        {
+            try
+            {
+                if (DataModel.FaraVisionDataModel.Settingmodel.permission)
+                {
+                    if (MessageBoxX.Show("是否确定新建工程?", "提示", MessageBoxButton.YesNo, MessageBoxIcon.Question, DefaultButton.NoCancel) == MessageBoxResult.Yes)
+                    {
+                        BusbarCompressionSystem.Model. newPrj newPrj = new BusbarCompressionSystem.Model.newPrj();
+                        if (newPrj.ShowDialog() == true)
+                        {
+                            string prjname = newPrj.Prj_Name;
+                            string prjdir = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{prjname}";
+                            if (Directory.Exists(prjdir))
+                            {
+                                if (MessageBoxX.Show("工程已经存在，是否删除旧工程?", "提示", MessageBoxButton.YesNo, MessageBoxIcon.Question, DefaultButton.NoCancel) == MessageBoxResult.Yes)
+                                {
+                                    Directory.Delete(prjdir, true);
+                                }
+                                else
+                                {
+                                    return;
+                                }
+                            }
+                            else
+                            {
+                                DataModel.FaraVisionDataModel.Settingmodel.Prjs.Add(prjname);
+                                DataModel.FaraVisionDataModel.Settingmodel.prjselected = DataModel.FaraVisionDataModel.Settingmodel.Prjs.Count - 1;
+                            }
+
+                            #region 新建工程
+                            Directory.CreateDirectory(prjdir);
+                            DataModel.FaraVisionDataModel.Settingmodel.Name = prjname;
+                            DataModel.FaraVisionDataModel.Processmodel.Tools.Clear();
+                            //ClearToolStatus();
+                            #endregion
+
+                        }
+                    }
+
+                }
+            }
+            catch (Exception ex)
+            {
+                NoticeBox.Show($"新建工程失败\r\n{ex.Message}", "错误", MessageBoxIcon.Error, true, 5000);
+            }
+        }
+
+
+        public RelayCommand SAVE_PRJCMD { set; get; } = null;
+        public void SAVE_PRJ_process()
+        {
+            //SaveAPPXml();
+            SaveProcessmodel();
+            SaveSettingModel();
+            SavePrjXmls();
+            NoticeBox.Show($"工程保存完成", "成功", MessageBoxIcon.Success, true, 5000);
+
+        }
+
+        #endregion
+
+
+
+        #region 数据保存加载
+
+        #region 过程数据
+        public void Faravision_SaveProcessmodel()
+        {
+
+            string filename = $"{Environment.CurrentDirectory}\\配置\\过程数据.xml";
+            string dir = Path.GetDirectoryName(filename);
+            if (!Directory.Exists(dir))
+            {
+                Directory.CreateDirectory(dir);
+            }
+
+            using (var stream = File.Open(filename, FileMode.Create))
+            {
+                var serializer = new XmlSerializer(typeof(Processmodel));
+                serializer.Serialize(stream, DataModel.Processmodel);
+            }
+        }
+        public void Faravision_LoadProcessmodel()
+        {
+            try
+            {
+                string filename = $"{Environment.CurrentDirectory}\\配置\\过程数据.xml";
+                string dir = Path.GetDirectoryName(filename);
+                if (!Directory.Exists(dir))
+                {
+                    Directory.CreateDirectory(dir);
+                }
+                if (File.Exists(filename))
+                {
+                    using (var stream = File.OpenRead(filename))
+                    {
+                        var serializer = new XmlSerializer(typeof(Processmodel));
+                        DataModel.FaraVisionDataModel.Processmodel = serializer.Deserialize(stream) as Processmodel;
+                    }
+                }
+                else
+                {
+                    DataModel.FaraVisionDataModel.Processmodel = new Processmodel();
+                }
+            }
+            catch (Exception ex)
+            {
+                DataModel.FaraVisionDataModel.Processmodel = new Processmodel();
+
+            }
+        }
+        #endregion
+
+        #region 配置数据
+        public void Faravision_SaveSettingModel()
+        {
+
+            string filename = $"{Environment.CurrentDirectory}\\配置\\视觉配置数据.xml";
+            string dir = Path.GetDirectoryName(filename);
+            if (!Directory.Exists(dir))
+            {
+                Directory.CreateDirectory(dir);
+            }
+
+            using (var stream = File.Open(filename, FileMode.Create))
+            {
+                var serializer = new XmlSerializer(typeof(SettingModel));
+                serializer.Serialize(stream, DataModel.FaraVisionDataModel.Settingmodel);
+            }
+        }
+        public void Faravision_LoadSettingModel()
+        {
+            try
+            {
+                string filename = $"{Environment.CurrentDirectory}\\配置\\视觉配置数据.xml";
+                string dir = Path.GetDirectoryName(filename);
+                if (!Directory.Exists(dir))
+                {
+                    Directory.CreateDirectory(dir);
+                }
+                if (File.Exists(filename))
+                {
+                    using (var stream = File.OpenRead(filename))
+                    {
+                        var serializer = new XmlSerializer(typeof(SettingModel));
+                        DataModel.FaraVisionDataModel.Settingmodel = serializer.Deserialize(stream) as SettingModel;
+                    }
+                }
+                else
+                {
+                    DataModel.FaraVisionDataModel.Settingmodel = new SettingModel();
+                }
+            }
+            catch (Exception ex)
+            {
+                DataModel.FaraVisionDataModel.Settingmodel = new SettingModel();
+
+                MessageBox.Show($"配置数据.xml加载失败,软件已重置配置，请进入配置文件按需求修改,再重新打开软件:\r\n{ex.Message}");
+
+            }
+        }
+        #endregion
+
+        #region 日志数据
+        public void Faravision_SaveRecordModel()
+        {
+            string filename = $"{Environment.CurrentDirectory}\\配置\\视觉日志数据.xml";
+            string dir = Path.GetDirectoryName(filename);
+            if (!Directory.Exists(dir))
+            {
+                Directory.CreateDirectory(dir);
+            }
+            using (var stream = File.Open(filename, FileMode.Create))
+            {
+                var serializer = new XmlSerializer(typeof(RecordModel));
+                serializer.Serialize(stream, DataModel.FaraVisionDataModel.Recordmodel);
+            }
+        }
+        public void Faravision_LoadRecordModel()
+        {
+            try
+            {
+                string filename = $"{Environment.CurrentDirectory}\\配置\\视觉日志数据.xml";
+                string dir = Path.GetDirectoryName(filename);
+                if (!Directory.Exists(dir))
+                {
+                    Directory.CreateDirectory(dir);
+                }
+                if (File.Exists(filename))
+                {
+                    using (var stream = File.OpenRead(filename))
+                    {
+                        var serializer = new XmlSerializer(typeof(RecordModel));
+                        DataModel.FaraVisionDataModel.Recordmodel = serializer.Deserialize(stream) as RecordModel;
+                    }
+                }
+                else
+                {
+                    DataModel.FaraVisionDataModel.Recordmodel = new RecordModel();
+                }
+            }
+            catch (Exception ex)
+            {
+                DataModel.FaraVisionDataModel.Recordmodel = new RecordModel();
+                //MessageBox.Show($"日志数据.xml加载失败,软件已重置配置，请进入配置文件按需求修改,再重新打开软件:\r\n{ex.Message}");
+
+            }
+        }
+        #endregion
+        #region 配方保存加载
+
+       
+
+
+        public bool Faravision_LoadBitmapSource()
+        {
+
+            try
+            {
+                string jpgfilename = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{DataModel.FaraVisionDataModel.Processmodel.selectedindex + 1}.jpg";
+                using (Bitmap bmp = (Bitmap)Bitmap.FromFile(jpgfilename))
+                {
+                    BitmapSource bs = Imaging.CreateBitmapSourceFromHBitmap(bmp.GetHbitmap(), IntPtr.Zero, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
+                    DataModel.FaraVisionDataModel.Processmodel.ShowBitmapSource = null;
+                    DataModel.FaraVisionDataModel.Processmodel.ShowBitmapSource = bs;
+
+                }
+                GC.Collect();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                return false;
+            }
+
+            GC.Collect();
+
+
+        }
+
+
+        #endregion
+        #endregion
+
+
 
         #region 面积计算
 

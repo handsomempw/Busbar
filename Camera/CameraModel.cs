@@ -23,7 +23,6 @@ namespace Camera
         [XmlIgnore]
         [XmlElement("相机参数")]
         public Hikvision camera { set; get; } = new Hikvision();
-
         [XmlElement("相机序号")]
         //public string CameraID { set; get; } = "相机序号";
         public string CameraID { set; get; } = "00K09413100";

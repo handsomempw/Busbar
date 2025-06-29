@@ -2,6 +2,7 @@
 using BusbarCompressionSystem.Model.FaraVision;
 using BusbarCompressionSystem.ViewModel;
 using HalconDotNet;
+using Microsoft.Win32;
 using Panuon.WPF.UI;
 using SQLITEDATABASE;
 using System;
@@ -39,12 +40,20 @@ namespace BusbarCompressionSystem
             vml.Main.LoadSettingModel();
             vml.Main.LoadRecordModel();
             vml.Main.LoadProcessmodel();
+
+            vml.Main.Faravision_LoadSettingModel();
+            vml.Main.Load_Prj();
+
+
             inittvparameter();
             vml.Main.InitAt9620();
             vml.Main.PLC_Start();
             vml.Main.InitCamera();
             InitHwindow();
             vml.Main.InitRobotServer();
+
+            vml.Main.InitHwindow(Hwindow4.HalconWindow);
+
         }
 
 
@@ -63,7 +72,13 @@ namespace BusbarCompressionSystem
                 vml.Main.SaveSettingModel();
                 vml.Main.SaveRecordModel();
                 vml.Main.SaveProcessmodel();
+
+                vml.Main.Faravision_SaveSettingModel();
+
+                vml.Main.SavePrjXmls();
+
                 vml.Main.CloseCamera();
+
                 Environment.Exit(0);
             }
             else
@@ -226,6 +241,51 @@ namespace BusbarCompressionSystem
                 NoticeBox.Show($"工程加载错误:{ex.ToString()}", "错误", MessageBoxIcon.Error, true, 5000);
             }
         }
+
+
+        private void permissionbtn_Click(object sender, RoutedEventArgs e)
+        {
+            if (vml.Main.DataModel.FaraVisionDataModel.Settingmodel.permission)
+            {
+                vml.Main.DataModel.FaraVisionDataModel.Settingmodel.permission = false;
+                return;
+            }
+            InputPassword ip = new InputPassword("faracheck");
+            if (ip.ShowDialog() == true)
+            {
+                vml.Main.DataModel.FaraVisionDataModel.Settingmodel.permission = true;
+            }
+        }
+
+
+        private void tooltest_Click(object sender, RoutedEventArgs e)
+        {
+
+            try
+            {
+                OpenFileDialog ofd = new OpenFileDialog();
+                ofd.Filter = "*.jpg|*.jpg";
+                if (ofd.ShowDialog() == true)
+                {
+                    HTuple W = new HTuple(), H = new HTuple();
+
+                    HObject image;
+                    HOperatorSet.GenEmptyObj(out image);
+                    HOperatorSet.ReadImage(out image, ofd.FileName);
+                    HOperatorSet.GetImageSize(image, out W, out H);
+                    vml.Main.DataModel.FaraVisionDataModel.Processmodel.ToolIndex = vml.Main.DataModel.FaraVisionDataModel.Processmodel.selectedindex;
+                    vml.Main.DataModel.FaraVisionDataModel.Processmodel.RCMD = vml.Main.DataModel.FaraVisionDataModel.Processmodel.Tools[vml.Main.DataModel.FaraVisionDataModel.Processmodel.selectedindex].Command;
+                    //vml.Main.OnReceiveProcess(image, (int)H, (int)W);
+                    vml.Main.OnReceiveProcessAOI(image, (int)H, (int)W);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"发生错误，请先选择需要测试的工具再选择测试照片:\r\n{ex.ToString()}");
+                ;
+            }
+        }
+
 
 
         #endregion

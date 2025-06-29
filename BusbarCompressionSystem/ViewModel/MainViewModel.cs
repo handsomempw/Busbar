@@ -19,6 +19,12 @@ using TcpServerHelper;
 using Panuon.WPF.UI;
 using BusbarCompressionSystem.Model.Record;
 using SQLITEDATABASE;
+using BusbarCompressionSystem.Model.FaraVision.Tool.QRCode;
+using BusbarCompressionSystem.Model.FaraVision.Tool;
+using BusbarCompressionSystem.Model.FaraVision;
+using PositionDetect;
+using System.Drawing;
+using System.Linq;
 
 namespace BusbarCompressionSystem.ViewModel
 {
@@ -49,6 +55,8 @@ namespace BusbarCompressionSystem.ViewModel
             ////{
             ////    // Code runs "for real"
             ////}
+            ///
+            Initrelaycommand();
         }
 
         public DataModel DataModel { get; set; } = new DataModel();
@@ -1194,6 +1202,493 @@ namespace BusbarCompressionSystem.ViewModel
             #endregion
 
         }
+
+        public void OnReceiveProcessAOI(HObject Image, int H, int W)
+        {
+
+
+            try
+            {
+
+                #region 图片接收
+
+                //Image
+
+
+                HOperatorSet.CountChannels(Image, out var channels);
+
+                if (channels == 1)
+                {
+                    HOperatorSet.Compose3(Image, Image, Image, out var multiChannelImage);
+                    Image.Dispose();
+                    Image = multiChannelImage;
+                }
+
+
+
+                HWindow hwindow = DataModel.FaraVisionDataModel.Settingmodel.HWindow;
+                hwindow.ClearWindow();
+                //hwindow.SetPart(0, 0, H - 1, W - 1);
+                hwindow.DispObj(Image);
+                for (int i = 0; i < DataModel.FaraVisionDataModel.Processmodel.Tools.Count; i++)
+                {
+                    if (DataModel.FaraVisionDataModel.Processmodel.Tools[i].Command == DataModel.FaraVisionDataModel.Processmodel.RCMD)
+                    {
+                        Stopwatch stopwatch = new Stopwatch();
+                        stopwatch.Start();
+
+                        if (i == 0)
+                        {
+                            DataModel.FaraVisionDataModel.Processmodel.Status = ToolStatus.识别中;
+                        }
+
+                        DataModel.FaraVisionDataModel.Processmodel.ToolIndex = i + 1;
+
+                        ToolModel tool = DataModel.FaraVisionDataModel.Processmodel.Tools[i];
+
+
+                        Bitmap bmp;
+                        try
+                        {
+                            var dst = GetReducedImage(DataModel.FaraVisionDataModel.Settingmodel.ImageSize, DataModel.FaraVisionDataModel.Settingmodel.ImageSize, Image);
+                            Hobject2Bitmap.HobjectToBitmap24(dst, out bmp);
+                            tool.CurrentBitmapSource = null;
+                            tool.CurrentBitmapSource = Imaging.CreateBitmapSourceFromHBitmap(bmp.GetHbitmap(), IntPtr.Zero, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
+                            bmp?.Dispose();
+                            dst?.Dispose();
+                        }
+                        catch (Exception e)
+                        {; }
+
+
+
+                        //Bitmap bmp;
+                        //try
+                        //{
+                        //    Hobject2Bitmap.HobjectToBitmap24(Image, out bmp);
+
+                        //    using (Bitmap bmp1 = GetReducedImage(DataModel.Settingmodel.ImageSize, DataModel.Settingmodel.ImageSize, bmp))
+                        //    {
+                        //        tool.CurrentBitmapSource = null;
+                        //        tool.CurrentBitmapSource = Imaging.CreateBitmapSourceFromHBitmap(bmp1.GetHbitmap(), IntPtr.Zero, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
+                        //    }
+                        //    bmp.Dispose();
+                        //}
+                        //catch (Exception ex)
+                        //{
+
+                        //}
+
+
+                        ClearTool(tool);
+                        tool.ToolStatus = ToolStatus.识别中;
+                        try
+                        {
+                            if (tool.TestMode == TestModes.二维码)
+                            {
+                                #region 读取二维码
+                                List<Reg.Barcode> barcodelist = null;
+
+                                try
+                                {
+                                    barcodelist = tool.Reg.ReadBarcode(Image, 1, tool.BarCodeROI.Row1, tool.BarCodeROI.Col1, tool.BarCodeROI.Row2, tool.BarCodeROI.Col2, true);
+                                    if (barcodelist.Count > 0)
+                                    {
+                                        tool.BarcodeStr = barcodelist[0].codestr;
+                                        //  NoticeBox.Show(barcodelist[0].codestr, "二维码读取成功", MessageBoxIcon.Success, true, 5000);
+                                        //if (tool.SendBarcodeData)
+                                        //{
+                                        //    SendMsgSoft(tool.BarcodeStr);
+                                        //}
+                                        writeLog($"二维码读取成功:{barcodelist[0].codestr}");
+
+                                        if (tool.MPMode)
+                                        {
+                                            DataModel.FaraVisionDataModel.Processmodel.Barcodes += barcodelist[0].codestr + ";";
+                                        }
+                                        if (tool.SendBarcode)
+                                        {
+                                            tool.ToolStatus = ToolStatus.等待中;
+
+                                            if (DataModel.FaraVisionDataModel.Settingmodel.TcpClientH.Connect(DataModel.FaraVisionDataModel.Settingmodel.BarcodeReporter.RemoteIP, DataModel.FaraVisionDataModel.Settingmodel.BarcodeReporter.RemotePort))
+                                            {
+
+                                                DataModel.FaraVisionDataModel.Settingmodel.TcpClientH.SendMsg($"{DataModel.FaraVisionDataModel.Processmodel.Scannerstr};{DataModel.FaraVisionDataModel.Processmodel.Barcodes}{tool.FinishedCode}\r\n");
+                                                string s = DataModel.FaraVisionDataModel.Settingmodel.TcpClientH.ReceiveMsg(10000);
+                                                s = s.Replace("\r", "").Replace("\n", "");
+                                                if (!string.IsNullOrEmpty(s))
+                                                {
+                                                    App.Current.Dispatcher.BeginInvoke(new Action(() =>
+                                                    {
+                                                        DataModel.FaraVisionDataModel.Processmodel.SNList.Add(s);
+                                                    }));
+                                                    tool.ToolStatus = ToolStatus.OK;
+                                                    writeLog($"扫码汇报软件返回成品编号:{s}");
+                                                    DataModel.FaraVisionDataModel.Processmodel.Barcodes = string.Empty;
+
+
+                                                }
+                                                else
+                                                {
+                                                    tool.ToolStatus = ToolStatus.NG2;
+                                                    writeLog($"扫码汇报软件返回为空");
+
+                                                }
+
+                                                DataModel.FaraVisionDataModel.Settingmodel.TcpClientH.DisConnect();
+                                            }
+                                            else
+                                            {
+                                                tool.ToolStatus = ToolStatus.NG2;
+                                                writeLog($"连接扫码汇报软件NG2");
+                                            }
+
+
+                                        }
+                                        else
+                                        {
+                                            tool.ToolStatus = ToolStatus.OK;
+                                        }
+
+
+
+                                        //#region 发送二维码给上位机设备
+                                        //DataModel.Settingmodel.TcpServerSoft.SendMessage(tool.BarcodeStr);
+                                        //Thread.Sleep(tool.Delaytimes);
+                                        //string s = DataModel.Settingmodel.TcpServerSoft.GetMsg();
+
+                                        //writeLog($"二维码校验返回错误:{s}");
+
+                                        //if (string.IsNullOrEmpty(s) || s != "OK")
+                                        //{
+
+                                        //}
+                                        //else
+                                        //{
+
+                                        //}
+
+                                        //if (!string.IsNullOrEmpty(tool.FinishedCode))
+                                        //{
+                                        //    DataModel.Settingmodel.TcpServerSoft.SendMessage(tool.FinishedCode);
+                                        //    Thread.Sleep(tool.Delaytimes);
+                                        //    string sn = DataModel.Settingmodel.TcpServerSoft.GetMsg();
+                                        //    if (!string.IsNullOrEmpty(sn))
+                                        //    {
+                                        //        App.Current.Dispatcher.BeginInvoke(new Action(() =>
+                                        //        {
+                                        //            DataModel.Processmodel.SNList.Add(sn);
+                                        //        }));
+                                        //    }
+                                        //}
+
+                                        //#endregion
+
+
+                                    }
+                                    else
+                                    {
+                                        tool.BarcodeStr = string.Empty;
+                                        writeLog($"二维码读取失败:{barcodelist[0].codestr}");
+                                        tool.ToolStatus = ToolStatus.NG;
+
+                                    }
+                                }
+                                catch
+                                {
+                                    ;
+                                }
+
+                                #endregion
+                            }
+                            else if (tool.TestMode == TestModes.模板匹配)
+                            {
+                                #region 读取位置
+                                /// NG  未安装好  NG2:缺少配件  OK:合格              
+
+                                try
+                                {
+                                    ShapeMatch.Result shapmatchresult = new ShapeMatch.Result();
+                                    tool.ShapeMatch.BasicData.matchcenter_X = tool.InitX;
+                                    tool.ShapeMatch.BasicData.matchcenter_Y = tool.InitY;
+                                    tool.ShapeMatch.BasicData.matchcenterX_Basic = tool.InitX;
+                                    tool.ShapeMatch.BasicData.matchcenterY_Basic = tool.InitY;
+                                    tool.ShapeMatch.BasicData.productcenter_X = tool.InitX;
+                                    tool.ShapeMatch.BasicData.productcenter_Y = tool.InitY;
+                                    //shapmatchresult = tool.ShapeMatch.Match(Image, 1, tool.PositionROI.Row1, tool.PositionROI.Col1, tool.PositionROI.Row2, tool.PositionROI.Col2, -180, 180, false);
+                                    shapmatchresult = tool.ShapeMatch.Match(Image, 1, tool.PositionROI.Row1, tool.PositionROI.Col1, tool.PositionROI.Row2, tool.PositionROI.Col2, (int)-tool.AllowAngleDelta, (int)tool.AllowAngleDelta, false);
+                                    var Result_Data = tool.ShapeMatch.Analysis_Result(shapmatchresult);
+                                    if (Result_Data != null)
+                                    {
+                                        tool.ActualX = Result_Data.X_actual;
+                                        tool.ActualY = Result_Data.Y_actual;
+                                        tool.ActualAngle = (Result_Data.angle / Math.PI * 180.0);
+                                        tool.ActualScore = Result_Data.score;
+                                        tool.DeltaX = Result_Data.deltaX_actual * tool.K / 1000;
+                                        tool.DeltaY = Result_Data.deltaY_actual * tool.K / 1000;
+
+
+                                        if (tool.ActualScore >= tool.MinScore)
+                                        {
+                                            if (Math.Abs(tool.DeltaX) < tool.Allow_X_Delta &&
+                                                Math.Abs(tool.DeltaY) < tool.Allow_Y_Delta &&
+                                                Math.Abs(tool.ActualAngle) < tool.AllowAngleDelta
+                                                )
+                                            {
+                                                //if (tool.SendPositionData)
+                                                //{
+                                                //    SendMsgRobot($"{sendstr},");
+                                                //}
+                                                tool.ToolStatus = ToolStatus.OK;
+                                            }
+                                            else
+                                            {
+                                                tool.ToolStatus = ToolStatus.NG;
+
+                                            }
+
+                                        }
+                                        else
+                                        {
+                                            tool.ToolStatus = ToolStatus.NG2;
+                                        }
+
+                                    }
+                                    else
+                                    {
+                                        tool.ToolStatus = ToolStatus.NG2;
+                                    }
+                                }
+                                catch
+                                {
+                                    ;
+                                }
+
+
+                                #endregion
+                            }
+                            else if (tool.TestMode == TestModes.面积)
+                            {
+                                #region 读取面积
+
+                                int Areaint = CoculateDimension(Image, tool, hwindow, false);
+                                tool.ActualDimension = Areaint;
+
+                                if (Areaint >= tool.MinDimension && Areaint <= tool.MaxDimension)
+                                {
+                                    tool.ToolStatus = ToolStatus.OK;
+                                }
+                                else
+                                {
+                                    tool.ToolStatus = ToolStatus.NG;
+                                }
+
+                                #endregion
+                            }
+                        }
+                        catch {; }
+
+                        writeLog($"视觉->视觉:计算完成", false);
+                        string s1 = $"{DataModel.FaraVisionDataModel.Processmodel.Tools[i].Name}:识别耗时:{stopwatch.ElapsedMilliseconds}ms";
+                        Save_record(s1);
+                        stopwatch.Restart();
+
+                        #region 保存图片
+                        try
+                        {
+                            if (tool.ToolStatus == ToolStatus.OK)
+                            {
+                                if (DataModel.Settingmodel.ImageSaveSetting.SaveOK)
+                                {
+
+                                    string savefilename = $"{DataModel.FaraVisionDataModel.Settingmodel.ImageSaveSetting.ImageSaveDir}\\{DateTime.Now.ToString("yyyyMMdd")}\\OK\\{DataModel.FaraVisionDataModel.Processmodel.BarcodeStr}-{tool.Index.ToString("00")}-{tool.Name}-{tool.ToolStatus}-{DateTime.Now.ToString("yyyyMMddHHmmssFFF")}.jpg";
+                                    try
+                                    {
+                                        savefilename = $"{DataModel.FaraVisionDataModel.Settingmodel.ImageSaveSetting.ImageSaveDir}\\{DateTime.Now.ToString("yyyyMMdd")}\\OK\\{DataModel.FaraVisionDataModel.Processmodel.SNList[DataModel.FaraVisionDataModel.Processmodel.Tools[i].ProductPositionNO]}-{tool.Index.ToString("00")}-{tool.Name}-{tool.ToolStatus}-{DateTime.Now.ToString("yyyyMMddHHmmssFFF")}.jpg";
+                                    }
+                                    catch {; }
+
+                                    string dir = Path.GetDirectoryName(savefilename);
+                                    if (!Directory.Exists(dir))
+                                    { Directory.CreateDirectory(dir); }
+                                    HOperatorSet.WriteImage(Image, "jpg", 0, savefilename);
+                                }
+                            }
+                            else
+                            {
+                                if (DataModel.Settingmodel.ImageSaveSetting.SaveNG)
+                                {
+                                    string savefilename = $"{DataModel.FaraVisionDataModel.Settingmodel.ImageSaveSetting.ImageSaveDir}\\{DateTime.Now.ToString("yyyyMMdd")}\\NG\\{DataModel.FaraVisionDataModel.Processmodel.BarcodeStr}-{tool.Index.ToString("00")}-{tool.Name}-{tool.ToolStatus}-{DateTime.Now.ToString("yyyyMMddHHmmssFFF")}.jpg";
+                                    try
+                                    {
+                                        savefilename = $"{DataModel.FaraVisionDataModel.Settingmodel.ImageSaveSetting.ImageSaveDir}\\{DateTime.Now.ToString("yyyyMMdd")}\\NG\\{DataModel.FaraVisionDataModel.Processmodel.SNList[DataModel.FaraVisionDataModel.Processmodel.Tools[i].ProductPositionNO]}-{tool.Index.ToString("00")}-{tool.Name}-{tool.ToolStatus}-{DateTime.Now.ToString("yyyyMMddHHmmssFFF")}.jpg";
+                                    }
+                                    catch {; }
+                                    string dir = Path.GetDirectoryName(savefilename);
+                                    if (!Directory.Exists(dir))
+                                    { Directory.CreateDirectory(dir); }
+                                    HOperatorSet.WriteImage(Image, "jpg", 0, savefilename);
+
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            writeLog($"视觉->保存照片:保存失败：{ex.ToString()}", false);
+                        }
+
+                        #endregion
+
+                        if (tool.SendStatus)
+                        {
+
+                            int status = -1;
+
+                            var r = (from ToolModel in DataModel.FaraVisionDataModel.Processmodel.Tools
+                                     where ToolModel.Command == DataModel.FaraVisionDataModel.Processmodel.RCMD
+                                     select ToolModel);
+                            var wait = (from ToolModel in r
+                                        where (ToolModel.ToolStatus == ToolStatus.等待中 || ToolModel.ToolStatus == ToolStatus.识别中)
+                                        select ToolModel);
+
+                            if (wait.Count() == 0)
+                            {
+                                var ok = (from ToolModel in r
+                                          where (ToolModel.ToolStatus == ToolStatus.OK)
+                                          select ToolModel);
+
+                                if (ok.Count() == r.Count())
+                                {
+                                    status = 0;
+                                }
+                                else
+                                {
+                                    var NG2 = (from ToolModel in r
+                                               where (ToolModel.ToolStatus == ToolStatus.NG2)
+                                               select ToolModel);
+                                    if (NG2.Count() > 0)
+                                    {
+                                        status = 2;
+                                    }
+                                    else
+                                    {
+                                        status = 1;
+                                    }
+
+                                }
+                            }
+
+                            switch (status)
+                            {
+
+                                case 0:
+                                    {
+                                        SendMsgRobot(tool.OKCMD.Trim());
+                                        break;
+                                    }
+                                case 1:
+                                    {
+                                        SendMsgRobot(tool.NG1CMD.Trim());
+                                        break;
+                                    }
+                                case 2:
+                                    {
+                                        SendMsgRobot(tool.NG2CMD.Trim());
+                                        break;
+                                    }
+                                default:
+                                    {
+                                        break;
+                                    }
+                            }
+                        }
+
+
+                        if (i == DataModel.FaraVisionDataModel.Processmodel.Tools.Count - 1)
+                        {
+                            int status = -1;
+                            int c = DataModel.FaraVisionDataModel.Processmodel.Tools.Count();
+
+
+                            var ok = (from ToolModel in DataModel.FaraVisionDataModel.Processmodel.Tools
+                                      where (ToolModel.ToolStatus == ToolStatus.OK)
+                                      select ToolModel);
+                            var NG1 = (from ToolModel in DataModel.FaraVisionDataModel.Processmodel.Tools
+                                       where (ToolModel.ToolStatus == ToolStatus.NG)
+                                       select ToolModel);
+                            var NG2 = (from ToolModel in DataModel.FaraVisionDataModel.Processmodel.Tools
+                                       where (ToolModel.ToolStatus == ToolStatus.NG2)
+                                       select ToolModel);
+                            var wait = (from ToolModel in DataModel.FaraVisionDataModel.Processmodel.Tools
+                                        where (ToolModel.ToolStatus == ToolStatus.等待中 || ToolModel.ToolStatus == ToolStatus.识别中)
+                                        select ToolModel);
+
+                            if (ok.Count() == c)
+                            {
+                                status = 0;
+                            }
+                            else if (NG2.Count() > 0)
+                            {
+                                status = 2;
+                            }
+                            else
+                            {
+                                status = 1;
+                            }
+
+                            if (status == 0)
+                            {
+                                DataModel.FaraVisionDataModel.Processmodel.Status = ToolStatus.OK;
+                                PLC_write((UInt16)1);
+                            }
+                            else if (status == 0)
+                            {
+                                DataModel.FaraVisionDataModel.Processmodel.Status = ToolStatus.NG2;
+                                PLC_write((UInt16)3);
+                            }
+                            else
+                            {
+                                DataModel.FaraVisionDataModel.Processmodel.Status = ToolStatus.NG;
+                                PLC_write((UInt16)2);
+                            }
+
+                        }
+
+                        writeLog($"视觉->视觉:保存完成", false);
+
+                        string s2 = $"{DataModel.FaraVisionDataModel.Processmodel.Tools[i].Name}:保存图片发送结果耗时:{stopwatch.ElapsedMilliseconds}ms";
+                        Save_record(s2);
+
+                    }
+                }
+                #endregion
+
+            }
+            catch (Exception ex) {; }
+
+        }
+        public void ClearTools()
+        {
+            for (int i = 0; i < DataModel.FaraVisionDataModel.Processmodel.Tools.Count; i++)
+            {
+                ClearTool(DataModel.FaraVisionDataModel.Processmodel.Tools[i]);
+            }
+        }
+
+        public void ClearTool(ToolModel tool)
+        {
+            tool.BarcodeStr = string.Empty;
+            tool.DeltaX = 0;
+            tool.DeltaY = 0;
+            tool.ActualScore = 0;
+            tool.ActualX = 0;
+            tool.ActualY = 0;
+            tool.ActualAngle = 0;
+            tool.ActualDimension = 0;
+            tool.ToolStatus = ToolStatus.等待中;
+
+        }
+
         #endregion
 
         #region 外观检测
@@ -1271,6 +1766,25 @@ namespace BusbarCompressionSystem.ViewModel
                 }
             }
             catch (Exception ex) {; }
+        }
+
+        public void Save_record(string info)
+        {
+            if (DataModel.FaraVisionDataModel.Settingmodel.SaveProcessData)
+            {
+                DateTime dt = DateTime.Now;
+                string filename = $"{Environment.CurrentDirectory}\\识别过程日志\\{dt.ToString("yyyy-MM-dd")}\\{dt.ToString("yyyyMMddHH")}.txt";
+                string dir = Path.GetDirectoryName(filename);
+                if (!Directory.Exists(dir))
+                {
+                    Directory.CreateDirectory(dir);
+                }
+
+                using (StreamWriter sw = new StreamWriter(filename, true))
+                {
+                    sw.WriteLine($"[{dt.ToString("yyyy-MM-dd HH:mm:ss.FFF")}]{info}");
+                }
+            }
         }
 
         private void RobotTcpServer_MessageReceived(TCPServerH sender, object e)
@@ -1420,27 +1934,7 @@ namespace BusbarCompressionSystem.ViewModel
             catch (Exception ex) {; }
             return false;
         }
-        public void ClearTools()
-        {
-            //for (int i = 0; i < DataModel.Processmodel.Tools.Count; i++)
-            //{
-            //    ClearTool(DataModel.Processmodel.Tools[i]);
-            //}
-        }
-
-        //public void ClearTool(ToolModel tool)
-        //{
-        //    tool.BarcodeStr = string.Empty;
-        //    tool.DeltaX = 0;
-        //    tool.DeltaY = 0;
-        //    tool.ActualScore = 0;
-        //    tool.ActualX = 0;
-        //    tool.ActualY = 0;
-        //    tool.ActualAngle = 0;
-        //    tool.ActualDimension = 0;
-        //    tool.ToolStatus = ToolStatus.等待中;
-
-        //}
+      
 
 
 
