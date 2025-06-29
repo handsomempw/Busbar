@@ -1,4 +1,5 @@
 ﻿using BusbarCompressionSystem.Model;
+using BusbarCompressionSystem.Model.FaraVision;
 using BusbarCompressionSystem.ViewModel;
 using HalconDotNet;
 using Panuon.WPF.UI;
@@ -180,5 +181,56 @@ namespace BusbarCompressionSystem
         {
             sqlite.Check1("N2T050A510-2", "BTBBC3607861D001", "MT01736413");
         }
+
+
+        #region AOI
+        private void ListBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (vml.Main.DataModel.FaraVisionDataModel.Processmodel.selectedindex >= 0)
+            {
+                vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool = vml.Main.DataModel.FaraVisionDataModel.Processmodel.Tools[vml.Main.DataModel.FaraVisionDataModel.Processmodel.selectedindex];
+            }
+        }
+        private void ListBox_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+        {
+            if (!vml.Main.DataModel.FaraVisionDataModel.Settingmodel.permission)
+            {
+                NoticeBox.Show("请先打开权限，再进行编辑", "提示", MessageBoxIcon.Warning, true, 5000);
+                return;
+            }
+            if (MessageBoxX.Show("是否确定打开编辑工具？", "提示", MessageBoxButton.YesNo) == MessageBoxResult.Yes)
+            {
+                vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool = vml.Main.DataModel.FaraVisionDataModel.Processmodel.Tools[vml.Main.DataModel.FaraVisionDataModel.Processmodel.selectedindex];
+                vml.Main.LoadBitmapSource();
+                //vml.Main.DataModel.Processmodel.tool = @vml.Main.DataModel.Processmodel.Tools[vml.Main.DataModel.Processmodel.selectedindex];
+                SettingForm settingForm = new SettingForm();
+                //settingForm.Topmost = true;
+                settingForm.ShowDialog();
+                //settingForm.Show();
+
+
+            }
+        }
+
+        private void ChangePrj_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                vml.Main.Load_Prj(vml.Main.DataModel.FaraVisionDataModel.Settingmodel.Prjs[vml.Main.DataModel.FaraVisionDataModel.Settingmodel.prjselected]);
+                vml.Main.InitHwindow(Hwindow4.HalconWindow);
+                vml.Main.InitShm();
+
+            }
+            catch (Exception ex)
+            {
+                NoticeBox.Show($"工程加载错误:{ex.ToString()}", "错误", MessageBoxIcon.Error, true, 5000);
+            }
+        }
+
+
+        #endregion
+
+
+
     }
 }
