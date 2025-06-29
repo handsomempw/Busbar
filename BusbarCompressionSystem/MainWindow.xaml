@@ -35,8 +35,8 @@
             </Grid>
         </DataTemplate>
     </p:WindowXCaption.HeaderTemplate>
-    
-    
+
+
     <Grid Margin="2">
         <Grid.RowDefinitions>
             <RowDefinition Height="auto"/>
@@ -176,6 +176,10 @@
                     <ColumnDefinition Width="auto"/>
                     <ColumnDefinition/>
                 </Grid.ColumnDefinitions>
+                <Border  Grid.Row="1" Grid.Column="0" Margin="5" Grid.ColumnSpan="6" BorderBrush="Gray" BorderThickness="1" >
+                        
+                </Border>
+
                 <halcon:HSmartWindowControlWPF Grid.Row="1" Grid.Column="0" Margin="5" Grid.ColumnSpan="6" Name="Hwindow4" ></halcon:HSmartWindowControlWPF>
                 <TextBlock Grid.Row="0" Grid.Column="0">批号:</TextBlock>
                 <TextBlock Grid.Row="0" Grid.Column="2">编号:</TextBlock>
