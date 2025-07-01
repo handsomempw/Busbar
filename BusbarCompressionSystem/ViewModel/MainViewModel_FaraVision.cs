@@ -256,6 +256,28 @@ namespace BusbarCompressionSystem.ViewModel
             return null;
         }
 
+        public KColor GetPixelData(int X, int Y)
+        {
+            try
+            {
+                int w = DataModel.FaraVisionDataModel.Processmodel.ShowBitmapSource.PixelWidth;
+                int h = DataModel.FaraVisionDataModel.Processmodel.ShowBitmapSource.PixelHeight;
+                int stride = (w * DataModel.FaraVisionDataModel.Processmodel.ShowBitmapSource.Format.BitsPerPixel + 7) / 8;
+
+                byte[] pixels = new byte[h * stride];
+                DataModel.FaraVisionDataModel.Processmodel.ShowBitmapSource.CopyPixels(pixels, stride, 0);
+
+                int pixelindex = Y * stride + X * (DataModel.FaraVisionDataModel.Processmodel.ShowBitmapSource.Format.BitsPerPixel / 8);
+                byte r = pixels[pixelindex + 2];
+                byte g = pixels[pixelindex + 1];
+                byte b = pixels[pixelindex + 0];
+
+                return new KColor() { R = r, G = g, B = b };
+            }catch {  return null; }
+        }
+
+
+
         public void SavePrjXmls()
         {
             try

@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using System.Windows.Media.Imaging;
 using System.Windows.Media;
 using System.Xml.Serialization;
+using BusbarCompressionSystem.FaraVision;
 
 namespace BusbarCompressionSystem.Model.FaraVision.Tool
 {
@@ -258,7 +259,13 @@ namespace BusbarCompressionSystem.Model.FaraVision.Tool
         public HObject Image = null;
 
 
-
+        /// <summary>
+        /// 光标位置
+        /// </summary>
+        [XmlIgnore]
+        public Kposition Tposition { set; get; } = new Kposition() { X = 0, Y = 0 };
+        [XmlIgnore]
+        public KColor TColor { set; get; } = new KColor();
 
         #region 发送数据
         public string OKCMD { set; get; } = "OK";

@@ -40,8 +40,40 @@ namespace BusbarCompressionSystem.FaraVision
         public ObservableCollection<string> ErrorLog { set; get; } = new ObservableCollection<string>();
     }
 
+    public class Kposition : ObservableObject
+    {
+        /// <summary>
+        /// X坐标
+        /// </summary>
+        public int X { set; get; } = 0;
+        /// <summary>
+        /// Y坐标
+        /// </summary>
+        public int Y { set; get; } = 0;
+    }
+
+    public class KColor : ObservableObject
+    {
+        public byte R { set; get; } = 0;
+        public byte G { set; get; } = 0;
+        public byte B { set; get; } = 0;
+
+    }
+
     public class Processmodel : ObservableObject
     {
+
+
+        /// <summary>
+        /// 光标位置
+        /// </summary>
+        [XmlIgnore]
+        public Kposition position { set; get; } = new Kposition() { X = 0, Y = 0 };
+        [XmlIgnore]
+        public KColor KColor { set; get; } = new KColor();
+
+
+
 
         public ObservableCollection<string> CameraIDList { get; set; } = new ObservableCollection<string>();
 

@@ -15,7 +15,7 @@
     <p:WindowX.DataContext>
         <Binding Source="{StaticResource Locator}" Path="Main.DataModel .FaraVisionDataModel.Processmodel.tool"/>
     </p:WindowX.DataContext>
-    <Grid>
+    <Grid Margin="5">
         <Grid.Resources>
             <TransformGroup x:Key="Imageview">
                 <ScaleTransform/>
@@ -33,7 +33,11 @@
             <ColumnDefinition Width="*"/>
             <ColumnDefinition Width="auto"/>
         </Grid.ColumnDefinitions>
-        <ScrollViewer  Grid.Row="1" Grid.Column="0"  HorizontalAlignment="Center" VerticalAlignment="Center" x:Name="BackFrame" 
+        <Grid.RowDefinitions>
+            <RowDefinition/>
+            <RowDefinition Height="auto"/>
+        </Grid.RowDefinitions>
+        <ScrollViewer  Grid.Row="0" Grid.Column="0"  HorizontalAlignment="Center" VerticalAlignment="Center" x:Name="BackFrame" 
                        Background="Transparent"  HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Disabled"  
                        Cursor="SizeAll" Margin="5" Focusable="False" >
             <ContentControl  Width="{Binding Source={StaticResource Locator},Path=Main.DataModel.FaraVisionDataModel.Processmodel.ShowBitmapSource.Width}"
@@ -488,6 +492,17 @@
 
             </Grid>
         </GroupBox>
+
+
+        <WrapPanel Grid.Row="1" HorizontalAlignment="Center" Grid.ColumnSpan="3" >
+            <TextBlock Text="{Binding Tposition.X,StringFormat=光标位置:  {0}}"/>
+            <TextBlock Text="{Binding Tposition.Y,StringFormat=\,{0}}" />
+
+            <TextBlock Margin="15,0,0,0" Text="{Binding TColor.R,StringFormat=颜色:  {0}}" ToolTip="红"/>
+            <TextBlock Text="{Binding TColor.G,StringFormat=\,{0}}" ToolTip="绿"/>
+            <TextBlock Margin="0,0,15,0" Text="{Binding TColor.B,StringFormat=\,{0}}" ToolTip="蓝" />
+
+        </WrapPanel>
 
     </Grid>
 </p:WindowX>
