@@ -456,7 +456,7 @@
                     <DataGridTextColumn Header="编号" Binding="{Binding Productinfo.SN}"></DataGridTextColumn>
                     <DataGridTextColumn Header="拍照留底" Binding="{Binding TakePhoto1}"></DataGridTextColumn>
                     <DataGridTextColumn Header="TV结果" Binding="{Binding TVResult}"></DataGridTextColumn>
-                    <DataGridTextColumn Header="TV最大电流" Binding="{Binding TVMaxVoltage}"></DataGridTextColumn>
+                    <!--<DataGridTextColumn Header="TV最大电流" Binding="{Binding TVMaxVoltage}"></DataGridTextColumn>-->
                     <DataGridTextColumn Header="阻值" Binding="{Binding Res}"></DataGridTextColumn>
                     <DataGridTextColumn Header="视觉检测结果" Binding="{Binding AppearanceInspection}"></DataGridTextColumn>
                     <DataGridTextColumn Header="时间" Binding="{Binding DateTime,StringFormat={}{0:yyyy-MM-dd HH:mm:ss.FFF}}"></DataGridTextColumn>

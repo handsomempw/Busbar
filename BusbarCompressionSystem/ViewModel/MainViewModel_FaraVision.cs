@@ -707,7 +707,7 @@ namespace BusbarCompressionSystem.ViewModel
                 {
                     if (MessageBoxX.Show("是否确定新建工程?", "提示", MessageBoxButton.YesNo, MessageBoxIcon.Question, DefaultButton.NoCancel) == MessageBoxResult.Yes)
                     {
-                        BusbarCompressionSystem.Model. newPrj newPrj = new BusbarCompressionSystem.Model.newPrj();
+                        BusbarCompressionSystem.Model.newPrj newPrj = new BusbarCompressionSystem.Model.newPrj();
                         if (newPrj.ShowDialog() == true)
                         {
                             string prjname = newPrj.Prj_Name;
@@ -911,7 +911,7 @@ namespace BusbarCompressionSystem.ViewModel
         #endregion
         #region 配方保存加载
 
-       
+
 
 
         public bool Faravision_LoadBitmapSource()
@@ -1045,7 +1045,14 @@ namespace BusbarCompressionSystem.ViewModel
                 RegionIntersection?.Dispose();
 
                 //tool.ActualDimension = (int)Area.L;
-                return (int)Area.L;
+                if (Area.Length > 0)
+                {
+                    return (int)Area.L;
+                }
+                else
+                {
+                    return 0;
+                }
             }
             catch (Exception e)
             {

@@ -25,6 +25,7 @@ using BusbarCompressionSystem.Model.FaraVision;
 using PositionDetect;
 using System.Drawing;
 using System.Linq;
+using Honeywell;
 
 namespace BusbarCompressionSystem.ViewModel
 {
@@ -959,37 +960,36 @@ namespace BusbarCompressionSystem.ViewModel
 
         internal void writeError(string Content)
         {
-            lock (writeBug_Locker)
+
+            try
             {
-                try
+                int num = 200;
+                string bugstr = $"[{DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.FFF")}]{Content}";
+                App.Current.Dispatcher.Invoke(() =>
                 {
-                    int num = 200;
-                    string bugstr = $"[{DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.FFF")}]{Content}";
-                    App.Current.Dispatcher.Invoke(() =>
+                    if (DataModel.Recordmodel.ErrorLog.Count > num)
                     {
-                        if (DataModel.Recordmodel.ErrorLog.Count > num)
-                        {
-                            //DataModel.Recordmodel.workLog.RemoveAt(DataModel.Recordmodel.workLog.Count - 1);
-                            DataModel.Recordmodel.ErrorLog.Clear();
-                        }
-                        DataModel.Recordmodel.ErrorLog.Insert(0, bugstr);
-                    });
-                    string filename = $"{Environment.CurrentDirectory}\\日志\\错误\\{DateTime.Now.ToString("yyyyMMdd")}.txt";
-                    string dir = Path.GetDirectoryName(filename);
-                    if (!Directory.Exists(dir))
-                    {
-                        Directory.CreateDirectory(dir);
+                        //DataModel.Recordmodel.workLog.RemoveAt(DataModel.Recordmodel.workLog.Count - 1);
+                        DataModel.Recordmodel.ErrorLog.Clear();
                     }
-                    using (StreamWriter sw = new StreamWriter(filename, true))
-                    {
-                        sw.WriteLine(bugstr);
-                        sw.Close();
-                    }
+                    DataModel.Recordmodel.ErrorLog.Insert(0, bugstr);
+                });
+                string filename = $"{Environment.CurrentDirectory}\\日志\\错误\\{DateTime.Now.ToString("yyyyMMdd")}.txt";
+                string dir = Path.GetDirectoryName(filename);
+                if (!Directory.Exists(dir))
+                {
+                    Directory.CreateDirectory(dir);
                 }
-                catch (Exception)
+                using (StreamWriter sw = new StreamWriter(filename, true))
                 {
+                    sw.WriteLine(bugstr);
+                    sw.Close();
                 }
             }
+            catch (Exception)
+            {
+            }
+
         }
         #endregion
         #region 相机操作
@@ -1137,11 +1137,11 @@ namespace BusbarCompressionSystem.ViewModel
 
                 App.Current.Dispatcher.BeginInvoke(new Action(() =>
                 {
-                    #region 仅保存照片
-                    OnReceiveProcess(DataModel.Settingmodel.HWindow4, myEventArgs.Image, myEventArgs.Height, myEventArgs.Width, 4);
-                    SaveImage(myEventArgs.Image, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, "外观检测", 1, "OK");
-                    SendMsgRobot("OK");
-                    #endregion
+                    //#region 仅保存照片
+                    //OnReceiveProcess(DataModel.Settingmodel.HWindow4, myEventArgs.Image, myEventArgs.Height, myEventArgs.Width, 4);
+                    //SaveImage(myEventArgs.Image, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, "外观检测", 1, "OK");
+                    //SendMsgRobot("OK");
+                    //#endregion
 
 
                     #region AOI识别
@@ -1168,22 +1168,22 @@ namespace BusbarCompressionSystem.ViewModel
                 MyEventArgs myEventArgs = e as MyEventArgs;
                 App.Current.Dispatcher.BeginInvoke(new Action(() =>
                 {
-                    #region 仅保存照片
-                    OnReceiveProcess(DataModel.Settingmodel.HWindow4, myEventArgs.Image, myEventArgs.Height, myEventArgs.Width, 5);
-                    SaveImage(myEventArgs.Image, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, "外观检测", 1, "OK");
+                    //#region 仅保存照片
+                    //OnReceiveProcess(DataModel.Settingmodel.HWindow4, myEventArgs.Image, myEventArgs.Height, myEventArgs.Width, 5);
+                    //SaveImage(myEventArgs.Image, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, "外观检测", 1, "OK");
 
-                    if (DataModel.Processmodel.CMD == "A5")
-                    {
-                        DateTime dt = DateTime.Now;
-                        updatetakephoto2(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, true, dt);
-                        sqlite.UpdateTakePhoto2(
-                            DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE,
-                            DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID,
-                            DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN,
-                            true);
-                    }
-                    SendMsgRobot("OK");
-                    #endregion
+                    //if (DataModel.Processmodel.CMD == "A5")
+                    //{
+                    //    DateTime dt = DateTime.Now;
+                    //    updatetakephoto2(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, true, dt);
+                    //    sqlite.UpdateTakePhoto2(
+                    //        DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE,
+                    //        DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID,
+                    //        DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN,
+                    //        true);
+                    //}
+                    //SendMsgRobot("OK");
+                    //#endregion
 
                     #region AOI识别
                     OnReceiveProcessAOI(myEventArgs.Image, myEventArgs.Height, myEventArgs.Width);
@@ -1500,10 +1500,10 @@ namespace BusbarCompressionSystem.ViewModel
                                 if (DataModel.Settingmodel.ImageSaveSetting.SaveOK)
                                 {
 
-                                    string savefilename = $"{DataModel.FaraVisionDataModel.Settingmodel.ImageSaveSetting.ImageSaveDir}\\{DateTime.Now.ToString("yyyyMMdd")}\\OK\\{DataModel.FaraVisionDataModel.Processmodel.BarcodeStr}-{tool.Index.ToString("00")}-{tool.Name}-{tool.ToolStatus}-{DateTime.Now.ToString("yyyyMMddHHmmssFFF")}.jpg";
+                                    string savefilename = $"{DataModel.FaraVisionDataModel.Settingmodel.ImageSaveSetting.ImageSaveDir}\\外观检测\\{DateTime.Now.ToString("yyyyMMdd")}\\OK\\{DataModel.FaraVisionDataModel.Processmodel.BarcodeStr}-{tool.Index.ToString("00")}-{tool.Name}-{tool.ToolStatus}-{DateTime.Now.ToString("yyyyMMddHHmmssFFF")}.jpg";
                                     try
                                     {
-                                        savefilename = $"{DataModel.FaraVisionDataModel.Settingmodel.ImageSaveSetting.ImageSaveDir}\\{DateTime.Now.ToString("yyyyMMdd")}\\OK\\{DataModel.FaraVisionDataModel.Processmodel.SNList[DataModel.FaraVisionDataModel.Processmodel.Tools[i].ProductPositionNO]}-{tool.Index.ToString("00")}-{tool.Name}-{tool.ToolStatus}-{DateTime.Now.ToString("yyyyMMddHHmmssFFF")}.jpg";
+                                        savefilename = $"{DataModel.FaraVisionDataModel.Settingmodel.ImageSaveSetting.ImageSaveDir}\\外观检测\\{DateTime.Now.ToString("yyyyMMdd")}\\OK\\{DataModel.FaraVisionDataModel.Processmodel.SNList[DataModel.FaraVisionDataModel.Processmodel.Tools[i].ProductPositionNO]}-{tool.Index.ToString("00")}-{tool.Name}-{tool.ToolStatus}-{DateTime.Now.ToString("yyyyMMddHHmmssFFF")}.jpg";
                                     }
                                     catch {; }
 
@@ -1517,10 +1517,10 @@ namespace BusbarCompressionSystem.ViewModel
                             {
                                 if (DataModel.Settingmodel.ImageSaveSetting.SaveNG)
                                 {
-                                    string savefilename = $"{DataModel.FaraVisionDataModel.Settingmodel.ImageSaveSetting.ImageSaveDir}\\{DateTime.Now.ToString("yyyyMMdd")}\\NG\\{DataModel.FaraVisionDataModel.Processmodel.BarcodeStr}-{tool.Index.ToString("00")}-{tool.Name}-{tool.ToolStatus}-{DateTime.Now.ToString("yyyyMMddHHmmssFFF")}.jpg";
+                                    string savefilename = $"{DataModel.FaraVisionDataModel.Settingmodel.ImageSaveSetting.ImageSaveDir}\\外观检测\\{DateTime.Now.ToString("yyyyMMdd")}\\NG\\{DataModel.FaraVisionDataModel.Processmodel.BarcodeStr}-{tool.Index.ToString("00")}-{tool.Name}-{tool.ToolStatus}-{DateTime.Now.ToString("yyyyMMddHHmmssFFF")}.jpg";
                                     try
                                     {
-                                        savefilename = $"{DataModel.FaraVisionDataModel.Settingmodel.ImageSaveSetting.ImageSaveDir}\\{DateTime.Now.ToString("yyyyMMdd")}\\NG\\{DataModel.FaraVisionDataModel.Processmodel.SNList[DataModel.FaraVisionDataModel.Processmodel.Tools[i].ProductPositionNO]}-{tool.Index.ToString("00")}-{tool.Name}-{tool.ToolStatus}-{DateTime.Now.ToString("yyyyMMddHHmmssFFF")}.jpg";
+                                        savefilename = $"{DataModel.FaraVisionDataModel.Settingmodel.ImageSaveSetting.ImageSaveDir}\\外观检测\\{DateTime.Now.ToString("yyyyMMdd")}\\NG\\{DataModel.FaraVisionDataModel.Processmodel.SNList[DataModel.FaraVisionDataModel.Processmodel.Tools[i].ProductPositionNO]}-{tool.Index.ToString("00")}-{tool.Name}-{tool.ToolStatus}-{DateTime.Now.ToString("yyyyMMddHHmmssFFF")}.jpg";
                                     }
                                     catch {; }
                                     string dir = Path.GetDirectoryName(savefilename);
@@ -1638,25 +1638,42 @@ namespace BusbarCompressionSystem.ViewModel
                             if (status == 0)
                             {
                                 DataModel.FaraVisionDataModel.Processmodel.Status = ToolStatus.OK;
-                                PLC_write((UInt16)1);
+                                //PLC_write((UInt16)1);
                             }
-                            else if (status == 0)
+                            else if (status == 2)
                             {
                                 DataModel.FaraVisionDataModel.Processmodel.Status = ToolStatus.NG2;
-                                PLC_write((UInt16)3);
+                                //PLC_write((UInt16)3);
                             }
                             else
                             {
                                 DataModel.FaraVisionDataModel.Processmodel.Status = ToolStatus.NG;
-                                PLC_write((UInt16)2);
+                                //PLC_write((UInt16)2);
                             }
 
+                            #region 保存拍照记录到本地
+                            DateTime dt = DateTime.Now;
+                            updatetakephoto2(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, true, dt);
+                            sqlite.UpdateTakePhoto2(
+                                DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE,
+                                DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID,
+                                DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN,
+                              status == 0);
+                            #endregion
                         }
+
+
+
+
+
 
                         writeLog($"视觉->视觉:保存完成", false);
 
                         string s2 = $"{DataModel.FaraVisionDataModel.Processmodel.Tools[i].Name}:保存图片发送结果耗时:{stopwatch.ElapsedMilliseconds}ms";
                         Save_record(s2);
+
+
+
 
                     }
                 }
@@ -1795,26 +1812,27 @@ namespace BusbarCompressionSystem.ViewModel
                 string cmd = (string)TCPevent.Msg;
                 writeLog($"机器人->视觉:{cmd}");
                 DataModel.Processmodel.CMD = cmd;
+                DataModel.FaraVisionDataModel.Processmodel.RCMD = cmd;
 
                 if (cmd.StartsWith("A"))
                 {
 
-                    #region 临时拍照代码
-                    string s = cmd.Replace("A", "");
-                    int cmdint = -1;
-                    if (int.TryParse(s, out cmdint))
-                    {
-                        if (cmdint <= -1)
-                        {
-                            DataModel.Settingmodel.camedata4.CameraModel.camera.bnTriggerExec_Click();
-                        }
-                        else
-                        {
-                            DataModel.Settingmodel.camedata5.CameraModel.camera.bnTriggerExec_Click();
-                        }
-                    }
+                    //#region 临时拍照代码
+                    //string s = cmd.Replace("A", "");
+                    //int cmdint = -1;
+                    //if (int.TryParse(s, out cmdint))
+                    //{
+                    //    if (cmdint <= -1)
+                    //    {
+                    //        DataModel.Settingmodel.camedata4.CameraModel.camera.bnTriggerExec_Click();
+                    //    }
+                    //    else
+                    //    {
+                    //        DataModel.Settingmodel.camedata5.CameraModel.camera.bnTriggerExec_Click();
+                    //    }
+                    //}
 
-                    #endregion
+                    //#endregion
 
 
                     #region 正确拍照代码
@@ -1830,7 +1848,6 @@ namespace BusbarCompressionSystem.ViewModel
                             writeLog($"机器人->视觉:{cmd}开始设置参数", false);
                             DataModel.FaraVisionDataModel.Processmodel.ToolIndex = i + 1;
                             int cameraindex = DataModel.FaraVisionDataModel.Processmodel.Tools[i].CameraIndex;
-
                             DataModel.FaraVisionDataModel.Processmodel.CameraList[cameraindex].CameraModel.exposuretime = DataModel.FaraVisionDataModel.Processmodel.Tools[i].ExposureTime;
                             DataModel.FaraVisionDataModel.Processmodel.CameraList[cameraindex].CameraModel.camera.Exposure = DataModel.FaraVisionDataModel.Processmodel.Tools[i].ExposureTime;
                             DataModel.FaraVisionDataModel.Processmodel.CameraList[cameraindex].CameraModel.camera.bnSetParam_Click();
@@ -1860,6 +1877,12 @@ namespace BusbarCompressionSystem.ViewModel
                     {
                         //DataModel.Processmodel.TakePhotoTestModel.Productinfo = new Model.Record.Productinfo() { SN = ss[0], WOCODE = ss[1], PartNOID = "" };
                         DataModel.Processmodel.TakePhotoTestMode2.Productinfo = new Productinfo() { SN = ss[0], WOCODE = ss[1], PartNOID = DataModel.Processmodel.PartNOID };
+                        App.Current.Dispatcher.BeginInvoke((Action)(() =>
+                        {
+
+                            DataModel.FaraVisionDataModel.Processmodel.SNList.Clear();
+                            DataModel.FaraVisionDataModel.Processmodel.SNList.Add(ss[0]);
+                        }));
                     }
                     else
                     {
@@ -1900,7 +1923,7 @@ namespace BusbarCompressionSystem.ViewModel
                     }
 
 
-                    report(ss[1], ss[0], MSG);
+                    //report(ss[1], ss[0], MSG);
 
                     SendMsgRobot(MSG);
 
@@ -1941,7 +1964,7 @@ namespace BusbarCompressionSystem.ViewModel
                     }
 
                     SendMsgRobot(MSG);
-
+                    report(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, MSG);
 
                 }
 
