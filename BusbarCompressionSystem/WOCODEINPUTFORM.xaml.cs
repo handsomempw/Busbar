@@ -103,20 +103,20 @@ namespace BusbarCompressionSystem
                     r = false;
                 }
 
-
-                vml.Main.DataModel.Processmodel.TVParameter.Voltage = Convert.ToSingle(r1.First().TargetValue);
-                vml.Main.DataModel.Processmodel.TVParameter.TestMode = (TestMode)Convert.ToInt16(r2.First().TargetValue);
-                vml.Main.DataModel.Processmodel.TVParameter.RiseTime = Convert.ToSingle(r3.First().TargetValue);
-                vml.Main.DataModel.Processmodel.TVParameter.TestTime = Convert.ToSingle(r4.First().TargetValue);
-                vml.Main.DataModel.Processmodel.TVParameter.FallTime = Convert.ToSingle(r5.First().TargetValue);
-                vml.Main.DataModel.Processmodel.TVParameter.High = Convert.ToSingle(r6.First().TargetValue);
-                vml.Main.DataModel.Processmodel.TVParameter.Low = Convert.ToSingle(r7.First().TargetValue);
-                vml.Main.DataModel.Processmodel.TVParameter.Freq = Convert.ToSingle(r8.First().TargetValue);
-
-
-
                 if (r)
                 {
+
+                    vml.Main.DataModel.Processmodel.TVParameter.Voltage = Convert.ToSingle(r1.First().TargetValue);
+                    vml.Main.DataModel.Processmodel.TVParameter.TestMode = (TestMode)Convert.ToInt16(r2.First().TargetValue);
+                    vml.Main.DataModel.Processmodel.TVParameter.RiseTime = Convert.ToSingle(r3.First().TargetValue);
+                    vml.Main.DataModel.Processmodel.TVParameter.TestTime = Convert.ToSingle(r4.First().TargetValue);
+                    vml.Main.DataModel.Processmodel.TVParameter.FallTime = Convert.ToSingle(r5.First().TargetValue);
+                    vml.Main.DataModel.Processmodel.TVParameter.High = Convert.ToSingle(r6.First().TargetValue);
+                    vml.Main.DataModel.Processmodel.TVParameter.Low = Convert.ToSingle(r7.First().TargetValue);
+                    vml.Main.DataModel.Processmodel.TVParameter.Freq = Convert.ToSingle(r8.First().TargetValue);
+
+
+
 
                     var r11 = vml.Main.DataModel.Settingmodel.AT9620_1.Download();
                     var r12 = vml.Main.DataModel.Settingmodel.AT9620_2.Download();
@@ -144,8 +144,11 @@ namespace BusbarCompressionSystem
                 {
                     MessageBoxX.Show(error, MessageBoxIcon.Error);
 
-
                 }
+
+              
+
+           
             }
             catch (Exception ex)
             {
