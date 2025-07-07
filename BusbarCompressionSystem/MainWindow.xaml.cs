@@ -37,6 +37,9 @@ namespace BusbarCompressionSystem
 
         private void WindowX_Loaded(object sender, RoutedEventArgs e)
         {
+
+            OnlyOnce.check.OnlyOnce();
+
             vml.Main.LoadSettingModel();
             vml.Main.LoadRecordModel();
             vml.Main.LoadProcessmodel();
