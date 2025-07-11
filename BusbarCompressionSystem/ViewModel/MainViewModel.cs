@@ -1922,8 +1922,10 @@ namespace BusbarCompressionSystem.ViewModel
                             }
                     }
 
-
-                    //report(ss[1], ss[0], MSG);
+                    if (MSG != "OK")
+                    {
+                        report(ss[1], ss[0], MSG);
+                    }
 
                     SendMsgRobot(MSG);
 
