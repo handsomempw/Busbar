@@ -166,7 +166,7 @@
                 <TextBlock Grid.Row="3" Grid.Column="3"  Height="30" Margin="2" HorizontalAlignment="Right">电弧等级:</TextBlock>
                 <!--<TextBlock Grid.Row="4" Grid.Column="3"  Height="30" Margin="2" >充电下限:</TextBlock>-->
 
-                <TextBox Grid.Row="0" Grid.Column="1"  Height="30" Margin="2" Text="{Binding Processmodel.TVParameter.Voltage}" />
+                <TextBlock Grid.Row="0" Grid.Column="1"  Height="30" Margin="2" Text="{Binding Processmodel.TVParameter.Voltage}" />
                 <TextBlock Grid.Row="1" Grid.Column="1"  Height="30" Margin="2" Text="{Binding Processmodel.TVParameter.RiseTime}"/>
                 <TextBlock Grid.Row="2" Grid.Column="1"  Height="30" Margin="2" Text="{Binding Processmodel.TVParameter.High}"/>
                 <TextBlock Grid.Row="3" Grid.Column="1"  Height="30" Margin="2" Text="{Binding Processmodel.TVParameter.Low}"/>

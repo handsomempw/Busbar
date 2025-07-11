@@ -146,9 +146,9 @@ namespace BusbarCompressionSystem
 
                 }
 
-              
 
-           
+
+
             }
             catch (Exception ex)
             {
