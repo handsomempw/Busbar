@@ -27,6 +27,16 @@ namespace BusbarCompressionSystem.Model.Record1
         public float Time { set; get; } = 0;
         public float Current { set; get; } = 0;
         public float Voltage { set; get; } = 0;
+
+        public float TVMaxVoltage { set; get; } = 0;
+        public float TVMaxCurrent { set; get; } = 0;
+
+        //public float Pressure_Max { set; get; }
+        //public float Pressure_Average { set; get; }
+        //public bool Pressure_Result { set; get; }
+        public string TVMeterID { set; get; }
+        public string TVInfo { set; get; }
+
     }
 
 

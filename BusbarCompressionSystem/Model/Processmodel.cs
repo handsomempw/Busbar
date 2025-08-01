@@ -23,9 +23,9 @@ namespace BusbarCompressionSystem.Model
 
         #region 耐压测试参数
 
-        public AT9620.TVParameter TVParameter { set; get; }=new AT9620.TVParameter();
-             
-        #endregion 
+        public AT9620.TVParameter TVParameter { set; get; } = new AT9620.TVParameter();
+
+        #endregion
 
         #region 测试数据
         public TakePhotoTestModel TakePhotoTestModel { set; get; } = new TakePhotoTestModel();
@@ -33,14 +33,11 @@ namespace BusbarCompressionSystem.Model
         public TVTestTestModel TVTestTestModel2 { set; get; } = new TVTestTestModel();
         public TVTestTestModel TVTestTestModel3 { set; get; } = new TVTestTestModel();
         public TakePhotoTestModel TakePhotoTestMode2 { set; get; } = new TakePhotoTestModel();
-
-
-
         #endregion
         public string CMD { set; get; } = "";
 
         #region 触发信号
-       [XmlIgnore]
+        [XmlIgnore]
         [XmlElement("扫码触发")]
         public IO Scan_Trig_IO { get; set; } = new IO();
 
@@ -62,9 +59,6 @@ namespace BusbarCompressionSystem.Model
 
 
         #endregion
-
-
-
 
     }
 }

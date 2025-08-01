@@ -244,6 +244,10 @@
       <Project>{671e5d0c-031d-49eb-872e-c4940d6c921d}</Project>
       <Name>Camera</Name>
     </ProjectReference>
+    <ProjectReference Include="..\F7DataBase\F7DataBase.csproj">
+      <Project>{557f5928-b92c-4c3d-b0b2-ed006252c63c}</Project>
+      <Name>F7DataBase</Name>
+    </ProjectReference>
     <ProjectReference Include="..\HF800\Honeywell.csproj">
       <Project>{f9c8e8a3-77c6-4667-a3eb-ad898bc97df2}</Project>
       <Name>Honeywell</Name>

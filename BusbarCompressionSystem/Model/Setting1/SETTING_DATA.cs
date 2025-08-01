@@ -29,5 +29,13 @@ namespace BusbarCompressionSystem.Model.Setting1
         public string WorkerName { set; get; } = "姓名";
 
 
+
+        [XmlElement("仪器编号1")]
+        public string TVMeterID1 { set; get; } = "TVMETERID1";
+
+        [XmlElement("仪器编号2")]
+        public string TVMeterID2 { set; get; } = "TVMETERID1";
+        [XmlElement("仪器编号3")]
+        public string TVMeterID3 { set; get; } = "TVMETERID1";
     }
 }

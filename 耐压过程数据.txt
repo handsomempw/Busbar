@@ -1,0 +1,1 @@
+INSERT INTO [F7Data].[dbo].[dr_TVProcess] ( [FBatch], [FStep], [FSerial], [FTVResult], [FOpdate], [FOpman], [FMachine], [FProcess]) VALUES ( '71J1200082G', '极壳耐压测试', '7B00032013', '测试合格', '2017-12-25 13:40:36.000', 'J00730', 'EV46-093', '01,0,4.498,2,00.25,0,-----,000.1,01');

@@ -98,6 +98,10 @@ namespace BusbarCompressionSystem.Model
         public SETTING_DATA SETTING_DATA { set; get; } = new SETTING_DATA();
         #endregion
 
+
+        [XmlIgnore]
+        public F7DataBase.Sqlserver Sqlserver { set; get; } = new F7DataBase.Sqlserver();
+
     }
 
     public enum IOstatus

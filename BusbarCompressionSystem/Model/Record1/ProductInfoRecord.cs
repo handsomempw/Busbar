@@ -13,6 +13,8 @@ namespace BusbarCompressionSystem.Model.Record
 
         public Productinfo Productinfo { set; get; } = new Productinfo();
 
+        public string StationCode { set; get; }
+        public string EQUIPMENTID { set; get; }
 
         public bool TakePhoto1 { set; get; } = false;
 
@@ -20,12 +22,21 @@ namespace BusbarCompressionSystem.Model.Record
         public float TVVoltage { set; get; } = 0;
 
         public float TVMaxVoltage { set; get; } = 0;
+        public float TVMaxCurrent { set; get; } = 0;
 
 
         public bool TVResult { set; get; } = false;
 
         public bool AppearanceInspection { set; get; } = false;
         public DateTime DateTime { set; get; } = DateTime.Now;
+
+        public float Pressure_Max { set; get; }
+        public float Pressure_Average { set; get; }
+        public bool Pressure_Result { set; get; }
+        public string TVMeterID { set; get; }
+        public string TVInfo { set; get; }
+
+
         public bool Report { set; get; } = false;
 
 

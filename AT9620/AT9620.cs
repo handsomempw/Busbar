@@ -173,7 +173,12 @@ namespace AT9620
             ResultTVProcess resultTVProcess = new ResultTVProcess();
             DateTime dt = DateTime.Now;
             float totaltime = TVParameter.TestTime + TVParameter.RiseTime + TVParameter.FallTime;
+
+            #region 清空数据
             strrecord = string.Empty;
+            #endregion
+
+
             stop = false;
             while (true)
             {
@@ -181,7 +186,7 @@ namespace AT9620
                 try
                 {
 
-                    if(stop)
+                    if (stop)
                     {
                         var stopr = Send("FUNCtion:STOP\n");
                     }
@@ -220,7 +225,10 @@ namespace AT9620
                     continue;
                 }
             }
-
+            if(!r.Success)
+            {
+                r.Recordstr = strrecord;
+            }
             return r;
 
 
@@ -391,6 +399,7 @@ namespace AT9620
         public bool Success { get; set; } = false;
         public string Value { set; get; } = string.Empty;
         public string Error { get; set; }
+        public string Recordstr { set; get; }
 
     }
 
@@ -547,6 +556,6 @@ namespace AT9620
     }
     public class AT9620EventArgs : EventArgs
     {
-        public ResultTVProcess ResultTVProcess { set; get; }=new ResultTVProcess();
+        public ResultTVProcess ResultTVProcess { set; get; } = new ResultTVProcess();
     }
 }

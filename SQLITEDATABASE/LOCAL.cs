@@ -13,7 +13,7 @@ namespace SQLITEDATABASE
 {
     public partial class sqlite
     {
-        public static bool CREATENEWLINE(string WOCODE, string PARTNOID, string SN)
+        public static bool CREATENEWLINE(string WOCODE, string PARTNOID, string SN, String STATIONCODE, string EQUIPMENTID)
         {
             try
             {
@@ -22,7 +22,7 @@ namespace SQLITEDATABASE
                 if (!string.IsNullOrEmpty(_connstr))
                 {
 
-                    string sql = $"INSERT INTO BusbarCompressionData(PARTNOID,WOCODE,SN)VALUES('{PARTNOID}','{WOCODE}','{SN}')";
+                    string sql = $"INSERT INTO BusbarCompressionData(PARTNOID,WOCODE,SN,EQUIPMENTID,STATIONCODE)VALUES('{PARTNOID}','{WOCODE}','{SN}','{STATIONCODE}','{EQUIPMENTID}')";
 
                     int c = excute_sql(sql, _connstr);
                     return c > 0;
@@ -49,7 +49,7 @@ namespace SQLITEDATABASE
             {; }
             return false;
         }
-        public static bool UpdateTV(string WOCODE, string PARTNOID, string SN, float RES, float MaxVoltage, bool TVResult)
+        public static bool UpdateTV(string WOCODE, string PARTNOID, string SN, float RES, float MaxVoltage, bool TVResult, float MaxCurrent,  string TVInfo, string TVMeterID)
         {
 
             try
@@ -58,7 +58,7 @@ namespace SQLITEDATABASE
 
                 if (!string.IsNullOrEmpty(_connstr))
                 {
-                    string sql = $"UPDATE BusbarCompressionData SET RES={RES},TVMAXVOLTAGE={MaxVoltage}, TVRESULT={(TVResult ? 1 : 0)} WHERE id=(SELECT max(id) from BusbarCompressionData WHERE sn='{SN}')";
+                    string sql = $"UPDATE BusbarCompressionData SET RES={RES},TVMAXVOLTAGE={MaxVoltage},TVMAXCURRENT={MaxCurrent},TVRESULT={(TVResult ? 1 : 0)},TVNeterID={TVMeterID},TVInfo={TVInfo}, WHERE id=(SELECT max(id) from BusbarCompressionData WHERE sn='{SN}')";
                     int c = excute_sql(sql, _connstr);
                     return c > 0;
                 }
@@ -142,15 +142,17 @@ namespace SQLITEDATABASE
                         {
                             return 2;
                         }
+                        bool _tvresult = false;
+                        if (!bool.TryParse(dt.Rows[0]["TVRESULT"].ToString(), out _tvresult))
+                        { return 2; }
+
 
                         float _res = -1;
                         if (!float.TryParse(dt.Rows[0]["RES"].ToString(), out _res))
                         {
                             return 3;
                         }
-                        bool _tvresult = false;
-                        if (!bool.TryParse(dt.Rows[0]["TVRESULT"].ToString(), out _tvresult))
-                        { return 2; }
+                
 
 
 

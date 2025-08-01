@@ -237,7 +237,7 @@ namespace BusbarCompressionSystem.ViewModel
                 //DataModel.Processmodel.TakePhotoTestModel.Productinfo.WOCODE = wocode;
                 //DataModel.Processmodel.TakePhotoTestModel.Productinfo.PartNOID = partnoid;
                 PLC_Writestring(DataModel.Settingmodel.AddressSN.ToString(), $"{sn};{wocode}");
-                SQLITEDATABASE.sqlite.CREATENEWLINE(wocode, partnoid, sn);
+                SQLITEDATABASE.sqlite.CREATENEWLINE(wocode, partnoid, sn, DataModel.Settingmodel.SETTING_DATA.StationCode, DataModel.Settingmodel.SETTING_DATA.MachineID);
                 return string.Empty;
 
             }
@@ -289,6 +289,10 @@ namespace BusbarCompressionSystem.ViewModel
                 DataModel.Processmodel.TVTestTestModel1.Current = myEventArgs.ResultTVProcess.Value.Current;
                 DataModel.Processmodel.TVTestTestModel1.Time = myEventArgs.ResultTVProcess.Value.Time;
                 DataModel.Processmodel.TVTestTestModel1.Status = myEventArgs.ResultTVProcess.Value.status;
+
+                DataModel.Processmodel.TVTestTestModel1.TVMaxVoltage = Math.Max(DataModel.Processmodel.TVTestTestModel1.TVMaxVoltage, DataModel.Processmodel.TVTestTestModel1.Voltage);
+                DataModel.Processmodel.TVTestTestModel1.TVMaxCurrent = Math.Max(DataModel.Processmodel.TVTestTestModel1.TVMaxCurrent, DataModel.Processmodel.TVTestTestModel1.Current);
+                DataModel.Processmodel.TVTestTestModel1.TVInfo = myEventArgs.ResultTVProcess.Value.status;
             }
             catch (Exception ex)
             {
@@ -305,6 +309,10 @@ namespace BusbarCompressionSystem.ViewModel
                 DataModel.Processmodel.TVTestTestModel2.Current = myEventArgs.ResultTVProcess.Value.Current;
                 DataModel.Processmodel.TVTestTestModel2.Time = myEventArgs.ResultTVProcess.Value.Time;
                 DataModel.Processmodel.TVTestTestModel2.Status = myEventArgs.ResultTVProcess.Value.status;
+
+                DataModel.Processmodel.TVTestTestModel2.TVMaxVoltage = Math.Max(DataModel.Processmodel.TVTestTestModel2.TVMaxVoltage, DataModel.Processmodel.TVTestTestModel2.Voltage);
+                DataModel.Processmodel.TVTestTestModel2.TVMaxCurrent = Math.Max(DataModel.Processmodel.TVTestTestModel2.TVMaxCurrent, DataModel.Processmodel.TVTestTestModel2.Current);
+                DataModel.Processmodel.TVTestTestModel2.TVInfo = myEventArgs.ResultTVProcess.Value.status;
             }
             catch (Exception ex)
             {
@@ -321,6 +329,11 @@ namespace BusbarCompressionSystem.ViewModel
                 DataModel.Processmodel.TVTestTestModel3.Current = myEventArgs.ResultTVProcess.Value.Current;
                 DataModel.Processmodel.TVTestTestModel3.Time = myEventArgs.ResultTVProcess.Value.Time;
                 DataModel.Processmodel.TVTestTestModel3.Status = myEventArgs.ResultTVProcess.Value.status;
+
+                DataModel.Processmodel.TVTestTestModel3.TVMaxVoltage = Math.Max(DataModel.Processmodel.TVTestTestModel3.TVMaxVoltage, DataModel.Processmodel.TVTestTestModel3.Voltage);
+                DataModel.Processmodel.TVTestTestModel3.TVMaxCurrent = Math.Max(DataModel.Processmodel.TVTestTestModel3.TVMaxCurrent, DataModel.Processmodel.TVTestTestModel3.Current);
+                DataModel.Processmodel.TVTestTestModel3.TVInfo = myEventArgs.ResultTVProcess.Value.status;
+
             }
             catch (Exception ex)
             {
@@ -493,7 +506,7 @@ namespace BusbarCompressionSystem.ViewModel
                 var r = DataModel.Settingmodel.HF800.Scanner();
                 string s = r.value.Replace("\r", "").Replace("\n", "");
                 DataModel.Processmodel.sninputstr = s;
-                SQLITEDATABASE.sqlite.CREATENEWLINE("1", "1", s);
+                //SQLITEDATABASE.sqlite.CREATENEWLINE("1", "1", s);
                 PLC_write((DataModel.Settingmodel.AddressStart + 1).ToString(), (UInt16)(r.Status == Honeywell.Status.OK ? 1 : 2));
 
             }
@@ -644,11 +657,36 @@ namespace BusbarCompressionSystem.ViewModel
                 DataModel.Processmodel.TVTestTestModel1.Productinfo.PartNOID,
                 DataModel.Processmodel.TVTestTestModel1.Productinfo.SN,
                 res,
-                10,
-                r.Success
+                DataModel.Processmodel.TVTestTestModel1.TVMaxVoltage,
+                r.Success,
+                DataModel.Processmodel.TVTestTestModel1.TVMaxCurrent,
+                DataModel.Processmodel.TVTestTestModel1.TVInfo,
+                DataModel.Settingmodel.SETTING_DATA.TVMeterID1
                 );
 
-            updatetv(DataModel.Processmodel.TVTestTestModel1.Productinfo.SN, res, 10, r.Success);
+            updatetv(DataModel.Processmodel.TVTestTestModel1.Productinfo.SN,
+                res,
+                DataModel.Processmodel.TVTestTestModel1.TVMaxVoltage,
+                r.Success,
+                DataModel.Processmodel.TVTestTestModel1.TVMaxCurrent,
+                DataModel.Processmodel.TVTestTestModel1.TVInfo,
+                DataModel.Settingmodel.SETTING_DATA.TVMeterID1
+                );
+
+            if (!r.Success)
+            {
+                DataModel.Settingmodel.Sqlserver.Save_TVProcessData(
+                    DataModel.Processmodel.TVTestTestModel1.Productinfo.WOCODE,
+                    DataModel.Processmodel.TVTestTestModel1.Productinfo.SN,
+                    DataModel.Settingmodel.SETTING_DATA.ProcedureName,
+                    DataModel.Processmodel.TVTestTestModel1.Status,
+                    DataModel.Settingmodel.SETTING_DATA.WorkerID,
+                    DateTime.Now,
+                    DataModel.Settingmodel.SETTING_DATA.TVMeterID1,
+                    r.Recordstr
+                    );
+            }
+
             PLC_write((DataModel.Settingmodel.AddressStart + 7).ToString(), 1);
         }
 
@@ -673,11 +711,22 @@ namespace BusbarCompressionSystem.ViewModel
                DataModel.Processmodel.TVTestTestModel2.Productinfo.PartNOID,
                DataModel.Processmodel.TVTestTestModel2.Productinfo.SN,
                res,
-               10,
-               r.Success
+               DataModel.Processmodel.TVTestTestModel2.TVMaxVoltage,
+               r.Success,
+                 DataModel.Processmodel.TVTestTestModel2.TVMaxCurrent,
+                DataModel.Processmodel.TVTestTestModel2.TVInfo,
+                DataModel.Settingmodel.SETTING_DATA.TVMeterID2
                );
 
-            updatetv(DataModel.Processmodel.TVTestTestModel2.Productinfo.SN, res, 10, r.Success);
+            updatetv(DataModel.Processmodel.TVTestTestModel2.Productinfo.SN,
+                res, DataModel.Processmodel.TVTestTestModel2.TVMaxVoltage,
+                r.Success,
+                DataModel.Processmodel.TVTestTestModel2.TVMaxCurrent,
+                DataModel.Processmodel.TVTestTestModel2.TVInfo,
+                DataModel.Settingmodel.SETTING_DATA.TVMeterID2
+
+                );
+
             PLC_write((DataModel.Settingmodel.AddressStart + 9).ToString(), 1);
 
         }
@@ -703,16 +752,26 @@ namespace BusbarCompressionSystem.ViewModel
                DataModel.Processmodel.TVTestTestModel3.Productinfo.PartNOID,
                DataModel.Processmodel.TVTestTestModel3.Productinfo.SN,
                res,
-               10,
-               r.Success
+               DataModel.Processmodel.TVTestTestModel2.TVMaxVoltage,
+               r.Success,
+                DataModel.Processmodel.TVTestTestModel3.TVMaxCurrent,
+                DataModel.Processmodel.TVTestTestModel3.TVInfo,
+                DataModel.Settingmodel.SETTING_DATA.TVMeterID3
                );
 
-            updatetv(DataModel.Processmodel.TVTestTestModel3.Productinfo.SN, res, 10, r.Success);
+            updatetv(DataModel.Processmodel.TVTestTestModel3.Productinfo.SN,
+                res,
+                DataModel.Processmodel.TVTestTestModel3.TVMaxVoltage
+                , r.Success,
+                DataModel.Processmodel.TVTestTestModel3.TVMaxCurrent,
+                DataModel.Processmodel.TVTestTestModel3.TVInfo,
+                DataModel.Settingmodel.SETTING_DATA.TVMeterID3
+                );
             PLC_write((DataModel.Settingmodel.AddressStart + 11).ToString(), 1);
 
         }
 
-        private void updatetv(string SN, float res, float maxvoltage, bool result)
+        private void updatetv(string SN, float res, float maxvoltage, bool result, float maxcurrent, string tvinfo, string tvmeterid)
         {
             try
             {
@@ -725,7 +784,10 @@ namespace BusbarCompressionSystem.ViewModel
                         {
                             p.Res = res;
                             p.TVMaxVoltage = maxvoltage;
+                            p.TVMaxCurrent = maxcurrent;
                             p.TVResult = result;
+                            p.TVInfo = tvinfo;
+                            p.TVMeterID = tvmeterid;
                             break;
                         }
                     }
@@ -1893,31 +1955,37 @@ namespace BusbarCompressionSystem.ViewModel
 
                     var r = sqlite.Check1(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN);
                     string MSG = "NG1";
+                    string resultstr = "拍照留底不良";
                     switch (r)
                     {
                         case 0:
                             {
                                 MSG = "OK";
+                                resultstr = "合格";
                                 break;
                             }
                         case 1:
                             {
                                 MSG = "NG1";
+                                resultstr = "拍照留底不良";
                                 break;
                             }
                         case 2:
                             {
                                 MSG = "NG2";
+                                resultstr = "耐压测试不合格";
                                 break;
                             }
                         case 3:
                             {
                                 MSG = "NG3";
+                                resultstr = "阻值测试不合格";
                                 break;
                             }
                         case 4:
                             {
                                 MSG = "NG4";
+                                resultstr = "AOI测试不合格";
                                 break;
                             }
                     }
@@ -1927,6 +1995,7 @@ namespace BusbarCompressionSystem.ViewModel
                         report(ss[1], ss[0], MSG);
                     }
 
+                    writeLog($"数据校验1->结果:{resultstr}");
                     SendMsgRobot(MSG);
 
                 }
@@ -1936,35 +2005,42 @@ namespace BusbarCompressionSystem.ViewModel
 
                     var r = sqlite.Check2(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN);
                     string MSG = "NG1";
+                    string resultstr = "拍照留底不良";
                     switch (r)
                     {
                         case 0:
                             {
                                 MSG = "OK";
+                                resultstr = "合格";
                                 break;
                             }
                         case 1:
                             {
                                 MSG = "NG1";
+                                resultstr = "拍照留底不良";
                                 break;
                             }
                         case 2:
                             {
                                 MSG = "NG2";
+                                resultstr = "耐压测试不合格";
                                 break;
                             }
                         case 3:
                             {
                                 MSG = "NG3";
+                                resultstr = "阻值测试不合格";
                                 break;
                             }
                         case 4:
                             {
                                 MSG = "NG4";
+                                resultstr = "AOI测试不合格";
                                 break;
                             }
                     }
 
+                    writeLog($"数据校验2->结果:{resultstr}");
                     SendMsgRobot(MSG);
                     report(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, MSG);
 
