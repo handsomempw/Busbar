@@ -59,6 +59,8 @@ namespace BusbarCompressionSystem
                 var r6 = ps.Where(p => p.ParameterName == "测试电流");
                 var r7 = ps.Where(p => p.ParameterName == "充电电流下限");
                 var r8 = ps.Where(p => p.ParameterName == "测试频率");
+                var r9 = ps.Where(p => p.ParameterName == "极壳压力上限");
+                var r10 = ps.Where(p => p.ParameterName == "极壳压力下限");
 
                 string error = "缺少以下工艺参数:\r\n";
                 bool r = true;
@@ -103,6 +105,19 @@ namespace BusbarCompressionSystem
                     r = false;
                 }
 
+                if (r9.Count() == 0)
+                {
+                    error += "极壳压力下限\r\n";
+                    r = false;
+                }
+                if (r10.Count() == 0)
+                {
+                    error += "极壳压力上限\r\n";
+                    r = false;
+                }
+
+
+
                 if (r)
                 {
 
@@ -115,21 +130,22 @@ namespace BusbarCompressionSystem
                     vml.Main.DataModel.Processmodel.TVParameter.Low = Convert.ToSingle(r7.First().TargetValue);
                     vml.Main.DataModel.Processmodel.TVParameter.Freq = Convert.ToSingle(r8.First().TargetValue);
 
+                    vml.Main.DataModel.Processmodel.PressureParamter.Max_Pressure=Convert.ToSingle(r9.First().TargetValue);
+                    vml.Main.DataModel.Processmodel.PressureParamter.Min_Pressure=Convert.ToSingle(r10.First().TargetValue);
 
 
-
-                    var r11 = vml.Main.DataModel.Settingmodel.AT9620_1.Download();
-                    var r12 = vml.Main.DataModel.Settingmodel.AT9620_2.Download();
-                    var r13 = vml.Main.DataModel.Settingmodel.AT9620_3.Download();
-                    if (!r11.Success)
+                    var rd1 = vml.Main.DataModel.Settingmodel.AT9620_1.Download();
+                    var rd2 = vml.Main.DataModel.Settingmodel.AT9620_2.Download();
+                    var rd3 = vml.Main.DataModel.Settingmodel.AT9620_3.Download();
+                    if (!rd1.Success)
                     {
                         NoticeBox.Show("耐压工位1参数下发失败", "错误", MessageBoxIcon.Error);
                     }
-                    else if (!r12.Success)
+                    else if (!rd2.Success)
                     {
                         NoticeBox.Show("耐压工位2参数下发失败", "错误", MessageBoxIcon.Error);
                     }
-                    else if (!r13.Success)
+                    else if (!rd3.Success)
                     {
                         NoticeBox.Show("耐压工位3参数下发失败", "错误", MessageBoxIcon.Error);
                     }

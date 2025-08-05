@@ -77,6 +77,10 @@ namespace BusbarCompressionSystem.Model
 
         [XmlElement("阻值起始地址")]
         public int AddressRes { set; get; } = 1200;
+
+
+        [XmlElement("压力起始地址")]
+        public int AddressPressure{ set; get; } = 1600;
         #endregion
 
 

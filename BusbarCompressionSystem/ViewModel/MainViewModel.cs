@@ -651,6 +651,11 @@ namespace BusbarCompressionSystem.ViewModel
 
             float res = PLC_ReadFloat(DataModel.Settingmodel.AddressRes);
             DataModel.Processmodel.TVTestTestModel1.Res = res;
+
+            DataModel.Processmodel.TVTestTestModel1.TVMaxVoltage = 0;
+            DataModel.Processmodel.TVTestTestModel1.TVMaxCurrent = 0;
+
+
             var r = DataModel.Settingmodel.AT9620_1.Start();
 
             sqlite.UpdateTV(DataModel.Processmodel.TVTestTestModel1.Productinfo.WOCODE,
@@ -673,6 +678,7 @@ namespace BusbarCompressionSystem.ViewModel
                 DataModel.Settingmodel.SETTING_DATA.TVMeterID1
                 );
 
+            //if (r.Success)
             if (!r.Success)
             {
                 DataModel.Settingmodel.Sqlserver.Save_TVProcessData(
@@ -706,7 +712,12 @@ namespace BusbarCompressionSystem.ViewModel
             }
             float res = PLC_ReadFloat(DataModel.Settingmodel.AddressRes + 1 * 2);
             DataModel.Processmodel.TVTestTestModel2.Res = res;
+            DataModel.Processmodel.TVTestTestModel2.TVMaxVoltage = 0;
+            DataModel.Processmodel.TVTestTestModel2.TVMaxCurrent = 0;
             var r = DataModel.Settingmodel.AT9620_2.Start();
+
+
+
             sqlite.UpdateTV(DataModel.Processmodel.TVTestTestModel2.Productinfo.WOCODE,
                DataModel.Processmodel.TVTestTestModel2.Productinfo.PartNOID,
                DataModel.Processmodel.TVTestTestModel2.Productinfo.SN,
@@ -747,7 +758,12 @@ namespace BusbarCompressionSystem.ViewModel
             //DataModel.Processmodel.TVTestTestModel3.Productinfo.SN = s;
             float res = PLC_ReadFloat(DataModel.Settingmodel.AddressRes + 2 * 2);
             DataModel.Processmodel.TVTestTestModel3.Res = res;
+            DataModel.Processmodel.TVTestTestModel3.TVMaxVoltage = 0;
+            DataModel.Processmodel.TVTestTestModel3.TVMaxCurrent = 0;
+
             var r = DataModel.Settingmodel.AT9620_3.Start();
+
+
             sqlite.UpdateTV(DataModel.Processmodel.TVTestTestModel3.Productinfo.WOCODE,
                DataModel.Processmodel.TVTestTestModel3.Productinfo.PartNOID,
                DataModel.Processmodel.TVTestTestModel3.Productinfo.SN,
@@ -795,6 +811,30 @@ namespace BusbarCompressionSystem.ViewModel
             }
             catch (Exception ex) { }
         }
+        private void updatepressure(string SN, float Pressure_Average, float Pressure_Max, bool Pressure_Result)
+        {
+            try
+            {
+
+                App.Current.Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    foreach (var p in DataModel.Recordmodel.ProductInfoRecords)
+                    {
+                        if (p.Productinfo.SN == SN)
+                        {
+                            p.Pressure_Average = Pressure_Average;
+                            p.Pressure_Max = Pressure_Max;
+                            p.Pressure_Result = Pressure_Result;
+
+                            break;
+                        }
+                    }
+                }));
+            }
+            catch (Exception ex) { }
+        }
+
+
         private void updatetakephoto2(string SN, bool result, DateTime dt)
         {
             try
@@ -885,6 +925,34 @@ namespace BusbarCompressionSystem.ViewModel
             }
 
             return false;
+        }
+
+        public UInt16 PLC_ReadUint16(int address)
+        {
+            ModbusTcpNet modbusTcp = new ModbusTcpNet();
+            try
+            {
+                modbusTcp.ConnectTimeOut = 1;
+                modbusTcp.ReceiveTimeOut = 1;
+                modbusTcp.IpAddress = DataModel.Settingmodel.PLC_IP;
+                modbusTcp.Port = DataModel.Settingmodel.PLC_Port;
+                modbusTcp.DataFormat = HslCommunication.Core.DataFormat.CDAB;
+                var connectresult = modbusTcp.ConnectServer();
+
+                if (connectresult.IsSuccess)
+                {
+                    var r = modbusTcp.ReadUInt16(address.ToString(), 1);
+                    modbusTcp.ConnectClose();
+                    if (r.IsSuccess)
+                    { return r.Content[0]; }
+                }
+            }
+            catch
+            {
+                ;
+            }
+            return 0;
+
         }
         public float PLC_ReadFloat(int address)
         {
@@ -1076,9 +1144,6 @@ namespace BusbarCompressionSystem.ViewModel
             DataModel.Settingmodel.camedata4.init2();
             DataModel.Settingmodel.camedata5.init2();
 
-
-
-
             start();
         }
 
@@ -1089,7 +1154,6 @@ namespace BusbarCompressionSystem.ViewModel
             DataModel.Settingmodel.camedata3.closing($"{Environment.CurrentDirectory}\\配置\\相机配置3.xml");
             DataModel.Settingmodel.camedata4.closing($"{Environment.CurrentDirectory}\\配置\\相机配置4.xml");
             DataModel.Settingmodel.camedata5.closing($"{Environment.CurrentDirectory}\\配置\\相机配置5.xml");
-
         }
 
         #endregion
@@ -1933,6 +1997,7 @@ namespace BusbarCompressionSystem.ViewModel
                 }
                 else if (cmd == "CHECK1")
                 {
+                    #region 读取产品编号
                     string s = PLC_Readstring(DataModel.Settingmodel.AddressSN + 25 * 4);
                     string[] ss = s.Split(';');
                     if (ss.Length == 2)
@@ -1948,10 +2013,28 @@ namespace BusbarCompressionSystem.ViewModel
                     }
                     else
                     {
-
                         writeLog($"视觉检测产品编号读取错误:{s}");
-
                     }
+
+                    #endregion
+
+
+                    #region 读取压力数据
+                    float AveragePressure = PLC_ReadUint16(DataModel.Settingmodel.AddressPressure);
+                    float MaxPressure = PLC_ReadUint16(DataModel.Settingmodel.AddressPressure + 2);
+                    float MinPressure = PLC_ReadUint16(DataModel.Settingmodel.AddressPressure + 4);
+
+                    bool PressureResult = MaxPressure <= DataModel.Processmodel.PressureParamter.Max_Pressure && MinPressure >= DataModel.Processmodel.PressureParamter.Min_Pressure;
+
+                    sqlite.UpdatePressure(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE,
+                        DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID,
+                        DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN,
+                        MaxPressure, AveragePressure, PressureResult);
+                    updatepressure(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, AveragePressure, MaxPressure, PressureResult);
+
+
+                    #endregion
+
 
                     var r = sqlite.Check1(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN);
                     string MSG = "NG1";

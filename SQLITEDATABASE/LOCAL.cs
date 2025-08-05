@@ -49,6 +49,24 @@ namespace SQLITEDATABASE
             {; }
             return false;
         }
+
+
+        public static bool UpdatePressure(string WOCODE, string PARTNOID, string SN,float MaxPressure,float AveragePressure,bool PressureResult)
+        {
+            try
+            {
+                string _connstr = CheckDataBase(WOCODE, PARTNOID, SN);
+
+                if (!string.IsNullOrEmpty(_connstr))
+                {        
+                    string sql = $"UPDATE BusbarCompressionData SET PRESSURE_RESULT ={(PressureResult ? 1 : 0)},PRESSURE_MAX={MaxPressure},PRESSURE_AVERAGE={AveragePressure} WHERE id=(SELECT max(id) from BusbarCompressionData WHERE sn='{SN}')";
+                    int c = excute_sql(sql, _connstr);
+                    return c > 0;
+                }
+            }
+            catch {; }
+            return false;
+        }
         public static bool UpdateTV(string WOCODE, string PARTNOID, string SN, float RES, float MaxVoltage, bool TVResult, float MaxCurrent,  string TVInfo, string TVMeterID)
         {
 
@@ -58,7 +76,7 @@ namespace SQLITEDATABASE
 
                 if (!string.IsNullOrEmpty(_connstr))
                 {
-                    string sql = $"UPDATE BusbarCompressionData SET RES={RES},TVMAXVOLTAGE={MaxVoltage},TVMAXCURRENT={MaxCurrent},TVRESULT={(TVResult ? 1 : 0)},TVNeterID={TVMeterID},TVInfo={TVInfo}, WHERE id=(SELECT max(id) from BusbarCompressionData WHERE sn='{SN}')";
+                    string sql = $"UPDATE BusbarCompressionData SET RES={RES},TVMAXVOLTAGE={MaxVoltage},TVMAXCURRENT={MaxCurrent},TVRESULT={(TVResult ? 1 : 0)},TVMeterID='{TVMeterID}',TVInfo='{TVInfo}' WHERE id=(SELECT max(id) from BusbarCompressionData WHERE sn='{SN}')";
                     int c = excute_sql(sql, _connstr);
                     return c > 0;
                 }

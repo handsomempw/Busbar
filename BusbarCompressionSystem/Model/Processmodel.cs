@@ -25,6 +25,10 @@ namespace BusbarCompressionSystem.Model
 
         public AT9620.TVParameter TVParameter { set; get; } = new AT9620.TVParameter();
 
+        public PressureParamter PressureParamter { set; get; } = new PressureParamter();
+
+        public ResParameter ResParameter { set; get; } = new ResParameter();
+
         #endregion
 
         #region 测试数据
@@ -61,4 +65,16 @@ namespace BusbarCompressionSystem.Model
         #endregion
 
     }
+
+    public class PressureParamter : ObservableObject
+    {
+        public float Max_Pressure { set; get; } = 1100;
+        public float Min_Pressure { set; get; } = 950;
+    }
+    public class ResParameter : ObservableObject
+    {
+        public float Max_Res { set; get; } = 20;
+        public float Min_Res { set; get; } = 14;
+    }
+
 }

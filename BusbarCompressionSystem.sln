@@ -23,6 +23,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PositionDetect", "PositionD
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "F7DataBase", "F7DataBase\F7DataBase.csproj", "{557F5928-B92C-4C3D-B0B2-ED006252C63C}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SystemFree", "SystemFree\SystemFree.csproj", "{B47ED199-6CB5-46AD-A4D9-FE53D6DF7EC4}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SystemFreeTest", "SystemFreeTest\SystemFreeTest.csproj", "{C647729A-C147-407C-BE68-BAFCCA081580}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -69,6 +73,14 @@ Global
 		{557F5928-B92C-4C3D-B0B2-ED006252C63C}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{557F5928-B92C-4C3D-B0B2-ED006252C63C}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{557F5928-B92C-4C3D-B0B2-ED006252C63C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B47ED199-6CB5-46AD-A4D9-FE53D6DF7EC4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B47ED199-6CB5-46AD-A4D9-FE53D6DF7EC4}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B47ED199-6CB5-46AD-A4D9-FE53D6DF7EC4}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B47ED199-6CB5-46AD-A4D9-FE53D6DF7EC4}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C647729A-C147-407C-BE68-BAFCCA081580}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C647729A-C147-407C-BE68-BAFCCA081580}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C647729A-C147-407C-BE68-BAFCCA081580}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C647729A-C147-407C-BE68-BAFCCA081580}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

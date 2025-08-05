@@ -225,10 +225,10 @@ namespace AT9620
                     continue;
                 }
             }
-            if(!r.Success)
-            {
-                r.Recordstr = strrecord;
-            }
+            //if(!r.Success)
+            //{
+            r.Recordstr = strrecord;
+            //}
             return r;
 
 
@@ -349,7 +349,7 @@ namespace AT9620
             var re = Get_String("Fetch?\n");
             if (re.Success)
             {
-                strrecord += re.Value;
+                strrecord += re.Value + "/";
                 string[] ss = re.Value.Split(',');
                 if (ss.Length == 6)
                 {

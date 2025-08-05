@@ -137,8 +137,17 @@ namespace BusbarCompressionSystem
             new Thread(() =>
             {
                 vml.Main.DataModel.Settingmodel.AT9620_1.Start();
+                vml.Main.DataModel.Processmodel.TVTestTestModel1.TVMaxVoltage = 0;
+                vml.Main.DataModel.Processmodel.TVTestTestModel1.TVMaxCurrent = 0;
+
+
                 vml.Main.DataModel.Settingmodel.AT9620_2.Start();
+                vml.Main.DataModel.Processmodel.TVTestTestModel2.TVMaxVoltage = 0;
+                vml.Main.DataModel.Processmodel.TVTestTestModel2.TVMaxCurrent = 0;
+
                 vml.Main.DataModel.Settingmodel.AT9620_3.Start();
+                vml.Main.DataModel.Processmodel.TVTestTestModel3.TVMaxVoltage = 0;
+                vml.Main.DataModel.Processmodel.TVTestTestModel3.TVMaxCurrent = 0;
 
             }).Start();
 
@@ -209,7 +218,7 @@ namespace BusbarCompressionSystem
 
         private void check1_Click(object sender, RoutedEventArgs e)
         {
-            sqlite.Check1("N2T050A510-2", "BTBBC3607861D001", "MT01736413");
+            sqlite.Check1("N2T070A446", "BTBBC3623562D001", "MT03956915");
         }
 
 
