@@ -154,6 +154,9 @@
     <Compile Include="Model\Setting1\SETTING_DATA.cs" />
     <Compile Include="Model\Setting1\TcpSetting.cs" />
     <Compile Include="Model\SettingModel.cs" />
+    <Compile Include="SettingForm.xaml.cs">
+      <DependentUpon>SettingForm.xaml</DependentUpon>
+    </Compile>
     <Compile Include="ViewModel\MainViewModel.cs" />
     <Compile Include="ViewModel\MainViewModel_FaraVision.cs" />
     <Compile Include="ViewModel\ViewModelLocator.cs" />
@@ -196,6 +199,10 @@
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Include="Model\FaraVision\newPrj.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="SettingForm.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>

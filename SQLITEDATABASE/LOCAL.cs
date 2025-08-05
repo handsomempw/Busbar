@@ -13,7 +13,7 @@ namespace SQLITEDATABASE
 {
     public partial class sqlite
     {
-        public static bool CREATENEWLINE(string WOCODE, string PARTNOID, string SN, String STATIONCODE, string EQUIPMENTID)
+        public static bool CREATENEWLINE(string WOCODE, string PARTNOID, string SN, String STATIONCODE, string EQUIPMENTID,DateTime dt)
         {
             try
             {
@@ -21,9 +21,7 @@ namespace SQLITEDATABASE
 
                 if (!string.IsNullOrEmpty(_connstr))
                 {
-
-                    string sql = $"INSERT INTO BusbarCompressionData(PARTNOID,WOCODE,SN,EQUIPMENTID,STATIONCODE)VALUES('{PARTNOID}','{WOCODE}','{SN}','{STATIONCODE}','{EQUIPMENTID}')";
-
+                    string sql = $"INSERT INTO BusbarCompressionData(PARTNOID,WOCODE,SN,EQUIPMENTID,STATIONCODE,DATETIME)VALUES('{PARTNOID}','{WOCODE}','{SN}','{STATIONCODE}','{EQUIPMENTID}','{dt}')";
                     int c = excute_sql(sql, _connstr);
                     return c > 0;
                 }
@@ -51,7 +49,7 @@ namespace SQLITEDATABASE
         }
 
 
-        public static bool UpdatePressure(string WOCODE, string PARTNOID, string SN,float MaxPressure,float AveragePressure,bool PressureResult)
+        public static bool UpdatePressure(string WOCODE, string PARTNOID, string SN,float AveragePressure, float MaxPressure, float MinPressure,bool PressureResult)
         {
             try
             {
@@ -59,7 +57,7 @@ namespace SQLITEDATABASE
 
                 if (!string.IsNullOrEmpty(_connstr))
                 {        
-                    string sql = $"UPDATE BusbarCompressionData SET PRESSURE_RESULT ={(PressureResult ? 1 : 0)},PRESSURE_MAX={MaxPressure},PRESSURE_AVERAGE={AveragePressure} WHERE id=(SELECT max(id) from BusbarCompressionData WHERE sn='{SN}')";
+                    string sql = $"UPDATE BusbarCompressionData SET PRESSURE_RESULT ={(PressureResult ? 1 : 0)},PRESSURE_MAX={MaxPressure},PRESSURE_AVERAGE={AveragePressure},PRESSURE_MIN={MinPressure} WHERE id=(SELECT max(id) from BusbarCompressionData WHERE sn='{SN}')";
                     int c = excute_sql(sql, _connstr);
                     return c > 0;
                 }

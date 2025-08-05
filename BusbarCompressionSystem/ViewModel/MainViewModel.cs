@@ -237,7 +237,7 @@ namespace BusbarCompressionSystem.ViewModel
                 //DataModel.Processmodel.TakePhotoTestModel.Productinfo.WOCODE = wocode;
                 //DataModel.Processmodel.TakePhotoTestModel.Productinfo.PartNOID = partnoid;
                 PLC_Writestring(DataModel.Settingmodel.AddressSN.ToString(), $"{sn};{wocode}");
-                SQLITEDATABASE.sqlite.CREATENEWLINE(wocode, partnoid, sn, DataModel.Settingmodel.SETTING_DATA.StationCode, DataModel.Settingmodel.SETTING_DATA.MachineID);
+                sqlite.CREATENEWLINE(wocode, partnoid, sn, DataModel.Settingmodel.SETTING_DATA.StationCode, DataModel.Settingmodel.SETTING_DATA.MachineID, DateTime.Now);
                 return string.Empty;
 
             }
@@ -342,6 +342,9 @@ namespace BusbarCompressionSystem.ViewModel
 
         #endregion
         #region PLC通讯
+
+
+
         public void PLC_Start()
         {
             Thread t = new Thread(PLC_Process);
@@ -499,6 +502,28 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
 
+        public void PLC_shankhand()
+        {
+
+            new Thread(() =>
+            {
+                while (true)
+                {
+                    Thread.Sleep(1500);
+                    try
+                    {
+                        PLC_ReadTVAvailable();
+                    }
+                    catch (Exception e)
+                    { continue; }
+
+                }
+            }).Start();
+
+        }
+
+
+
         public void ScannerProcess()
         {
             if (DataModel.Settingmodel.ScannerMode == "HF800")
@@ -620,6 +645,8 @@ namespace BusbarCompressionSystem.ViewModel
             {
                 ProductInfoRecord p = new ProductInfoRecord()
                 {
+                    StationCode=DataModel.Settingmodel.SETTING_DATA.StationCode,
+                    EQUIPMENTID=DataModel.Settingmodel.SETTING_DATA.MachineID,
                     Productinfo = DataModel.Processmodel.TakePhotoTestModel.Productinfo,
                     TakePhoto1 = takephoto1
                 };
@@ -811,7 +838,7 @@ namespace BusbarCompressionSystem.ViewModel
             }
             catch (Exception ex) { }
         }
-        private void updatepressure(string SN, float Pressure_Average, float Pressure_Max, bool Pressure_Result)
+        private void updatepressure(string SN, UInt16 Pressure_Average, UInt16 Pressure_Max, UInt16 Pressure_Min, bool Pressure_Result)
         {
             try
             {
@@ -824,6 +851,7 @@ namespace BusbarCompressionSystem.ViewModel
                         {
                             p.Pressure_Average = Pressure_Average;
                             p.Pressure_Max = Pressure_Max;
+                            p.Pressure_Min = Pressure_Min;
                             p.Pressure_Result = Pressure_Result;
 
                             break;
@@ -833,6 +861,20 @@ namespace BusbarCompressionSystem.ViewModel
             }
             catch (Exception ex) { }
         }
+
+
+        public bool Download_PressureParameter()
+        {
+            try
+            {
+                var r1 = PLC_write(DataModel.Settingmodel.MaxPressure_Address.ToString(), (UInt16)DataModel.Processmodel.PressureParamter.Max_Pressure);
+                var r2 = PLC_write(DataModel.Settingmodel.MinPressure_Address.ToString(), (UInt16)DataModel.Processmodel.PressureParamter.Min_Pressure);
+                return r1 & r2;
+            }
+            catch {; }
+            return false;
+        }
+
 
 
         private void updatetakephoto2(string SN, bool result, DateTime dt)
@@ -1033,6 +1075,45 @@ namespace BusbarCompressionSystem.ViewModel
             }
             return false;
 
+        }
+
+        public bool PLC_ReadTVAvailable()
+        {
+
+            ModbusTcpNet modbusTcp = new ModbusTcpNet();
+            try
+            {
+                modbusTcp.ConnectTimeOut = 1;
+                modbusTcp.ReceiveTimeOut = 1;
+                modbusTcp.IpAddress = DataModel.Settingmodel.PLC_IP;
+                modbusTcp.Port = DataModel.Settingmodel.PLC_Port;
+                modbusTcp.DataFormat = HslCommunication.Core.DataFormat.CDAB;
+                var connectresult = modbusTcp.ConnectServer();
+
+                if (connectresult.IsSuccess)
+                {
+                    var r1 = modbusTcp.ReadCoil(DataModel.Settingmodel.Meter1AvailableAddress.ToString(), 1);
+                    var r2 = modbusTcp.ReadCoil(DataModel.Settingmodel.Meter2AvailableAddress.ToString(), 1);
+                    var r3 = modbusTcp.ReadCoil(DataModel.Settingmodel.Meter3AvailableAddress.ToString(), 1);
+                    modbusTcp.Write(DataModel.Settingmodel.ShankHandAddress.ToString(), (UInt16)1);
+                    modbusTcp.Write(DataModel.Settingmodel.DeviceAvailableAddress.ToString(), DataModel.Processmodel.allow_start);
+                    modbusTcp.ConnectClose();
+                    if (r1.IsSuccess)
+                    {
+                        DataModel.Processmodel.TVAvailable.TV1Available = r1.Content[0];
+                        DataModel.Processmodel.TVAvailable.TV2Available = r2.Content[0];
+                        DataModel.Processmodel.TVAvailable.TV3Available = r3.Content[0];
+                    }
+
+                    return r1.IsSuccess & r2.IsSuccess & r3.IsSuccess;
+                }
+            }
+            catch
+            {
+                ;
+            }
+
+            return false;
         }
 
         #endregion
@@ -2020,18 +2101,17 @@ namespace BusbarCompressionSystem.ViewModel
 
 
                     #region 读取压力数据
-                    float AveragePressure = PLC_ReadUint16(DataModel.Settingmodel.AddressPressure);
-                    float MaxPressure = PLC_ReadUint16(DataModel.Settingmodel.AddressPressure + 2);
-                    float MinPressure = PLC_ReadUint16(DataModel.Settingmodel.AddressPressure + 4);
+                    UInt16 AveragePressure = PLC_ReadUint16(DataModel.Settingmodel.AddressPressure);
+                    UInt16 MaxPressure = PLC_ReadUint16(DataModel.Settingmodel.AddressPressure + 2);
+                    UInt16 MinPressure = PLC_ReadUint16(DataModel.Settingmodel.AddressPressure + 4);
 
                     bool PressureResult = MaxPressure <= DataModel.Processmodel.PressureParamter.Max_Pressure && MinPressure >= DataModel.Processmodel.PressureParamter.Min_Pressure;
 
                     sqlite.UpdatePressure(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE,
                         DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID,
                         DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN,
-                        MaxPressure, AveragePressure, PressureResult);
-                    updatepressure(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, AveragePressure, MaxPressure, PressureResult);
-
+                       AveragePressure, MaxPressure, MinPressure, PressureResult);
+                    updatepressure(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, AveragePressure, MaxPressure, MinPressure, PressureResult);
 
                     #endregion
 
@@ -2075,7 +2155,27 @@ namespace BusbarCompressionSystem.ViewModel
 
                     if (MSG != "OK")
                     {
-                        report(ss[1], ss[0], MSG);
+
+
+
+                        #region 保存过程数据到服务器
+
+                        foreach (var pi in DataModel.Recordmodel.ProductInfoRecords)
+                        {
+                            if (DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN == pi.Productinfo.SN)
+                            {
+                                MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.SaveBusBarData(
+                                   DataModel.Settingmodel.SETTING_DATA.StationCode, DataModel.Settingmodel.SETTING_DATA.MachineID, pi.Productinfo.PartNOID, pi.Productinfo.WOCODE, pi.Productinfo.SN,
+                                    pi.TakePhoto1, pi.Res, pi.TVMaxVoltage, pi.TVMaxCurrent, pi.TVMeterID, pi.TVInfo, pi.TVResult,
+                                    pi.Pressure_Max, pi.Pressure_Average, pi.Pressure_Min, pi.Pressure_Result, pi.AppearanceInspection, resultstr);
+                                break;
+                            }
+                        }
+                        #endregion
+                        #region 汇报结果数据
+                        report(ss[1], ss[0], resultstr);
+                        #endregion
+
                     }
 
                     writeLog($"数据校验1->结果:{resultstr}");
@@ -2125,7 +2225,25 @@ namespace BusbarCompressionSystem.ViewModel
 
                     writeLog($"数据校验2->结果:{resultstr}");
                     SendMsgRobot(MSG);
-                    report(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, MSG);
+
+                    #region 保存过程数据到服务器
+
+                    foreach (var pi in DataModel.Recordmodel.ProductInfoRecords)
+                    {
+                        if (DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN == pi.Productinfo.SN)
+                        {
+                            MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.SaveBusBarData(
+                            DataModel.Settingmodel.SETTING_DATA.StationCode, DataModel.Settingmodel.SETTING_DATA.MachineID, pi.Productinfo.PartNOID, pi.Productinfo.WOCODE, pi.Productinfo.SN,
+                            pi.TakePhoto1, pi.Res, pi.TVMaxVoltage, pi.TVMaxCurrent, pi.TVMeterID, pi.TVInfo, pi.TVResult,
+                            pi.Pressure_Max, pi.Pressure_Average, pi.Pressure_Min, pi.Pressure_Result, pi.AppearanceInspection, resultstr);
+                            break;
+                        }
+                    }
+
+                    #endregion
+                    #region 汇报结果数据                    
+                    report(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, resultstr);
+                    #endregion
 
                 }
 

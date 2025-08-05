@@ -939,6 +939,27 @@ namespace MES_ORACLE_DATABASE
             return false;
         }
 
+        public static bool SaveBusBarData(string STATIONCODE, string EQUIPMENTID, string PARTNOID, string WOCODE, string SN,
+           bool TAKEPHOTO1, float RES, float TVMAXVOLTAGE, float TVMAXCURRENT, string TVMETERID, string TVINFO, bool TVRESULT,
+           UInt16 PRESSURE_MAX, UInt16 PRESSURE_AVERAGE, UInt16 PRESSURE_MIN, bool PRESSURE_RESULT,
+           bool TAKEPHOTO2, string RESULT)
+        {
+            try
+            {
+
+                string sql = $"INSERT INTO SCADA_MES.\"BusbarCompressionData\" (STATIONCODE, EQUIPMENTID, PARTNOID, WOCODE, SN, TAKEPHOTO1, RES, TVMAXVOLTAGE, TVMAXCURRENT, TVMETERID, TVINFO, TVRESULT, PRESSURE_MAX, PRESSURE_AVERAGE, PRESSURE_MIN, PRESSURE_RESULT, TAKEPHOTO2,  RESULT) VALUES " +
+                    $"('{STATIONCODE}', '{EQUIPMENTID}', '{PARTNOID}', '{WOCODE}','{SN}', " +
+                    $"{(TAKEPHOTO1?1:0)}, {RES},{TVMAXVOLTAGE}, {TVMAXCURRENT},'{TVMETERID}','{TVINFO}',{(TVRESULT?1:0)}," +
+                    $"{PRESSURE_MAX}, {PRESSURE_AVERAGE},{PRESSURE_MIN}, {(PRESSURE_RESULT ? 1 : 0)}," +
+                    $"{(TAKEPHOTO2 ? 1 : 0)}, '{RESULT}')";
+                return excutesql_mes(sql);
+            }
+            catch { return false; }
+        }
+
+
+
+
 
         //public static bool GetSNbyMSN(string MSN, out string SN)
         //{

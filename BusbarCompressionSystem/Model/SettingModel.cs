@@ -81,6 +81,31 @@ namespace BusbarCompressionSystem.Model
 
         [XmlElement("压力起始地址")]
         public int AddressPressure{ set; get; } = 1600;
+
+
+        [XmlElement("压力上限地址")]
+        public int MaxPressure_Address { set; get; } = 2038;
+        [XmlElement("压力下限地址")]
+        public int MinPressure_Address { set; get; } = 2048;
+
+        [XmlElement("仪器1启用地址")]
+        public int Meter1AvailableAddress { set; get; } = 3012;
+        [XmlElement("仪器2启用地址")]
+        public int Meter2AvailableAddress { set; get; } = 3022; 
+        [XmlElement("仪器3启用地址")]
+        public int Meter3AvailableAddress { set; get; } = 3032;
+
+        [XmlElement("阻值上限地址")]
+        public int Res_Max_Address { set; get; } = 2020;
+        [XmlElement("阻值下限地址")]
+        public int Res_Min_Address { set; get; } = 2022;
+
+        [XmlElement("设备是否允许启动")]
+        public int  DeviceAvailableAddress{ set; get; } = 1620;
+
+        [XmlElement("设备心跳地址")]
+        public int ShankHandAddress { set; get; } = 1622;
+
         #endregion
 
 
@@ -114,6 +139,13 @@ namespace BusbarCompressionSystem.Model
         高电平,
         低电平
     }
+
+    public enum TVMeterType
+    {
+        AT9620,
+        SE7450
+    }
+
 
     public class IO : ObservableObject
     {

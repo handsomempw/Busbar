@@ -45,14 +45,24 @@
                 </Menu>
 
 
+                <TextBlock Grid.Column="1" VerticalAlignment="Center" FontSize="20" 
+                           Text="{Binding Source={StaticResource Locator},Path=Main.DataModel.Processmodel.PartNOID}"/>
+
+
+                <Button Grid.Column="5" p:WindowX.IsDragMoveArea="False" 
+                        Margin="5" Height="30" Width="30" FontSize="18" 
+                        FontFamily="{StaticResource PanuonIconFont}"
+                        Background="Black" Foreground="White"
+                        p:ButtonHelper.CornerRadius="15"
+                       Content="&#xe98f;" Click="Button_Click_4" />
+
                 <Button Grid.Column="6" p:WindowX.IsDragMoveArea="False" 
                         Margin="5" Height="30" Width="30" FontSize="18" 
                         FontFamily="{StaticResource PanuonIconFont}"
                         Background="OrangeRed" Foreground="White"
                         p:ButtonHelper.CornerRadius="15"
                        Content="&#xe98f;" Click="Button_Click_3" />
-                <TextBlock Grid.Column="1" VerticalAlignment="Center" FontSize="20" 
-                           Text="{Binding Source={StaticResource Locator},Path=Main.DataModel.Processmodel.PartNOID}"/>
+
                 <Button p:WindowX.IsDragMoveArea="False" Grid.Column="8" Margin="5" p:ButtonHelper.CornerRadius="50" 
                         Background="{Binding Source={StaticResource Locator},Path=Main.DataModel.FaraVisionDataModel.Settingmodel.permission,Converter={StaticResource Bool2SolidColor_Converter}}" 
                    Foreground="WhiteSmoke"  Name="permissionbtn" Click="permissionbtn_Click"
@@ -95,9 +105,9 @@
         <halcon:HSmartWindowControlWPF Grid.Row="1" Grid.Column="0" Margin="5" Name="Hwindow1" ></halcon:HSmartWindowControlWPF>
         <halcon:HSmartWindowControlWPF Grid.Row="2" Grid.Column="0" Margin="5" Name="Hwindow2" ></halcon:HSmartWindowControlWPF>
         <halcon:HSmartWindowControlWPF Grid.Row="3" Grid.Column="0" Margin="5" Name="Hwindow3" ></halcon:HSmartWindowControlWPF>
-        <control:TVTestControl Grid.Row="1" Grid.Column="1" Margin="5" DataContext="{Binding Processmodel.TVTestTestModel1}" />
-        <control:TVTestControl Grid.Row="2" Grid.Column="1" Margin="5" DataContext="{Binding Processmodel.TVTestTestModel2}" />
-        <control:TVTestControl Grid.Row="3" Grid.Column="1" Margin="5" DataContext="{Binding Processmodel.TVTestTestModel3}" />
+        <control:TVTestControl Grid.Row="1" Grid.Column="1" Margin="5" DataContext="{Binding Processmodel.TVTestTestModel1}" IsEnabled="{Binding Source={StaticResource Locator},Path=Main.DataModel.Processmodel.TVAvailable.TV1Available}" />
+        <control:TVTestControl Grid.Row="2" Grid.Column="1" Margin="5" DataContext="{Binding Processmodel.TVTestTestModel2}" IsEnabled="{Binding Source={StaticResource Locator},Path=Main.DataModel.Processmodel.TVAvailable.TV2Available}" />
+        <control:TVTestControl Grid.Row="3" Grid.Column="1" Margin="5" DataContext="{Binding Processmodel.TVTestTestModel3}" IsEnabled="{Binding Source={StaticResource Locator},Path=Main.DataModel.Processmodel.TVAvailable.TV3Available}" />
 
 
         <GroupBox Grid.Row="0" Grid.Column="0" Margin="2" Header="①扫码拍照" BorderBrush="Orange" p:GroupBoxHelper.HeaderForeground="Orange">
@@ -473,8 +483,8 @@
         </GroupBox>
 
         <WrapPanel Grid.Row="5" Grid.ColumnSpan="5">
-            <Button Click="Button_Click_2">耐压1参数下发</Button>
-            <Button Click="Button_Click_1">开始耐压1测试</Button>
+            <Button Click="Button_Click_2" Visibility="Collapsed">耐压1参数下发</Button>
+            <Button Click="Button_Click_1" Visibility="Collapsed">开始耐压1测试</Button>
             <TextBlock Text="{Binding Processmodel.Scan_Trig_IO.IOstatus}"  Background="{Binding Processmodel.Scan_Trig_IO.IOstatusBackGround}" Foreground="{Binding Processmodel.Scan_Trig_IO.IOStatusForeGround}" Padding="10,2" ToolTip="扫码触发信号" />
             <TextBlock Text="{Binding Processmodel.TakePhoto1_Trig_IO.IOstatus}"  Background="{Binding Processmodel.TakePhoto1_Trig_IO.IOstatusBackGround}" Foreground="{Binding Processmodel.TakePhoto1_Trig_IO.IOStatusForeGround}" Padding="10,2" ToolTip="拍照留底触发信号" />
             <TextBlock Text="{Binding Processmodel.TV1_Trig_IO.IOstatus}"  Background="{Binding Processmodel.TV1_Trig_IO.IOstatusBackGround}" Foreground="{Binding Processmodel.TV1_Trig_IO.IOStatusForeGround}" Padding="10,2" ToolTip="耐压1触发信号"/>
@@ -484,7 +494,8 @@
 
             <TextBlock Text="{Binding Processmodel.CMD,StringFormat=命令:{0}}" Margin="20,0"/>
 
-            <Button x:Name="check1" Click="check1_Click" >check1</Button>
+            <Button x:Name="check1" Click="check1_Click" Visibility="Collapsed">check1</Button>
+            <Button x:Name="REPORT2MES" Click="REPORT2MES_Click">汇报数据到中间库</Button>
 
             <StackPanel Orientation="Horizontal">
                 <TextBlock Margin="10,2" Text="{Binding Settingmodel.SETTING_DATA.MachineID}" ToolTip="设备编号"/>
@@ -493,11 +504,15 @@
             </StackPanel>
 
 
+
             <StackPanel Orientation="Horizontal" Margin="50,0">
-                <TextBlock Margin="10,2" Text="{Binding Settingmodel.SETTING_DATA.TVMeterID1}" ToolTip="耐压1仪器编号"/>
-                <TextBlock Margin="10,2" Text="{Binding Settingmodel.SETTING_DATA.TVMeterID2}" ToolTip="耐压2仪器编号"/>
-                <TextBlock Margin="10,2" Text="{Binding Settingmodel.SETTING_DATA.TVMeterID3}" ToolTip="耐压3仪器编号"/>
+                <CheckBox Margin="10,2"  IsChecked="{Binding  Processmodel.TVAvailable.TV1Available}"  Content="{Binding Settingmodel.SETTING_DATA.TVMeterID1}" ToolTip="耐压1仪器启用状态"/>
+                <CheckBox Margin="10,2"  IsChecked="{Binding  Processmodel.TVAvailable.TV2Available}"  Content="{Binding Settingmodel.SETTING_DATA.TVMeterID2}" ToolTip="耐压2仪器启用状态"/>
+                <CheckBox Margin="10,2"  IsChecked="{Binding  Processmodel.TVAvailable.TV3Available}"  Content="{Binding Settingmodel.SETTING_DATA.TVMeterID3}" ToolTip="耐压3仪器启用状态"/>
+                <TextBlock  Text="{Binding Processmodel.CheckData.TVMeterCheckTime}" ToolTip="仪器扫描时间" VerticalAlignment="Center" Margin="10,2"></TextBlock>
+
             </StackPanel>
+
         </WrapPanel>
 
         <Grid Grid.Row="4" Grid.ColumnSpan="5">
@@ -527,14 +542,14 @@
                     <DataGridTextColumn Header="TV最大电压" Binding="{Binding TVMaxCurrent}"></DataGridTextColumn>
                     <DataGridTextColumn Header="TV信息" Binding="{Binding TVInfo}"></DataGridTextColumn>
                     <DataGridTextColumn Header="TV仪器编号" Binding="{Binding TVMeterID}"></DataGridTextColumn>
-                  
-                    
+
+
                     <DataGridTextColumn Header="阻值" Binding="{Binding Res}"></DataGridTextColumn>
 
                     <DataGridTextColumn Header="压力最大值" Binding="{Binding Pressure_Max}"></DataGridTextColumn>
-                    <DataGridTextColumn Header="压力峰值" Binding="{Binding Pressure_Average}"></DataGridTextColumn>
+                    <DataGridTextColumn Header="压力均值" Binding="{Binding Pressure_Average}"></DataGridTextColumn>
+                    <DataGridTextColumn Header="压力最小值" Binding="{Binding  Pressure_Min}"></DataGridTextColumn>
                     <DataGridTextColumn Header="压力结果" Binding="{Binding Pressure_Result}"></DataGridTextColumn>
-                    <DataGridTextColumn Header="阻值" Binding="{Binding Res}"></DataGridTextColumn>
 
 
                     <DataGridTextColumn Header="视觉检测结果" Binding="{Binding AppearanceInspection}"></DataGridTextColumn>

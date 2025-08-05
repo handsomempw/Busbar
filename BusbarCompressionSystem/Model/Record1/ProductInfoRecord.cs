@@ -30,8 +30,10 @@ namespace BusbarCompressionSystem.Model.Record
         public bool AppearanceInspection { set; get; } = false;
         public DateTime DateTime { set; get; } = DateTime.Now;
 
-        public float Pressure_Max { set; get; }
-        public float Pressure_Average { set; get; }
+        public UInt16 Pressure_Max { set; get; }
+        public UInt16 Pressure_Average { set; get; }
+        public UInt16 Pressure_Min { set; get; }
+
         public bool Pressure_Result { set; get; }
         public string TVMeterID { set; get; }
         public string TVInfo { set; get; }

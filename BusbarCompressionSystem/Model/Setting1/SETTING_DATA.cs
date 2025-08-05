@@ -34,8 +34,19 @@ namespace BusbarCompressionSystem.Model.Setting1
         public string TVMeterID1 { set; get; } = "TVMETERID1";
 
         [XmlElement("仪器编号2")]
-        public string TVMeterID2 { set; get; } = "TVMETERID1";
+        public string TVMeterID2 { set; get; } = "TVMETERID2";
         [XmlElement("仪器编号3")]
-        public string TVMeterID3 { set; get; } = "TVMETERID1";
+        public string TVMeterID3 { set; get; } = "TVMETERID3";
+
+
+        [XmlElement("仪器类型1")]
+        public TVMeterType TVMeterType1 { set; get; } = TVMeterType.AT9620;
+
+        [XmlElement("仪器类型2")]
+        public TVMeterType TVMeterType2 { set; get; } = TVMeterType.AT9620;
+
+        [XmlElement("仪器类型3")]
+        public TVMeterType TVMeterType3 { set; get; } = TVMeterType.AT9620;
+
     }
 }

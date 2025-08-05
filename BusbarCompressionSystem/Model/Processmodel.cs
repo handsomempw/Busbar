@@ -7,6 +7,8 @@ using System.Threading.Tasks;
 using BusbarCompressionSystem.Model.Record;
 using BusbarCompressionSystem.Model.Record1;
 using System.Xml.Serialization;
+using System.Collections.ObjectModel;
+using System.Data;
 
 namespace BusbarCompressionSystem.Model
 {
@@ -64,7 +66,68 @@ namespace BusbarCompressionSystem.Model
 
         #endregion
 
+
+        public CheckData CheckData { set; get; } = new CheckData();
+        public TVAvailable TVAvailable { set; get; } = new TVAvailable();
+        public UInt16 allow_start { set; get; } = 1;
+        public CheckList CheckList { set; get; } = new CheckList();
+
+
     }
+
+
+    public class CheckData : ObservableObject
+    {
+        #region 检查时间
+        public DateTime TVMeterCheckTime { set; get; } = DateTime.MinValue;
+        public DateTime TV1OKCheckTime { set; get; } = DateTime.MinValue;
+        public DateTime TV2OKCheckTime { set; get; } = DateTime.MinValue;
+        public DateTime TV3OKCheckTime { set; get; } = DateTime.MinValue;
+        public DateTime TV1NGCheckTime { set; get; } = DateTime.MinValue;
+        public DateTime TV2NGCheckTime { set; get; } = DateTime.MinValue;
+        public DateTime TV3NGCheckTime { set; get; } = DateTime.MinValue;
+        public DateTime AOIOKCheckTime { set; get; } = DateTime.MinValue;
+        public DateTime AOINGCheckTime { set; get; } = DateTime.MinValue;
+        #endregion
+
+        #region 点检参数
+
+
+
+        #endregion
+    }
+
+
+    public class CheckList : ObservableObject
+    {
+        #region 标准件清单
+        public ObservableCollection<string> TVOKCheckList { set; get; } = new ObservableCollection<string>();
+        public ObservableCollection<string> TVNGCheckList { set; get; } = new ObservableCollection<string>();
+        public ObservableCollection<string> AOIOKCheckList { set; get; } = new ObservableCollection<string>();
+        public ObservableCollection<string> AOINGCheckList { set; get; } = new ObservableCollection<string>();
+
+        #endregion
+    }
+
+
+
+
+
+
+
+
+
+
+    public class TVAvailable : ObservableObject
+    {
+        public bool TV1Available { set; get; } = true;
+        public bool TV2Available { set; get; } = true;
+        public bool TV3Available { set; get; } = true;
+
+    }
+
+
+
 
     public class PressureParamter : ObservableObject
     {

@@ -50,6 +50,7 @@ namespace BusbarCompressionSystem
 
             inittvparameter();
             vml.Main.InitAt9620();
+            vml.Main.PLC_shankhand();
             vml.Main.PLC_Start();
             vml.Main.InitCamera();
             InitHwindow();
@@ -312,9 +313,31 @@ namespace BusbarCompressionSystem
 
 
 
+
+
         #endregion
 
+        private void Button_Click_4(object sender, RoutedEventArgs e)
+        {
+            SettingForm sf = new SettingForm();
+            sf.ShowDialog();
+        }
 
+        private void REPORT2MES_Click(object sender, RoutedEventArgs e)
+        {
 
+        
+            foreach (var pi in vml.Main.DataModel.Recordmodel.ProductInfoRecords)
+            {
+                if ("MT03956957" == pi.Productinfo.SN)
+                {
+                    MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.SaveBusBarData(
+                vml.Main.DataModel.Settingmodel.SETTING_DATA.StationCode , vml.Main.DataModel.Settingmodel.SETTING_DATA.MachineID, pi.Productinfo.PartNOID, pi.Productinfo.WOCODE, pi.Productinfo.SN,
+                        pi.TakePhoto1, pi.Res, pi.TVMaxVoltage, pi.TVMaxCurrent, pi.TVMeterID, pi.TVInfo, pi.TVResult,
+                        pi.Pressure_Max, pi.Pressure_Average, pi.Pressure_Min, pi.Pressure_Result, pi.AppearanceInspection, "OK");
+                    break;
+                }
+            }
+        }
     }
 }

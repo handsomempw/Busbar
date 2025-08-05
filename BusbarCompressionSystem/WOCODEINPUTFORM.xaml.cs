@@ -1,6 +1,7 @@
 ﻿using AT9620;
 using BusbarCompressionSystem.Model;
 using BusbarCompressionSystem.ViewModel;
+using HalconDotNet;
 using Panuon.WPF.UI;
 using System;
 using System.Collections.Generic;
@@ -48,7 +49,6 @@ namespace BusbarCompressionSystem
                     vml.Main.DataModel.Processmodel.wocodeinputstr,
                     vml.Main.DataModel.Settingmodel.SETTING_DATA.StandardCode
                     );
-
 
 
                 var r1 = ps.Where(p => p.ParameterName == "测试电压");
@@ -117,10 +117,8 @@ namespace BusbarCompressionSystem
                 }
 
 
-
                 if (r)
                 {
-
                     vml.Main.DataModel.Processmodel.TVParameter.Voltage = Convert.ToSingle(r1.First().TargetValue);
                     vml.Main.DataModel.Processmodel.TVParameter.TestMode = (TestMode)Convert.ToInt16(r2.First().TargetValue);
                     vml.Main.DataModel.Processmodel.TVParameter.RiseTime = Convert.ToSingle(r3.First().TargetValue);
@@ -130,26 +128,32 @@ namespace BusbarCompressionSystem
                     vml.Main.DataModel.Processmodel.TVParameter.Low = Convert.ToSingle(r7.First().TargetValue);
                     vml.Main.DataModel.Processmodel.TVParameter.Freq = Convert.ToSingle(r8.First().TargetValue);
 
-                    vml.Main.DataModel.Processmodel.PressureParamter.Max_Pressure=Convert.ToSingle(r9.First().TargetValue);
-                    vml.Main.DataModel.Processmodel.PressureParamter.Min_Pressure=Convert.ToSingle(r10.First().TargetValue);
+                    vml.Main.DataModel.Processmodel.PressureParamter.Max_Pressure = Convert.ToSingle(r9.First().TargetValue);
+                    vml.Main.DataModel.Processmodel.PressureParamter.Min_Pressure = Convert.ToSingle(r10.First().TargetValue);
 
 
                     var rd1 = vml.Main.DataModel.Settingmodel.AT9620_1.Download();
                     var rd2 = vml.Main.DataModel.Settingmodel.AT9620_2.Download();
                     var rd3 = vml.Main.DataModel.Settingmodel.AT9620_3.Download();
-                    if (!rd1.Success)
+
+                    var rd4 = vml.Main.Download_PressureParameter();
+
+                    if ((!rd1.Success) && vml.Main.DataModel.Processmodel.TVAvailable.TV1Available)
                     {
                         NoticeBox.Show("耐压工位1参数下发失败", "错误", MessageBoxIcon.Error);
                     }
-                    else if (!rd2.Success)
+                    else if ((!rd2.Success) && vml.Main.DataModel.Processmodel.TVAvailable.TV2Available)
                     {
                         NoticeBox.Show("耐压工位2参数下发失败", "错误", MessageBoxIcon.Error);
                     }
-                    else if (!rd3.Success)
+                    else if ((!rd3.Success) && vml.Main.DataModel.Processmodel.TVAvailable.TV3Available)
                     {
                         NoticeBox.Show("耐压工位3参数下发失败", "错误", MessageBoxIcon.Error);
                     }
-
+                    else if (!rd4)
+                    {
+                        NoticeBox.Show("压力参数下发失败", "错误", MessageBoxIcon.Error);
+                    }
                     else
                     {
                         NoticeBox.Show("参数下发完成", "成功", MessageBoxIcon.Success, true, 5000);
