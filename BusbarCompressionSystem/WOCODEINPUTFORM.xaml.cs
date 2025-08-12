@@ -61,6 +61,7 @@ namespace BusbarCompressionSystem
                 var r8 = ps.Where(p => p.ParameterName == "测试频率");
                 var r9 = ps.Where(p => p.ParameterName == "极壳压力上限");
                 var r10 = ps.Where(p => p.ParameterName == "极壳压力下限");
+                var r11 = ps.Where(p => p.ParameterName == "极壳压力");
 
                 string error = "缺少以下工艺参数:\r\n";
                 bool r = true;
@@ -115,7 +116,11 @@ namespace BusbarCompressionSystem
                     error += "极壳压力上限\r\n";
                     r = false;
                 }
-
+                if (r11.Count() == 0)
+                {
+                    error += "极壳压力\r\n";
+                    r = false;
+                }
 
                 if (r)
                 {
@@ -130,6 +135,7 @@ namespace BusbarCompressionSystem
 
                     vml.Main.DataModel.Processmodel.PressureParamter.Max_Pressure = Convert.ToSingle(r9.First().TargetValue);
                     vml.Main.DataModel.Processmodel.PressureParamter.Min_Pressure = Convert.ToSingle(r10.First().TargetValue);
+                    vml.Main.DataModel.Processmodel.PressureParamter.Pressure=Convert.ToUInt16(r11.First().TargetValue);    
 
 
                     var rd1 = vml.Main.DataModel.Settingmodel.AT9620_1.Download();

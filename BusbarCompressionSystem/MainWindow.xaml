@@ -495,7 +495,7 @@
             <TextBlock Text="{Binding Processmodel.CMD,StringFormat=命令:{0}}" Margin="20,0"/>
 
             <Button x:Name="check1" Click="check1_Click" Visibility="Collapsed">check1</Button>
-            <Button x:Name="REPORT2MES" Click="REPORT2MES_Click">汇报数据到中间库</Button>
+            <Button x:Name="REPORT2MES" Click="REPORT2MES_Click" Visibility="Collapsed">汇报数据到中间库</Button>
 
             <StackPanel Orientation="Horizontal">
                 <TextBlock Margin="10,2" Text="{Binding Settingmodel.SETTING_DATA.MachineID}" ToolTip="设备编号"/>

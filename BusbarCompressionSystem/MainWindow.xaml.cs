@@ -243,7 +243,7 @@ namespace BusbarCompressionSystem
                 vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool = vml.Main.DataModel.FaraVisionDataModel.Processmodel.Tools[vml.Main.DataModel.FaraVisionDataModel.Processmodel.selectedindex];
                 vml.Main.LoadBitmapSource();
                 //vml.Main.DataModel.Processmodel.tool = @vml.Main.DataModel.Processmodel.Tools[vml.Main.DataModel.Processmodel.selectedindex];
-                SettingForm settingForm = new SettingForm();
+                Model.FaraVision.SettingForm settingForm = new Model.FaraVision.SettingForm();
                 //settingForm.Topmost = true;
                 settingForm.ShowDialog();
                 //settingForm.Show();
@@ -326,13 +326,13 @@ namespace BusbarCompressionSystem
         private void REPORT2MES_Click(object sender, RoutedEventArgs e)
         {
 
-        
+
             foreach (var pi in vml.Main.DataModel.Recordmodel.ProductInfoRecords)
             {
                 if ("MT03956957" == pi.Productinfo.SN)
                 {
                     MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.SaveBusBarData(
-                vml.Main.DataModel.Settingmodel.SETTING_DATA.StationCode , vml.Main.DataModel.Settingmodel.SETTING_DATA.MachineID, pi.Productinfo.PartNOID, pi.Productinfo.WOCODE, pi.Productinfo.SN,
+                vml.Main.DataModel.Settingmodel.SETTING_DATA.StationCode, vml.Main.DataModel.Settingmodel.SETTING_DATA.MachineID, pi.Productinfo.PartNOID, pi.Productinfo.WOCODE, pi.Productinfo.SN,
                         pi.TakePhoto1, pi.Res, pi.TVMaxVoltage, pi.TVMaxCurrent, pi.TVMeterID, pi.TVInfo, pi.TVResult,
                         pi.Pressure_Max, pi.Pressure_Average, pi.Pressure_Min, pi.Pressure_Result, pi.AppearanceInspection, "OK");
                     break;

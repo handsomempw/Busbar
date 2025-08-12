@@ -9,8 +9,9 @@
            xmlns:model="clr-namespace:BusbarCompressionSystem.Model"
         mc:Ignorable="d"
         Title="仪器配置" Height="250" Width="400"
+        WindowStartupLocation="CenterScreen"
         Loaded="WindowX_Loaded"    
-           Closing="WindowX_Closing"
+        Closing="WindowX_Closing"
         DataContext="{Binding Source={StaticResource Locator},Path=Main.DataModel}"
         >
     <Grid>
@@ -43,8 +44,8 @@
                 <CheckBox Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" IsChecked="{Binding  Processmodel.TVAvailable.TV3Available}">仪器3:</CheckBox>
                 
                 <TextBox x:Name="TV1Tb" Grid.Row="0" Grid.Column="1" Margin="5" Text="{Binding Settingmodel.SETTING_DATA.TVMeterID1}" KeyDown="TV1Tb_KeyDown"/>
-                <TextBox x:Name="TV2Tb" Grid.Row="1" Grid.Column="1" Margin="5" Text="{Binding Settingmodel.SETTING_DATA.TVMeterID1}" KeyDown="TV2Tb_KeyDown"/>
-                <TextBox x:Name="TV3Tb" Grid.Row="2" Grid.Column="1" Margin="5" Text="{Binding Settingmodel.SETTING_DATA.TVMeterID1}" KeyDown="TV3Tb_KeyDown"/>
+                <TextBox x:Name="TV2Tb" Grid.Row="1" Grid.Column="1" Margin="5" Text="{Binding Settingmodel.SETTING_DATA.TVMeterID2}" KeyDown="TV2Tb_KeyDown"/>
+                <TextBox x:Name="TV3Tb" Grid.Row="2" Grid.Column="1" Margin="5" Text="{Binding Settingmodel.SETTING_DATA.TVMeterID3}" KeyDown="TV3Tb_KeyDown"/>
 
                 <ComboBox IsEditable="true" MinWidth="80" Grid.Row="0" Grid.Column="2" Margin="5"  Text="{Binding Settingmodel.SETTING_DATA.TVMeterType1}" ItemsSource="{Binding  Source={StaticResource  TVmodes}}"/>
                 <ComboBox IsEditable="true" MinWidth="80" Grid.Row="1" Grid.Column="2" Margin="5"  Text="{Binding Settingmodel.SETTING_DATA.TVMeterType2}" ItemsSource="{Binding  Source={StaticResource  TVmodes}}"/>

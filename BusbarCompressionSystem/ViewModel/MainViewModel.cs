@@ -645,8 +645,8 @@ namespace BusbarCompressionSystem.ViewModel
             {
                 ProductInfoRecord p = new ProductInfoRecord()
                 {
-                    StationCode=DataModel.Settingmodel.SETTING_DATA.StationCode,
-                    EQUIPMENTID=DataModel.Settingmodel.SETTING_DATA.MachineID,
+                    StationCode = DataModel.Settingmodel.SETTING_DATA.StationCode,
+                    EQUIPMENTID = DataModel.Settingmodel.SETTING_DATA.MachineID,
                     Productinfo = DataModel.Processmodel.TakePhotoTestModel.Productinfo,
                     TakePhoto1 = takephoto1
                 };
@@ -867,9 +867,10 @@ namespace BusbarCompressionSystem.ViewModel
         {
             try
             {
-                var r1 = PLC_write(DataModel.Settingmodel.MaxPressure_Address.ToString(), (UInt16)DataModel.Processmodel.PressureParamter.Max_Pressure);
-                var r2 = PLC_write(DataModel.Settingmodel.MinPressure_Address.ToString(), (UInt16)DataModel.Processmodel.PressureParamter.Min_Pressure);
-                return r1 & r2;
+                var r1 = PLC_write(DataModel.Settingmodel.MaxPressure_Address.ToString(), DataModel.Processmodel.PressureParamter.Max_Pressure);
+                var r2 = PLC_write(DataModel.Settingmodel.MinPressure_Address.ToString(), DataModel.Processmodel.PressureParamter.Min_Pressure);
+                var r3 = PLC_write(DataModel.Settingmodel.Pressure_Address.ToString(), DataModel.Processmodel.PressureParamter.Pressure);
+                return r1 & r2 & r3;
             }
             catch {; }
             return false;
@@ -899,7 +900,7 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
 
-        private bool PLC_write(UInt16 result)
+        private bool PLC_write(float result)
         {
             writeLog($"ÊÓ¾õ->PLC:{result}¡¢{(result == 1 ? "OK" : "NG")}", false);
 
@@ -918,7 +919,7 @@ namespace BusbarCompressionSystem.ViewModel
 
                     if (connectresult.IsSuccess)
                     {
-                        var r = modbusTcp.Write((DataModel.Settingmodel.AddressStart + 1).ToString(), (UInt16)result);
+                        var r = modbusTcp.Write((DataModel.Settingmodel.AddressStart + 1).ToString(), result);
                         modbusTcp.ConnectClose();
                         if (r.IsSuccess)
                         { return true; }
@@ -969,6 +970,40 @@ namespace BusbarCompressionSystem.ViewModel
             return false;
         }
 
+        private bool PLC_write(string address, float result)
+        {
+            writeLog($"ÊÓ¾õ->PLC:{result}¡¢{(result == 1 ? "OK" : "NG")}", false);
+
+            int i = 0;
+            while (i++ < 4)
+            {
+                ModbusTcpNet modbusTcp = new ModbusTcpNet();
+                try
+                {
+                    modbusTcp.ConnectTimeOut = 1;
+                    modbusTcp.ReceiveTimeOut = 1;
+                    modbusTcp.IpAddress = DataModel.Settingmodel.PLC_IP;
+                    modbusTcp.Port = DataModel.Settingmodel.PLC_Port;
+                    modbusTcp.DataFormat = HslCommunication.Core.DataFormat.CDAB;
+                    var connectresult = modbusTcp.ConnectServer();
+
+                    if (connectresult.IsSuccess)
+                    {
+                        var r = modbusTcp.Write((address).ToString(), result);
+                        modbusTcp.ConnectClose();
+                        if (r.IsSuccess)
+                        { return true; }
+                    }
+                }
+                catch
+                {
+                    ;
+                }
+                Thread.Sleep(100);
+            }
+
+            return false;
+        }
         public UInt16 PLC_ReadUint16(int address)
         {
             ModbusTcpNet modbusTcp = new ModbusTcpNet();
@@ -1100,9 +1135,9 @@ namespace BusbarCompressionSystem.ViewModel
                     modbusTcp.ConnectClose();
                     if (r1.IsSuccess)
                     {
-                        DataModel.Processmodel.TVAvailable.TV1Available = r1.Content[0];
-                        DataModel.Processmodel.TVAvailable.TV2Available = r2.Content[0];
-                        DataModel.Processmodel.TVAvailable.TV3Available = r3.Content[0];
+                        DataModel.Processmodel.TVAvailable.TV1Available = !r1.Content[0];
+                        DataModel.Processmodel.TVAvailable.TV2Available = !r2.Content[0];
+                        DataModel.Processmodel.TVAvailable.TV3Available = !r3.Content[0];
                     }
 
                     return r1.IsSuccess & r2.IsSuccess & r3.IsSuccess;

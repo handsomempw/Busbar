@@ -88,6 +88,9 @@ namespace BusbarCompressionSystem.Model
         [XmlElement("压力下限地址")]
         public int MinPressure_Address { set; get; } = 2048;
 
+        [XmlElement("压力地址")]
+        public int Pressure_Address { set; get; } = 2054;
+
         [XmlElement("仪器1启用地址")]
         public int Meter1AvailableAddress { set; get; } = 3012;
         [XmlElement("仪器2启用地址")]

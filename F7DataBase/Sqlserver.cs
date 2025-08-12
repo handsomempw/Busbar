@@ -16,9 +16,9 @@ namespace F7DataBase
 
 
         #region 数据库基本操作
-        public static string connenstrf7 = "Provider=SQLOLEDB.1;Password=f7data;Persist Security Info=True;User ID=f7;Initial Catalog=F7Data;Data Source=192.168.95.107";
+        private static string connenstrf7 = "Provider=SQLOLEDB.1;Password=f7data;Persist Security Info=True;User ID=f7;Initial Catalog=F7Data;Data Source=192.168.95.107";
 
-        public string SQL_CONNSTR = connenstrf7;
+        private string SQL_CONNSTR = connenstrf7;
         public Boolean excutesql_sql(String sql)
         {
             try
@@ -141,17 +141,6 @@ namespace F7DataBase
 
             #endregion
 
-            #region 测试过程数据
-
-            #endregion
-            #region 数据基本操作
-
-            #endregion
         }
-
-
-
-
-
     }
 }

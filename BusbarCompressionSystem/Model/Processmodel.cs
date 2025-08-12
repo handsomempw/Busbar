@@ -131,6 +131,8 @@ namespace BusbarCompressionSystem.Model
 
     public class PressureParamter : ObservableObject
     {
+        public UInt16 Pressure { set; get; } = 1000;
+
         public float Max_Pressure { set; get; } = 1100;
         public float Min_Pressure { set; get; } = 950;
     }
