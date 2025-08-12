@@ -135,8 +135,8 @@
                 <TextBlock Grid.Row="2" Grid.Column="0"  Height="30" Margin="2" >编号:</TextBlock>
                 <TextBlock Grid.Row="3" Grid.Column="0"  Height="30" Margin="2" >错误信息:</TextBlock>
 
-                <TextBlock Grid.Row="1" Grid.Column="1"  Height="30" Margin="2"  Text="{Binding Processmodel.TakePhotoTestModel.Productinfo.SN}"/>
-                <TextBlock Grid.Row="2" Grid.Column="1"  Height="30" Margin="2"  Text="{Binding Processmodel.TakePhotoTestModel.Productinfo.WOCODE}"/>
+                <TextBlock Grid.Row="1" Grid.Column="1"  Height="30" Margin="2"  Text="{Binding Processmodel.TakePhotoTestModel.Productinfo.WOCODE}"/>
+                <TextBlock Grid.Row="2" Grid.Column="1"  Height="30" Margin="2"  Text="{Binding Processmodel.TakePhotoTestModel.Productinfo.SN}"/>
 
                 <TextBlock Grid.Row="1" Grid.Column="2"  Height="30" Margin="2" >拍照留底结果:</TextBlock>
                 <TextBox Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="3" Margin="3" Text="{Binding  Processmodel.TakePhotoTestModel.error}"/>
@@ -538,8 +538,8 @@
                     <DataGridTextColumn Header="编号" Binding="{Binding Productinfo.SN}"></DataGridTextColumn>
                     <DataGridTextColumn Header="拍照留底" Binding="{Binding TakePhoto1}"></DataGridTextColumn>
                     <DataGridTextColumn Header="TV结果" Binding="{Binding TVResult}"></DataGridTextColumn>
-                    <DataGridTextColumn Header="TV最大电流" Binding="{Binding TVMaxVoltage}"></DataGridTextColumn>
-                    <DataGridTextColumn Header="TV最大电压" Binding="{Binding TVMaxCurrent}"></DataGridTextColumn>
+                    <DataGridTextColumn Header="TV最大电压" Binding="{Binding TVMaxVoltage}"></DataGridTextColumn>
+                    <DataGridTextColumn Header="TV最大电流" Binding="{Binding TVMaxCurrent}"></DataGridTextColumn>
                     <DataGridTextColumn Header="TV信息" Binding="{Binding TVInfo}"></DataGridTextColumn>
                     <DataGridTextColumn Header="TV仪器编号" Binding="{Binding TVMeterID}"></DataGridTextColumn>
 
