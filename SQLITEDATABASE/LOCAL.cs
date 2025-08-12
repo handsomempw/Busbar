@@ -13,7 +13,7 @@ namespace SQLITEDATABASE
 {
     public partial class sqlite
     {
-        public static bool CREATENEWLINE(string WOCODE, string PARTNOID, string SN, String STATIONCODE, string EQUIPMENTID,DateTime dt)
+        public static bool CREATENEWLINE(string WOCODE, string PARTNOID, string SN, String STATIONCODE, string EQUIPMENTID, DateTime dt)
         {
             try
             {
@@ -21,9 +21,23 @@ namespace SQLITEDATABASE
 
                 if (!string.IsNullOrEmpty(_connstr))
                 {
-                    string sql = $"INSERT INTO BusbarCompressionData(PARTNOID,WOCODE,SN,EQUIPMENTID,STATIONCODE,DATETIME)VALUES('{PARTNOID}','{WOCODE}','{SN}','{STATIONCODE}','{EQUIPMENTID}','{dt}')";
-                    int c = excute_sql(sql, _connstr);
-                    return c > 0;
+
+                    string sql1 = $"SELECT STATIONCODE FROM BusbarCompressionData WHERE  PARTNOID='{PARTNOID}' AND EQUIPMENTID='{EQUIPMENTID}' AND   WOCODE='{WOCODE}'  AND SN='{SN}' AND STATIONCODE={STATIONCODE} AND DATETIME>='{(dt.AddSeconds(-10))}'";
+
+                    DataTable dt1 = Read(sql1);
+                    if (dt1 == null || dt1.Rows.Count <= 0)
+                    {
+                        string sql = $"INSERT INTO BusbarCompressionData(PARTNOID,WOCODE,SN,EQUIPMENTID,STATIONCODE,DATETIME)VALUES('{PARTNOID}','{WOCODE}','{SN}','{EQUIPMENTID}','{STATIONCODE}','{dt}')";
+                        int c = excute_sql(sql, _connstr);
+                        return c > 0;
+                    }
+
+                    else
+                    {
+                        return true;
+
+                    }
+
                 }
             }
             catch
@@ -49,14 +63,14 @@ namespace SQLITEDATABASE
         }
 
 
-        public static bool UpdatePressure(string WOCODE, string PARTNOID, string SN,float AveragePressure, float MaxPressure, float MinPressure,bool PressureResult)
+        public static bool UpdatePressure(string WOCODE, string PARTNOID, string SN, float AveragePressure, float MaxPressure, float MinPressure, bool PressureResult)
         {
             try
             {
                 string _connstr = CheckDataBase(WOCODE, PARTNOID, SN);
 
                 if (!string.IsNullOrEmpty(_connstr))
-                {        
+                {
                     string sql = $"UPDATE BusbarCompressionData SET PRESSURE_RESULT ={(PressureResult ? 1 : 0)},PRESSURE_MAX={MaxPressure},PRESSURE_AVERAGE={AveragePressure},PRESSURE_MIN={MinPressure} WHERE id=(SELECT max(id) from BusbarCompressionData WHERE sn='{SN}')";
                     int c = excute_sql(sql, _connstr);
                     return c > 0;
@@ -65,7 +79,7 @@ namespace SQLITEDATABASE
             catch {; }
             return false;
         }
-        public static bool UpdateTV(string WOCODE, string PARTNOID, string SN, float RES, float MaxVoltage, bool TVResult, float MaxCurrent,  string TVInfo, string TVMeterID)
+        public static bool UpdateTV(string WOCODE, string PARTNOID, string SN, float RES, float MaxVoltage, bool TVResult, float MaxCurrent, string TVInfo, string TVMeterID)
         {
 
             try
@@ -168,7 +182,7 @@ namespace SQLITEDATABASE
                         {
                             return 3;
                         }
-                
+
 
 
 

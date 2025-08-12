@@ -1895,7 +1895,7 @@ namespace BusbarCompressionSystem.ViewModel
 
                             #region 保存拍照记录到本地
                             DateTime dt = DateTime.Now;
-                            updatetakephoto2(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, true, dt);
+                            updatetakephoto2(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, status==0, dt);
                             sqlite.UpdateTakePhoto2(
                                 DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE,
                                 DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID,
@@ -2190,8 +2190,6 @@ namespace BusbarCompressionSystem.ViewModel
 
                     if (MSG != "OK")
                     {
-
-
 
                         #region 保存过程数据到服务器
 
