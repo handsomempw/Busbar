@@ -482,7 +482,6 @@ namespace BusbarCompressionSystem.ViewModel
                     }
                     else
                     {
-
                         #region 通讯失败数据置为-1
                         DataModel.Processmodel.Scan_Trig_IO.IOstatus = -1;
                         DataModel.Processmodel.TakePhoto1_Trig_IO.IOstatus = -1;
@@ -498,7 +497,6 @@ namespace BusbarCompressionSystem.ViewModel
                 catch {; }
                 Thread.Sleep(100);
             }
-
         }
 
 
