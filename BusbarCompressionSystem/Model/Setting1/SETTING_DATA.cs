@@ -21,6 +21,20 @@ namespace BusbarCompressionSystem.Model.Setting1
 
         [XmlElement("标准工序码")]
         public string StandardCode { set; get; } = "标准工序码";
+
+
+
+        [XmlElement("工序名称2")]
+        public string ProcedureName2 { set; get; } = "工序名称2";
+        [XmlElement("工位号2")]
+        public string StationCode2 { set; get; } = "工位号2";
+
+        [XmlElement("标准工序码2")]
+        public string StandardCode2 { set; get; } = "标准工序码2";
+
+
+
+
         [XmlElement("工号")]
         [XmlIgnore]
         public string WorkerID { set; get; } = "工号";

@@ -1893,7 +1893,7 @@ namespace BusbarCompressionSystem.ViewModel
 
                             #region 保存拍照记录到本地
                             DateTime dt = DateTime.Now;
-                            updatetakephoto2(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, status==0, dt);
+                            updatetakephoto2(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, status == 0, dt);
                             sqlite.UpdateTakePhoto2(
                                 DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE,
                                 DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID,
@@ -2186,28 +2186,28 @@ namespace BusbarCompressionSystem.ViewModel
                             }
                     }
 
-                    if (MSG != "OK")
+                    //if (MSG != "OK")
+                    //{
+
+                    #region 保存过程数据到服务器
+
+                    foreach (var pi in DataModel.Recordmodel.ProductInfoRecords)
                     {
-
-                        #region 保存过程数据到服务器
-
-                        foreach (var pi in DataModel.Recordmodel.ProductInfoRecords)
+                        if (DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN == pi.Productinfo.SN)
                         {
-                            if (DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN == pi.Productinfo.SN)
-                            {
-                                MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.SaveBusBarData(
-                                   DataModel.Settingmodel.SETTING_DATA.StationCode, DataModel.Settingmodel.SETTING_DATA.MachineID, pi.Productinfo.PartNOID, pi.Productinfo.WOCODE, pi.Productinfo.SN,
-                                    pi.TakePhoto1, pi.Res, pi.TVMaxVoltage, pi.TVMaxCurrent, pi.TVMeterID, pi.TVInfo, pi.TVResult,
-                                    pi.Pressure_Max, pi.Pressure_Average, pi.Pressure_Min, pi.Pressure_Result, pi.AppearanceInspection, resultstr);
-                                break;
-                            }
+                            MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.SaveBusBarData(
+                               DataModel.Settingmodel.SETTING_DATA.StationCode, DataModel.Settingmodel.SETTING_DATA.MachineID, pi.Productinfo.PartNOID, pi.Productinfo.WOCODE, pi.Productinfo.SN,
+                                pi.TakePhoto1, pi.Res, pi.TVMaxVoltage, pi.TVMaxCurrent, pi.TVMeterID, pi.TVInfo, pi.TVResult,
+                                pi.Pressure_Max, pi.Pressure_Average, pi.Pressure_Min, pi.Pressure_Result, pi.AppearanceInspection, resultstr);
+                            break;
                         }
-                        #endregion
-                        #region 汇报结果数据
-                        report(ss[1], ss[0], resultstr);
-                        #endregion
-
                     }
+                    #endregion
+                    #region 汇报结果数据
+                    report(ss[1], ss[0], resultstr);
+                    #endregion
+
+                    //}
 
                     writeLog($"数据校验1->结果:{resultstr}");
                     SendMsgRobot(MSG);
@@ -2273,7 +2273,7 @@ namespace BusbarCompressionSystem.ViewModel
 
                     #endregion
                     #region 汇报结果数据                    
-                    report(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, resultstr);
+                    report2(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, resultstr);
                     #endregion
 
                 }
@@ -2301,6 +2301,25 @@ namespace BusbarCompressionSystem.ViewModel
                         DataModel.Settingmodel.SETTING_DATA.StandardCode
                         );
                 writeLog($"{sn}:{result};报工:{r}");
+                return r;
+            }
+            catch (Exception ex) {; }
+            return false;
+        }
+        private bool report2(string wocode, string sn, string result)
+        {
+            try
+            {
+                var r = MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.Save_EquipmentRecord_mes(
+                        DataModel.Settingmodel.SETTING_DATA.StationCode2,
+                        wocode,
+                        sn,
+                        DataModel.Settingmodel.SETTING_DATA.ProcedureName2,
+                        DataModel.Settingmodel.SETTING_DATA.MachineID,
+                        result == "OK" ? "合格" : result,
+                        DataModel.Settingmodel.SETTING_DATA.StandardCode2
+                        );
+                writeLog($"{sn}:{result};报工2:{r}");
                 return r;
             }
             catch (Exception ex) {; }
