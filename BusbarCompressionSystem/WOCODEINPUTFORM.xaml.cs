@@ -50,7 +50,6 @@ namespace BusbarCompressionSystem
                     vml.Main.DataModel.Settingmodel.SETTING_DATA.StandardCode
                     );
 
-
                 var r1 = ps.Where(p => p.ParameterName == "测试电压");
                 var r2 = ps.Where(p => p.ParameterName == "电流类型");
                 var r3 = ps.Where(p => p.ParameterName == "上升时间");
