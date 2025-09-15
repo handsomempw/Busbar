@@ -678,7 +678,7 @@ namespace Camera
             {
                 int nIndex = (int)pUser;
                 // ch:抓取的帧数 | en:Aquired Frame Number
-
+                ho_Image?.Dispose();
 
                 if (bnContinuesModeChecked)  //相机一实时状态显示
                 {
