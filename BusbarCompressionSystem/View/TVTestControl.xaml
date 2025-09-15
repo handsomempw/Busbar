@@ -1,0 +1,63 @@
+﻿<UserControl x:Class="BusbarCompressionSystem.View.TVTestControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
+             xmlns:local="clr-namespace:BusbarCompressionSystem.View"
+             mc:Ignorable="d" 
+             Background="White"
+             d:DesignHeight="250" d:DesignWidth="300"
+             FontSize="12"
+             
+             DataContext="{Binding Source={StaticResource Locator},Path=Main.DataModel.Processmodel.TVTestTestModel1}"
+             >
+    <Border BorderThickness="0.5" BorderBrush="Gray" Margin="2">
+        <Grid>
+
+            <Grid.RowDefinitions>
+                <RowDefinition Height="auto"/>
+                <RowDefinition Height="auto"/>
+                <RowDefinition Height="auto"/>
+                <RowDefinition Height="auto"/>
+                <RowDefinition Height="auto"/>
+                <RowDefinition Height="auto"/>
+                <RowDefinition />
+            </Grid.RowDefinitions>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="auto"/>
+                <ColumnDefinition/>
+                <ColumnDefinition Width="auto"/>
+                <ColumnDefinition/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Margin="2" Background="Transparent" Grid.Row="0" Grid.Column="0">编号:</TextBlock>
+            <TextBlock Margin="2" Background="Transparent" Grid.Row="1" Grid.Column="0">批号:</TextBlock>
+            <TextBlock Margin="2" Background="Transparent" Grid.Row="2" Grid.Column="0">电压:</TextBlock>
+            <TextBlock Margin="2" Background="Transparent" Grid.Row="3" Grid.Column="0">最大电压:</TextBlock>
+            <TextBlock Margin="2" Background="Transparent" Grid.Row="4" Grid.Column="0">阻值:</TextBlock>
+
+            <TextBlock Margin="2" Background="Transparent" Grid.Row="0" Grid.Column="2">状态:</TextBlock>
+            <TextBlock Margin="2" Background="Transparent" Grid.Row="1" Grid.Column="2">时间:</TextBlock>
+            <TextBlock Margin="2" Background="Transparent" Grid.Row="2" Grid.Column="2">电流:</TextBlock>
+            <TextBlock Margin="2" Background="Transparent" Grid.Row="3" Grid.Column="2">最大电流:</TextBlock>
+
+
+
+            <TextBlock Margin="2" Background="Transparent" Grid.Row="0" Grid.Column="1" Text="{Binding Productinfo.SN}" />
+            <TextBlock Margin="2" Background="Transparent" Grid.Row="1" Grid.Column="1" Text="{Binding Productinfo.WOCODE}"/>
+            <TextBlock Margin="2" Background="Transparent" Grid.Row="2" Grid.Column="1" Text="{Binding Voltage}"/>
+            <TextBlock Margin="2" Background="Transparent" Grid.Row="3" Grid.Column="1" Text="{Binding TVMaxVoltage}"/>
+            <TextBlock Margin="2" Background="Transparent" Grid.Row="4" Grid.Column="1" Text="{Binding Res}"/>
+
+            <TextBlock Margin="2" Background="Transparent" Grid.Row="0" Grid.Column="3" Text="{Binding Status}"/>
+            <TextBlock Margin="2" Background="Transparent" Grid.Row="1" Grid.Column="3" Text="{Binding Time}"/>
+            <TextBlock Margin="2" Background="Transparent" Grid.Row="2" Grid.Column="3" Text="{Binding Current}"/>
+            <TextBlock Margin="2" Background="Transparent" Grid.Row="3" Grid.Column="3" Text="{Binding TVMaxCurrent}"/>
+
+            <TextBox Margin="2" Background="Transparent" Grid.Row="10" Grid.Column="0" IsReadOnly="True"  
+                     Grid.ColumnSpan="5"  BorderBrush="Black"  BorderThickness="1" />
+
+
+        </Grid>
+    </Border>
+
+</UserControl>
