@@ -116,8 +116,6 @@ namespace BusbarCompressionSystem
             vml.Main.ScanSN();
         }
 
-
-
         private void inittvparameter()
         {
 

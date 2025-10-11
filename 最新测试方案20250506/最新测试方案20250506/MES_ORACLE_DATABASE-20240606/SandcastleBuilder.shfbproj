@@ -1,0 +1,87 @@
+﻿<Project ToolsVersion="14.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+    <!-- Import the common properties to support NuGet restore -->
+    <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')"/>
+    <PropertyGroup>
+        <!-- The configuration and platform will be used to determine which assemblies to include from solution and
+                     project documentation sources -->
+        <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+        <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+        <SchemaVersion>2.0</SchemaVersion>
+        <ProjectGuid>{b4ef726b-c0ef-4d49-825d-ed11631519dd}</ProjectGuid>
+        <SHFBSchemaVersion>2017.9.26.0</SHFBSchemaVersion>
+        <!-- AssemblyName, Name, and RootNamespace are not used by SHFB but Visual Studio adds them anyway -->
+        <AssemblyName>Documentation</AssemblyName>
+        <RootNamespace>Documentation</RootNamespace>
+        <Name>Documentation</Name>
+        <!-- SHFB properties -->
+        <FrameworkVersion>.NET Framework 4.0</FrameworkVersion>
+        <OutputPath>bin\Release\Help\</OutputPath>
+        <HtmlHelpName>Documentation</HtmlHelpName>
+        <Language>zh-CN</Language>
+        <DocumentationSources>
+            <DocumentationSource sourceFile="mes-autoline-client.csproj"/>
+        </DocumentationSources>
+        <HelpFileFormat>Website</HelpFileFormat>
+        <SyntaxFilters>C#, ASP.NET</SyntaxFilters>
+        <PresentationStyle>Default2022</PresentationStyle>
+        <CleanIntermediates>True</CleanIntermediates>
+        <KeepLogFile>True</KeepLogFile>
+        <DisableCodeBlockComponent>False</DisableCodeBlockComponent>
+        <IndentHtml>False</IndentHtml>
+        <BuildAssemblerVerbosity>OnlyErrors</BuildAssemblerVerbosity>
+        <SaveComponentCacheCapacity>100</SaveComponentCacheCapacity>
+        <HelpTitle>MES EQUIP API</HelpTitle>
+        <HelpFileVersion>1.0.0.0</HelpFileVersion>
+        <NamingMethod>HashedMemberName</NamingMethod>
+        <ContentPlacement>AboveNamespaces</ContentPlacement>
+        <RootNamespaceContainer>True</RootNamespaceContainer>
+        <NamespaceGrouping>False</NamespaceGrouping>
+        <MaximumGroupParts>2</MaximumGroupParts>
+        <Preliminary>False</Preliminary>
+        <SdkLinkTarget>Blank</SdkLinkTarget>
+        <MissingTags>Summary, Parameter, AutoDocumentCtors, Namespace, TypeParameter, AutoDocumentDispose</MissingTags>
+        <RootNamespaceTitle>
+        </RootNamespaceTitle>
+        <WarnOnMissingSourceContext>False</WarnOnMissingSourceContext>
+        <WorkingPath>
+        </WorkingPath>
+        <HtmlSdkLinkType>Msdn</HtmlSdkLinkType>
+        <BinaryTOC>True</BinaryTOC>
+        <IncludeFavorites>True</IncludeFavorites>
+        <WebsiteSdkLinkType>Msdn</WebsiteSdkLinkType>
+        <AppendMarkdownFileExtensionsToUrls>False</AppendMarkdownFileExtensionsToUrls>
+        <SourceCodeBasePath>
+        </SourceCodeBasePath>
+    </PropertyGroup>
+    <!-- There are no properties for these groups.  AnyCPU needs to appear in order for Visual Studio to perform
+               the build.  The others are optional common platform types that may appear. -->
+    <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+    </PropertyGroup>
+    <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+    </PropertyGroup>
+    <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x86' ">
+    </PropertyGroup>
+    <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|x86' ">
+    </PropertyGroup>
+    <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x64' ">
+    </PropertyGroup>
+    <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|x64' ">
+    </PropertyGroup>
+    <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|Win32' ">
+    </PropertyGroup>
+    <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|Win32' ">
+    </PropertyGroup>
+    <!-- Import the common build targets during NuGet restore because before the packages are being installed, $(SHFBROOT) is not set yet -->
+    <Import Project="$(MSBuildToolsPath)\Microsoft.Common.targets" Condition="'$(MSBuildRestoreSessionId)' != ''"/>
+    <!-- Import the SHFB build targets during build -->
+    <Import Project="$(SHFBROOT)\SandcastleHelpFileBuilder.targets" Condition="'$(MSBuildRestoreSessionId)' == ''"/>
+    <!-- The pre-build and post-build event properties must appear *after* the targets file import in order to be
+               evaluated correctly. -->
+    <PropertyGroup>
+        <PreBuildEvent>
+        </PreBuildEvent>
+        <PostBuildEvent>
+        </PostBuildEvent>
+        <RunPostBuildEvent>OnBuildSuccess</RunPostBuildEvent>
+    </PropertyGroup>
+</Project>
