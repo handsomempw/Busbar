@@ -504,12 +504,24 @@ namespace MES_ORACLE_DATABASE
                                 {
                                     dicStandardGroup.Add(r.Data[i].Name, r.Data[i].Code);
                                 }
-                                catch { }
+                                catch (Exception ex)
+                                {
+                                    WriteError($"添加工序码失败: {r.Data[i].Name}={r.Data[i].Code}, 异常: {ex.Message}", "GetStandardWorkGroupList");
+                                }
                             }
                         }
                     }
+                    else
+                    {
+                        WriteError($"获取工序码字典失败: {r.Message}", "GetStandardWorkGroupList");
+                        return false;
+                    }
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    WriteError($"获取工序码字典异常: {ex.Message}", "GetStandardWorkGroupList");
+                    return false;
+                }
             }
             string employeeNo = "NOT_WORKER";
             try
@@ -522,26 +534,61 @@ namespace MES_ORACLE_DATABASE
                     EmployeeName = string.Empty,
                 };
                 var r = client.QueryCurrentOnWorkListByStationCode(STATION_CODE);
-                if (r.Data.Length > 0)
+                if (r.Success)
                 {
-                    for (int i = 0; i < r.Data.Length; i++)
+                    if (r.Data.Length > 0)
                     {
-                        if (r.Data[i].OnWorkDate > workStationOnWorkRecord.OnWorkDate)
-                            workStationOnWorkRecord = r.Data[i];
+                        for (int i = 0; i < r.Data.Length; i++)
+                        {
+                            if (r.Data[i].OnWorkDate > workStationOnWorkRecord.OnWorkDate)
+                                workStationOnWorkRecord = r.Data[i];
+                        }
+                        employeeNo = workStationOnWorkRecord.EmployeeNo;
+                        WriteError($"获取员工信息成功: 工位={STATION_CODE}, 员工={employeeNo}", "QueryCurrentOnWorkListByStationCode");
                     }
-                    employeeNo = workStationOnWorkRecord.EmployeeNo;
+                    else
+                    {
+                        WriteError($"工位无上岗员工: 工位={STATION_CODE}, 使用默认员工={employeeNo}", "QueryCurrentOnWorkListByStationCode");
+                    }
+                }
+                else
+                {
+                    WriteError($"获取员工信息失败: 工位={STATION_CODE}, 错误={r.Message}, 使用默认员工={employeeNo}", "QueryCurrentOnWorkListByStationCode");
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                WriteError($"获取员工信息异常: 工位={STATION_CODE}, 异常={ex.Message}, 使用默认员工={employeeNo}", "QueryCurrentOnWorkListByStationCode");
+            }
 
             if (result == "合格") result = string.Empty;
+
+            // 验证工序名称是否存在
+            if (!dicStandardGroup.ContainsKey(PROCEDURE_NAME))
+            {
+                WriteError($"工序名称不存在: {PROCEDURE_NAME}, 可用工序: {string.Join(",", dicStandardGroup.Keys)}", "Save_EquipmentRecord_mes");
+                return false;
+            }
+
             try
             {
                 var r = client.ReportWorkByProduct(M_SN, STATION_CODE, employeeNo, dicStandardGroup[PROCEDURE_NAME], string.Empty, result, result);
-                if (r.Success) { return true; }
-                else { return false; }
+                if (r.Success)
+                {
+                    WriteError($"报工成功: SN={M_SN}, 工位={STATION_CODE}, 员工={employeeNo}, 工序={PROCEDURE_NAME}, 结果={result}", "ReportWorkByProduct");
+                    return true;
+                }
+                else
+                {
+                    WriteError($"报工失败: SN={M_SN}, 工位={STATION_CODE}, 员工={employeeNo}, 工序={PROCEDURE_NAME}, 结果={result}, 错误信息={r.Message}", "ReportWorkByProduct");
+                    return false;
+                }
             }
-            catch { return false; }
+            catch (Exception ex)
+            {
+                WriteError($"报工异常: SN={M_SN}, 工位={STATION_CODE}, 员工={employeeNo}, 工序={PROCEDURE_NAME}, 结果={result}, 异常信息={ex.Message}", "ReportWorkByProduct");
+                return false;
+            }
 
             //if (CheckSN(M_SN, out M_SN, out WO_CODE))
             //{
@@ -946,15 +993,28 @@ namespace MES_ORACLE_DATABASE
         {
             try
             {
-
                 string sql = $"INSERT INTO SCADA_MES.\"BusbarCompressionData\" (STATIONCODE, EQUIPMENTID, PARTNOID, WOCODE, SN, TAKEPHOTO1, RES, TVMAXVOLTAGE, TVMAXCURRENT, TVMETERID, TVINFO, TVRESULT, PRESSURE_MAX, PRESSURE_AVERAGE, PRESSURE_MIN, PRESSURE_RESULT, TAKEPHOTO2,  RESULT) VALUES " +
                     $"('{STATIONCODE}', '{EQUIPMENTID}', '{PARTNOID}', '{WOCODE}','{SN}', " +
                     $"{(TAKEPHOTO1?1:0)}, {RES},{TVMAXVOLTAGE}, {TVMAXCURRENT},'{TVMETERID}','{TVINFO}',{(TVRESULT?1:0)}," +
                     $"{PRESSURE_MAX}, {PRESSURE_AVERAGE},{PRESSURE_MIN}, {(PRESSURE_RESULT ? 1 : 0)}," +
                     $"{(TAKEPHOTO2 ? 1 : 0)}, '{RESULT}')";
-                return excutesql_mes(sql);
+
+                bool result = excutesql_mes(sql);
+                if (result)
+                {
+                    WriteError($"母排数据保存成功: SN={SN}, 工位={STATIONCODE}, 结果={RESULT}", "SaveBusBarData");
+                }
+                else
+                {
+                    WriteError($"母排数据保存失败: SN={SN}, 工位={STATIONCODE}, 结果={RESULT}, SQL={sql}", "SaveBusBarData");
+                }
+                return result;
             }
-            catch { return false; }
+            catch (Exception ex)
+            {
+                WriteError($"母排数据保存异常: SN={SN}, 工位={STATIONCODE}, 结果={RESULT}, 异常={ex.Message}", "SaveBusBarData");
+                return false;
+            }
         }
 
 

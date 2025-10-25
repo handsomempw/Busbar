@@ -63,12 +63,12 @@ namespace BusbarCompressionSystem.ViewModel
         public DataModel DataModel { get; set; } = new DataModel();
 
 
-        #region Êı¾İ±£´æ¼ÓÔØ
-        #region ¹ı³ÌÊı¾İ
+        #region æ•°æ®ä¿å­˜åŠ è½½
+        #region è¿‡ç¨‹æ•°æ®
         public void SaveProcessmodel()
         {
 
-            string filename = $"{Environment.CurrentDirectory}\\ÅäÖÃ\\¹ı³ÌÊı¾İ.xml";
+            string filename = $"{Environment.CurrentDirectory}\\é…ç½®\\è¿‡ç¨‹æ•°æ®.xml";
             string dir = Path.GetDirectoryName(filename);
             if (!Directory.Exists(dir))
             {
@@ -85,7 +85,7 @@ namespace BusbarCompressionSystem.ViewModel
         {
             try
             {
-                string filename = $"{Environment.CurrentDirectory}\\ÅäÖÃ\\¹ı³ÌÊı¾İ.xml";
+                string filename = $"{Environment.CurrentDirectory}\\é…ç½®\\è¿‡ç¨‹æ•°æ®.xml";
                 string dir = Path.GetDirectoryName(filename);
                 if (!Directory.Exists(dir))
                 {
@@ -112,11 +112,11 @@ namespace BusbarCompressionSystem.ViewModel
         }
         #endregion
 
-        #region ÅäÖÃÊı¾İ
+        #region é…ç½®æ•°æ®
         public void SaveSettingModel()
         {
 
-            string filename = $"{Environment.CurrentDirectory}\\ÅäÖÃ\\ÅäÖÃÊı¾İ.xml";
+            string filename = $"{Environment.CurrentDirectory}\\é…ç½®\\é…ç½®æ•°æ®.xml";
             string dir = Path.GetDirectoryName(filename);
             if (!Directory.Exists(dir))
             {
@@ -133,7 +133,7 @@ namespace BusbarCompressionSystem.ViewModel
         {
             try
             {
-                string filename = $"{Environment.CurrentDirectory}\\ÅäÖÃ\\ÅäÖÃÊı¾İ.xml";
+                string filename = $"{Environment.CurrentDirectory}\\é…ç½®\\é…ç½®æ•°æ®.xml";
                 string dir = Path.GetDirectoryName(filename);
                 if (!Directory.Exists(dir))
                 {
@@ -156,16 +156,16 @@ namespace BusbarCompressionSystem.ViewModel
             {
                 DataModel.Settingmodel = new SettingModel();
 
-                MessageBox.Show($"ÅäÖÃÊı¾İ.xml¼ÓÔØÊ§°Ü,Èí¼şÒÑÖØÖÃÅäÖÃ£¬Çë½øÈëÅäÖÃÎÄ¼ş°´ĞèÇóĞŞ¸Ä,ÔÙÖØĞÂ´ò¿ªÈí¼ş:\r\n{ex.Message}");
+                MessageBox.Show($"é…ç½®æ•°æ®.xmlåŠ è½½å¤±è´¥,è½¯ä»¶å·²é‡ç½®é…ç½®ï¼Œè¯·è¿›å…¥é…ç½®æ–‡ä»¶æŒ‰éœ€æ±‚ä¿®æ”¹,å†é‡æ–°æ‰“å¼€è½¯ä»¶:\r\n{ex.Message}");
 
             }
         }
         #endregion
 
-        #region ÈÕÖ¾Êı¾İ
+        #region æ—¥å¿—æ•°æ®
         public void SaveRecordModel()
         {
-            string filename = $"{Environment.CurrentDirectory}\\ÅäÖÃ\\ÈÕÖ¾Êı¾İ.xml";
+            string filename = $"{Environment.CurrentDirectory}\\é…ç½®\\æ—¥å¿—æ•°æ®.xml";
             string dir = Path.GetDirectoryName(filename);
             if (!Directory.Exists(dir))
             {
@@ -181,7 +181,7 @@ namespace BusbarCompressionSystem.ViewModel
         {
             try
             {
-                string filename = $"{Environment.CurrentDirectory}\\ÅäÖÃ\\ÈÕÖ¾Êı¾İ.xml";
+                string filename = $"{Environment.CurrentDirectory}\\é…ç½®\\æ—¥å¿—æ•°æ®.xml";
                 string dir = Path.GetDirectoryName(filename);
                 if (!Directory.Exists(dir))
                 {
@@ -203,14 +203,14 @@ namespace BusbarCompressionSystem.ViewModel
             catch (Exception ex)
             {
                 DataModel.Recordmodel = new RecordModel();
-                //MessageBox.Show($"ÈÕÖ¾Êı¾İ.xml¼ÓÔØÊ§°Ü,Èí¼şÒÑÖØÖÃÅäÖÃ£¬Çë½øÈëÅäÖÃÎÄ¼ş°´ĞèÇóĞŞ¸Ä,ÔÙÖØĞÂ´ò¿ªÈí¼ş:\r\n{ex.Message}");
+                //MessageBox.Show($"æ—¥å¿—æ•°æ®.xmlåŠ è½½å¤±è´¥,è½¯ä»¶å·²é‡ç½®é…ç½®ï¼Œè¯·è¿›å…¥é…ç½®æ–‡ä»¶æŒ‰éœ€æ±‚ä¿®æ”¹,å†é‡æ–°æ‰“å¼€è½¯ä»¶:\r\n{ex.Message}");
 
             }
         }
         #endregion
 
         #endregion
-        #region ²Ù×÷
+        #region æ“ä½œ
         public string _ScanSN(string snstr)
         {
             //if (string.IsNullOrEmpty(DataModel.Processmodel.TakePhotoTestModel.Productinfo.SN))
@@ -222,16 +222,16 @@ namespace BusbarCompressionSystem.ViewModel
                 string partnoid = MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.get_PartNO_ID(sn);
                 if (partnoid != DataModel.Processmodel.PartNOID)
                 {
-                    return $"²»Í¬¹æ¸ñ²úÆ·½ûÖ¹»ìºÏ×÷Òµ:{partnoid},{DataModel.Processmodel.PartNOID}";
+                    return $"ä¸åŒè§„æ ¼äº§å“ç¦æ­¢æ··åˆä½œä¸š:{partnoid},{DataModel.Processmodel.PartNOID}";
                 }
 
                 if (string.IsNullOrEmpty(wocode))
                 {
-                    return "¹ØÁªÅú´ÎºÅ¶ÁÈ¡Ê§°Ü";
+                    return "å…³è”æ‰¹æ¬¡å·è¯»å–å¤±è´¥";
                 }
                 if (string.IsNullOrEmpty(partnoid))
                 {
-                    return "¹ØÁª¹æ¸ñĞÅÏ¢¶ÁÈ¡Ê§°Ü";
+                    return "å…³è”è§„æ ¼ä¿¡æ¯è¯»å–å¤±è´¥";
                 }
                 //DataModel.Processmodel.TakePhotoTestModel.Productinfo.SN = sn;
                 //DataModel.Processmodel.TakePhotoTestModel.Productinfo.WOCODE = wocode;
@@ -243,12 +243,12 @@ namespace BusbarCompressionSystem.ViewModel
             }
             else
             {
-                return "±êÇ©¶ÁÈ¡Ê§°Ü,ÇëÈ·ÈÏ¸Ã²úÆ·±àºÅÊÇ·ñÕı³£";
+                return "æ ‡ç­¾è¯»å–å¤±è´¥,è¯·ç¡®è®¤è¯¥äº§å“ç¼–å·æ˜¯å¦æ­£å¸¸";
             }
             //}
             //else
             //{
-            //    return "ÅÄÕÕÎ»ÒÑ¾­ÓĞ²úÆ·±àºÅ£¬ÇëÎğÖØ¸´É¨Âë";
+            //    return "æ‹ç…§ä½å·²ç»æœ‰äº§å“ç¼–å·ï¼Œè¯·å‹¿é‡å¤æ‰«ç ";
             //}
         }
 
@@ -269,7 +269,7 @@ namespace BusbarCompressionSystem.ViewModel
 
         }
         #endregion
-        #region ÄÍÑ¹²âÊÔ
+        #region è€å‹æµ‹è¯•
 
         public void InitAt9620()
         {
@@ -283,7 +283,7 @@ namespace BusbarCompressionSystem.ViewModel
 
             try
             {
-                //writeLog($"Ïà»ú->ÊÓ¾õ:½ÓÊÕÕÕÆ¬", false);
+                //writeLog($"ç›¸æœº->è§†è§‰:æ¥æ”¶ç…§ç‰‡", false);
                 AT9620EventArgs myEventArgs = e as AT9620EventArgs;
                 DataModel.Processmodel.TVTestTestModel1.Voltage = myEventArgs.ResultTVProcess.Value.Voltage;
                 DataModel.Processmodel.TVTestTestModel1.Current = myEventArgs.ResultTVProcess.Value.Current;
@@ -303,7 +303,7 @@ namespace BusbarCompressionSystem.ViewModel
 
             try
             {
-                //writeLog($"Ïà»ú->ÊÓ¾õ:½ÓÊÕÕÕÆ¬", false);
+                //writeLog($"ç›¸æœº->è§†è§‰:æ¥æ”¶ç…§ç‰‡", false);
                 AT9620EventArgs myEventArgs = e as AT9620EventArgs;
                 DataModel.Processmodel.TVTestTestModel2.Voltage = myEventArgs.ResultTVProcess.Value.Voltage;
                 DataModel.Processmodel.TVTestTestModel2.Current = myEventArgs.ResultTVProcess.Value.Current;
@@ -323,7 +323,7 @@ namespace BusbarCompressionSystem.ViewModel
 
             try
             {
-                //writeLog($"Ïà»ú->ÊÓ¾õ:½ÓÊÕÕÕÆ¬", false);
+                //writeLog($"ç›¸æœº->è§†è§‰:æ¥æ”¶ç…§ç‰‡", false);
                 AT9620EventArgs myEventArgs = e as AT9620EventArgs;
                 DataModel.Processmodel.TVTestTestModel3.Voltage = myEventArgs.ResultTVProcess.Value.Voltage;
                 DataModel.Processmodel.TVTestTestModel3.Current = myEventArgs.ResultTVProcess.Value.Current;
@@ -341,7 +341,7 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         #endregion
-        #region PLCÍ¨Ñ¶
+        #region PLCé€šè®¯
 
 
 
@@ -371,7 +371,7 @@ namespace BusbarCompressionSystem.ViewModel
 
                     if (connectresult.IsSuccess)
                     {
-                        #region ¶ÁÈ¡Êı¾İ
+                        #region è¯»å–æ•°æ®
                         var readresult = modbusTcp.ReadUInt16(DataModel.Settingmodel.AddressStart.ToString(), 20);
 
                         if (readresult.IsSuccess)
@@ -382,7 +382,7 @@ namespace BusbarCompressionSystem.ViewModel
                             int TV2Trig = readresult.Content[8];
                             int TV3Trig = readresult.Content[10];
 
-                            #region É¨Âë´¥·¢
+                            #region æ‰«ç è§¦å‘
                             try
                             {
                                 if (ScanTrig == 1 & DataModel.Processmodel.Scan_Trig_IO.IOstatus == 0)
@@ -396,7 +396,7 @@ namespace BusbarCompressionSystem.ViewModel
                             catch {; }
                             #endregion
 
-                            #region ÅÄÕÕ´¥·¢
+                            #region æ‹ç…§è§¦å‘
                             try
                             {
                                 if (TakePhoto1Trig == 1 & DataModel.Processmodel.TakePhoto1_Trig_IO.IOstatus == 0)
@@ -410,7 +410,7 @@ namespace BusbarCompressionSystem.ViewModel
                             catch {; }
                             #endregion
 
-                            #region ÄÍÑ¹1´¥·¢
+                            #region è€å‹1è§¦å‘
                             try
                             {
                                 if ((TV1Trig == 1 || TV1Trig == 2) & DataModel.Processmodel.TV1_Trig_IO.IOstatus == 0)
@@ -428,7 +428,7 @@ namespace BusbarCompressionSystem.ViewModel
                             catch {; }
                             #endregion
 
-                            #region ÄÍÑ¹2´¥·¢
+                            #region è€å‹2è§¦å‘
                             try
                             {
                                 if ((TV2Trig == 1 || TV2Trig == 2) & DataModel.Processmodel.TV2_Trig_IO.IOstatus == 0)
@@ -446,7 +446,7 @@ namespace BusbarCompressionSystem.ViewModel
                             catch {; }
                             #endregion
 
-                            #region ÄÍÑ¹3´¥·¢
+                            #region è€å‹3è§¦å‘
                             try
                             {
                                 if ((TV3Trig == 1 || TV3Trig == 2) & DataModel.Processmodel.TV3_Trig_IO.IOstatus == 0)
@@ -465,7 +465,7 @@ namespace BusbarCompressionSystem.ViewModel
                             #endregion
 
 
-                            #region Êı¾İ¸´ÖÆË¢ĞÂ
+                            #region æ•°æ®å¤åˆ¶åˆ·æ–°
                             DataModel.Processmodel.Scan_Trig_IO.IOstatus = ScanTrig;
                             DataModel.Processmodel.TakePhoto1_Trig_IO.IOstatus = TakePhoto1Trig;
                             DataModel.Processmodel.TV1_Trig_IO.IOstatus = TV1Trig;
@@ -482,7 +482,7 @@ namespace BusbarCompressionSystem.ViewModel
                     }
                     else
                     {
-                        #region Í¨Ñ¶Ê§°ÜÊı¾İÖÃÎª-1
+                        #region é€šè®¯å¤±è´¥æ•°æ®ç½®ä¸º-1
                         DataModel.Processmodel.Scan_Trig_IO.IOstatus = -1;
                         DataModel.Processmodel.TakePhoto1_Trig_IO.IOstatus = -1;
                         DataModel.Processmodel.TV1_Trig_IO.IOstatus = -1;
@@ -572,7 +572,7 @@ namespace BusbarCompressionSystem.ViewModel
             else
             {
 
-                writeLog($"ÅÄÕÕÁôµ×²úÆ·±àºÅ¶ÁÈ¡´íÎó:{s}");
+                writeLog($"æ‹ç…§ç•™åº•äº§å“ç¼–å·è¯»å–é”™è¯¯:{s}");
 
             }
 
@@ -607,21 +607,21 @@ namespace BusbarCompressionSystem.ViewModel
                 }
                 if (i++ > 15)
                 {
-                    #region ³¬Ê±Î´Íê³ÉÅÄÕÕ
+                    #region è¶…æ—¶æœªå®Œæˆæ‹ç…§
 
                     if (!DataModel.Settingmodel.camedata1.CameraModel.finished)
                     {
-                        writeLog("Ïà»ú1ÅÄÕÕ³¬Ê±");
+                        writeLog("ç›¸æœº1æ‹ç…§è¶…æ—¶");
                     }
 
                     if (!DataModel.Settingmodel.camedata2.CameraModel.finished)
                     {
-                        writeLog("Ïà»ú2ÅÄÕÕ³¬Ê±");
+                        writeLog("ç›¸æœº2æ‹ç…§è¶…æ—¶");
                     }
 
                     if (!DataModel.Settingmodel.camedata3.CameraModel.finished)
                     {
-                        writeLog("Ïà»ú3ÅÄÕÕ³¬Ê±");
+                        writeLog("ç›¸æœº3æ‹ç…§è¶…æ—¶");
                     }
                     SQLITEDATABASE.sqlite.UpdateTakePhoto1(
                         DataModel.Processmodel.TakePhotoTestModel.Productinfo.WOCODE,
@@ -671,7 +671,7 @@ namespace BusbarCompressionSystem.ViewModel
             }
             else
             {
-                writeLog($"ÄÍÑ¹1²úÆ·±àºÅ¶ÁÈ¡´íÎó:{s}");
+                writeLog($"è€å‹1äº§å“ç¼–å·è¯»å–é”™è¯¯:{s}");
             }
 
             float res = PLC_ReadFloat(DataModel.Settingmodel.AddressRes);
@@ -733,7 +733,7 @@ namespace BusbarCompressionSystem.ViewModel
             }
             else
             {
-                writeLog($"ÄÍÑ¹2²úÆ·±àºÅ¶ÁÈ¡´íÎó:{s}");
+                writeLog($"è€å‹2äº§å“ç¼–å·è¯»å–é”™è¯¯:{s}");
             }
             float res = PLC_ReadFloat(DataModel.Settingmodel.AddressRes + 1 * 2);
             DataModel.Processmodel.TVTestTestModel2.Res = res;
@@ -778,7 +778,7 @@ namespace BusbarCompressionSystem.ViewModel
             }
             else
             {
-                writeLog($"ÄÍÑ¹3²úÆ·±àºÅ¶ÁÈ¡´íÎó:{s}");
+                writeLog($"è€å‹3äº§å“ç¼–å·è¯»å–é”™è¯¯:{s}");
             }
             //DataModel.Processmodel.TVTestTestModel3.Productinfo.SN = s;
             float res = PLC_ReadFloat(DataModel.Settingmodel.AddressRes + 2 * 2);
@@ -900,7 +900,7 @@ namespace BusbarCompressionSystem.ViewModel
 
         private bool PLC_write(float result)
         {
-            writeLog($"ÊÓ¾õ->PLC:{result}¡¢{(result == 1 ? "OK" : "NG")}", false);
+            writeLog($"è§†è§‰->PLC:{result}ã€{(result == 1 ? "OK" : "NG")}", false);
 
             int i = 0;
             while (i++ < 4)
@@ -935,7 +935,7 @@ namespace BusbarCompressionSystem.ViewModel
 
         private bool PLC_write(string address, UInt16 result)
         {
-            writeLog($"ÊÓ¾õ->PLC:{result}¡¢{(result == 1 ? "OK" : "NG")}", false);
+            writeLog($"è§†è§‰->PLC:{result}ã€{(result == 1 ? "OK" : "NG")}", false);
 
             int i = 0;
             while (i++ < 4)
@@ -970,7 +970,7 @@ namespace BusbarCompressionSystem.ViewModel
 
         private bool PLC_write(string address, float result)
         {
-            writeLog($"ÊÓ¾õ->PLC:{result}¡¢{(result == 1 ? "OK" : "NG")}", false);
+            writeLog($"è§†è§‰->PLC:{result}ã€{(result == 1 ? "OK" : "NG")}", false);
 
             int i = 0;
             while (i++ < 4)
@@ -1150,7 +1150,7 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         #endregion
-        #region Í¨ÓÃÊı¾İÈÕÖ¾
+        #region é€šç”¨æ•°æ®æ—¥å¿—
         private object writeLog_Locker = new object();
 
         private object writeBug_Locker = new object();
@@ -1183,7 +1183,7 @@ namespace BusbarCompressionSystem.ViewModel
                     });
                 }
 
-                string filename = $"{Environment.CurrentDirectory}\\ÈÕÖ¾\\ÈÕÖ¾\\{DateTime.Now.ToString("yyyyMMdd")}.txt";
+                string filename = $"{Environment.CurrentDirectory}\\æ—¥å¿—\\æ—¥å¿—\\{DateTime.Now.ToString("yyyyMMdd")}.txt";
                 string dir = Path.GetDirectoryName(filename);
                 if (!Directory.Exists(dir))
                 {
@@ -1218,7 +1218,7 @@ namespace BusbarCompressionSystem.ViewModel
                     }
                     DataModel.Recordmodel.ErrorLog.Insert(0, bugstr);
                 });
-                string filename = $"{Environment.CurrentDirectory}\\ÈÕÖ¾\\´íÎó\\{DateTime.Now.ToString("yyyyMMdd")}.txt";
+                string filename = $"{Environment.CurrentDirectory}\\æ—¥å¿—\\é”™è¯¯\\{DateTime.Now.ToString("yyyyMMdd")}.txt";
                 string dir = Path.GetDirectoryName(filename);
                 if (!Directory.Exists(dir))
                 {
@@ -1236,15 +1236,15 @@ namespace BusbarCompressionSystem.ViewModel
 
         }
         #endregion
-        #region Ïà»ú²Ù×÷
-        #region Ïà»ú³õÊ¼»¯
+        #region ç›¸æœºæ“ä½œ
+        #region ç›¸æœºåˆå§‹åŒ–
         public void InitCamera()
         {
-            DataModel.Settingmodel.camedata1.init1($"{Environment.CurrentDirectory}\\ÅäÖÃ\\Ïà»úÅäÖÃ1.xml");
-            DataModel.Settingmodel.camedata2.init1($"{Environment.CurrentDirectory}\\ÅäÖÃ\\Ïà»úÅäÖÃ2.xml");
-            DataModel.Settingmodel.camedata3.init1($"{Environment.CurrentDirectory}\\ÅäÖÃ\\Ïà»úÅäÖÃ3.xml");
-            DataModel.Settingmodel.camedata4.init1($"{Environment.CurrentDirectory}\\ÅäÖÃ\\Ïà»úÅäÖÃ4.xml");
-            DataModel.Settingmodel.camedata5.init1($"{Environment.CurrentDirectory}\\ÅäÖÃ\\Ïà»úÅäÖÃ5.xml");
+            DataModel.Settingmodel.camedata1.init1($"{Environment.CurrentDirectory}\\é…ç½®\\ç›¸æœºé…ç½®1.xml");
+            DataModel.Settingmodel.camedata2.init1($"{Environment.CurrentDirectory}\\é…ç½®\\ç›¸æœºé…ç½®2.xml");
+            DataModel.Settingmodel.camedata3.init1($"{Environment.CurrentDirectory}\\é…ç½®\\ç›¸æœºé…ç½®3.xml");
+            DataModel.Settingmodel.camedata4.init1($"{Environment.CurrentDirectory}\\é…ç½®\\ç›¸æœºé…ç½®4.xml");
+            DataModel.Settingmodel.camedata5.init1($"{Environment.CurrentDirectory}\\é…ç½®\\ç›¸æœºé…ç½®5.xml");
 
             DataModel.Settingmodel.camedata1.CameraModel.camera.ErrorReceived += OnCameraErrorReceive;
             DataModel.Settingmodel.camedata2.CameraModel.camera.ErrorReceived += OnCameraErrorReceive;
@@ -1263,18 +1263,18 @@ namespace BusbarCompressionSystem.ViewModel
 
         public void CloseCamera()
         {
-            DataModel.Settingmodel.camedata1.closing($"{Environment.CurrentDirectory}\\ÅäÖÃ\\Ïà»úÅäÖÃ1.xml");
-            DataModel.Settingmodel.camedata2.closing($"{Environment.CurrentDirectory}\\ÅäÖÃ\\Ïà»úÅäÖÃ2.xml");
-            DataModel.Settingmodel.camedata3.closing($"{Environment.CurrentDirectory}\\ÅäÖÃ\\Ïà»úÅäÖÃ3.xml");
-            DataModel.Settingmodel.camedata4.closing($"{Environment.CurrentDirectory}\\ÅäÖÃ\\Ïà»úÅäÖÃ4.xml");
-            DataModel.Settingmodel.camedata5.closing($"{Environment.CurrentDirectory}\\ÅäÖÃ\\Ïà»úÅäÖÃ5.xml");
+            DataModel.Settingmodel.camedata1.closing($"{Environment.CurrentDirectory}\\é…ç½®\\ç›¸æœºé…ç½®1.xml");
+            DataModel.Settingmodel.camedata2.closing($"{Environment.CurrentDirectory}\\é…ç½®\\ç›¸æœºé…ç½®2.xml");
+            DataModel.Settingmodel.camedata3.closing($"{Environment.CurrentDirectory}\\é…ç½®\\ç›¸æœºé…ç½®3.xml");
+            DataModel.Settingmodel.camedata4.closing($"{Environment.CurrentDirectory}\\é…ç½®\\ç›¸æœºé…ç½®4.xml");
+            DataModel.Settingmodel.camedata5.closing($"{Environment.CurrentDirectory}\\é…ç½®\\ç›¸æœºé…ç½®5.xml");
         }
 
         #endregion
 
 
 
-        #region ÅÄÕÕÁôµ×
+        #region æ‹ç…§ç•™åº•
         public void start()
         {
             DataModel.Settingmodel.camedata1.CameraModel.camera.ImageReceived += OnCamera1Receive;
@@ -1289,7 +1289,7 @@ namespace BusbarCompressionSystem.ViewModel
             try
             {
                 Camera.ErrorEventArgs errorEventArgs = e as Camera.ErrorEventArgs;
-                NoticeBox.Show($"{errorEventArgs.Error}", $"Ïà»ú´íÎó-{errorEventArgs.CameraID}", MessageBoxIcon.Error, true, 10000);
+                NoticeBox.Show($"{errorEventArgs.Error}", $"ç›¸æœºé”™è¯¯-{errorEventArgs.CameraID}", MessageBoxIcon.Error, true, 10000);
             }
             catch (Exception ex) { }
         }
@@ -1299,14 +1299,14 @@ namespace BusbarCompressionSystem.ViewModel
 
             try
             {
-                writeLog($"Ïà»ú->ÊÓ¾õ:½ÓÊÕÕÕÆ¬", false);
+                writeLog($"ç›¸æœº->è§†è§‰:æ¥æ”¶ç…§ç‰‡", false);
 
                 MyEventArgs myEventArgs = e as MyEventArgs;
 
                 App.Current.Dispatcher.BeginInvoke(new Action(() =>
                 {
                     OnReceiveProcess(DataModel.Settingmodel.HWindow1, myEventArgs.Image, myEventArgs.Height, myEventArgs.Width, 1);
-                    SaveImage(myEventArgs.Image, DataModel.Processmodel.TakePhotoTestModel.Productinfo.SN, "ÅÄÕÕÁôµ×", 1, "OK");
+                    SaveImage(myEventArgs.Image, DataModel.Processmodel.TakePhotoTestModel.Productinfo.SN, "æ‹ç…§ç•™åº•", 1, "OK");
                     DataModel.Settingmodel.camedata1.CameraModel.finished = true;
 
                     GC.Collect();
@@ -1315,7 +1315,7 @@ namespace BusbarCompressionSystem.ViewModel
             }
             catch (Exception ex)
             {
-                // writeError($"[{DataModel.Processmodel.RCMD}]Ê¶±ğ´íÎó:{ex.ToString()}");
+                // writeError($"[{DataModel.Processmodel.RCMD}]è¯†åˆ«é”™è¯¯:{ex.ToString()}");
             }
         }
         private void OnCamera2Receive(object sender, EventArgs e)
@@ -1323,14 +1323,14 @@ namespace BusbarCompressionSystem.ViewModel
 
             try
             {
-                writeLog($"Ïà»ú->ÊÓ¾õ:½ÓÊÕÕÕÆ¬", false);
+                writeLog($"ç›¸æœº->è§†è§‰:æ¥æ”¶ç…§ç‰‡", false);
 
                 MyEventArgs myEventArgs = e as MyEventArgs;
 
                 App.Current.Dispatcher.BeginInvoke(new Action(() =>
                 {
                     OnReceiveProcess(DataModel.Settingmodel.HWindow2, myEventArgs.Image, myEventArgs.Height, myEventArgs.Width, 2);
-                    SaveImage(myEventArgs.Image, DataModel.Processmodel.TakePhotoTestModel.Productinfo.SN, "ÅÄÕÕÁôµ×", 2, "OK");
+                    SaveImage(myEventArgs.Image, DataModel.Processmodel.TakePhotoTestModel.Productinfo.SN, "æ‹ç…§ç•™åº•", 2, "OK");
                     DataModel.Settingmodel.camedata2.CameraModel.finished = true;
 
                     GC.Collect();
@@ -1339,7 +1339,7 @@ namespace BusbarCompressionSystem.ViewModel
             }
             catch (Exception ex)
             {
-                // writeError($"[{DataModel.Processmodel.RCMD}]Ê¶±ğ´íÎó:{ex.ToString()}");
+                // writeError($"[{DataModel.Processmodel.RCMD}]è¯†åˆ«é”™è¯¯:{ex.ToString()}");
             }
         }
 
@@ -1347,21 +1347,21 @@ namespace BusbarCompressionSystem.ViewModel
         {
             try
             {
-                writeLog($"Ïà»ú->ÊÓ¾õ:½ÓÊÕÕÕÆ¬", false);
+                writeLog($"ç›¸æœº->è§†è§‰:æ¥æ”¶ç…§ç‰‡", false);
 
                 MyEventArgs myEventArgs = e as MyEventArgs;
 
                 App.Current.Dispatcher.BeginInvoke(new Action(() =>
                 {
                     OnReceiveProcess(DataModel.Settingmodel.HWindow3, myEventArgs.Image, myEventArgs.Height, myEventArgs.Width, 3);
-                    SaveImage(myEventArgs.Image, DataModel.Processmodel.TakePhotoTestModel.Productinfo.SN, "ÅÄÕÕÁôµ×", 3, "OK");
+                    SaveImage(myEventArgs.Image, DataModel.Processmodel.TakePhotoTestModel.Productinfo.SN, "æ‹ç…§ç•™åº•", 3, "OK");
                     DataModel.Settingmodel.camedata3.CameraModel.finished = true;
                     GC.Collect();
                 }));
             }
             catch (Exception ex)
             {
-                // writeError($"[{DataModel.Processmodel.RCMD}]Ê¶±ğ´íÎó:{ex.ToString()}");
+                // writeError($"[{DataModel.Processmodel.RCMD}]è¯†åˆ«é”™è¯¯:{ex.ToString()}");
             }
         }
 
@@ -1371,20 +1371,20 @@ namespace BusbarCompressionSystem.ViewModel
 
             try
             {
-                writeLog($"Ïà»ú->ÊÓ¾õ:½ÓÊÕÕÕÆ¬", false);
+                writeLog($"ç›¸æœº->è§†è§‰:æ¥æ”¶ç…§ç‰‡", false);
 
                 MyEventArgs myEventArgs = e as MyEventArgs;
 
                 App.Current.Dispatcher.BeginInvoke(new Action(() =>
                 {
-                    //#region ½ö±£´æÕÕÆ¬
+                    //#region ä»…ä¿å­˜ç…§ç‰‡
                     //OnReceiveProcess(DataModel.Settingmodel.HWindow4, myEventArgs.Image, myEventArgs.Height, myEventArgs.Width, 4);
-                    //SaveImage(myEventArgs.Image, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, "Íâ¹Û¼ì²â", 1, "OK");
+                    //SaveImage(myEventArgs.Image, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, "å¤–è§‚æ£€æµ‹", 1, "OK");
                     //SendMsgRobot("OK");
                     //#endregion
 
 
-                    #region AOIÊ¶±ğ
+                    #region AOIè¯†åˆ«
                     //OnReceiveProcessAOI(DataModel.Settingmodel.HWindow4, myEventArgs.Image, myEventArgs.Height, myEventArgs.Width, 4);
                     OnReceiveProcessAOI(myEventArgs.Image, myEventArgs.Height, myEventArgs.Width);
 
@@ -1396,7 +1396,7 @@ namespace BusbarCompressionSystem.ViewModel
             }
             catch (Exception ex)
             {
-                // writeError($"[{DataModel.Processmodel.RCMD}]Ê¶±ğ´íÎó:{ex.ToString()}");
+                // writeError($"[{DataModel.Processmodel.RCMD}]è¯†åˆ«é”™è¯¯:{ex.ToString()}");
             }
         }
         private void OnCamera5Receive(object sender, EventArgs e)
@@ -1404,13 +1404,13 @@ namespace BusbarCompressionSystem.ViewModel
 
             try
             {
-                writeLog($"Ïà»ú->ÊÓ¾õ:½ÓÊÕÕÕÆ¬", false);
+                writeLog($"ç›¸æœº->è§†è§‰:æ¥æ”¶ç…§ç‰‡", false);
                 MyEventArgs myEventArgs = e as MyEventArgs;
                 App.Current.Dispatcher.BeginInvoke(new Action(() =>
                 {
-                    //#region ½ö±£´æÕÕÆ¬
+                    //#region ä»…ä¿å­˜ç…§ç‰‡
                     //OnReceiveProcess(DataModel.Settingmodel.HWindow4, myEventArgs.Image, myEventArgs.Height, myEventArgs.Width, 5);
-                    //SaveImage(myEventArgs.Image, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, "Íâ¹Û¼ì²â", 1, "OK");
+                    //SaveImage(myEventArgs.Image, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, "å¤–è§‚æ£€æµ‹", 1, "OK");
 
                     //if (DataModel.Processmodel.CMD == "A5")
                     //{
@@ -1425,7 +1425,7 @@ namespace BusbarCompressionSystem.ViewModel
                     //SendMsgRobot("OK");
                     //#endregion
 
-                    #region AOIÊ¶±ğ
+                    #region AOIè¯†åˆ«
                     OnReceiveProcessAOI(myEventArgs.Image, myEventArgs.Height, myEventArgs.Width);
                     #endregion
 
@@ -1434,14 +1434,14 @@ namespace BusbarCompressionSystem.ViewModel
             }
             catch (Exception ex)
             {
-                // writeError($"[{DataModel.Processmodel.RCMD}]Ê¶±ğ´íÎó:{ex.ToString()}");
+                // writeError($"[{DataModel.Processmodel.RCMD}]è¯†åˆ«é”™è¯¯:{ex.ToString()}");
             }
         }
 
 
         public void OnReceiveProcess(HWindow hwindow, HObject Image, int H, int W, int Index)
         {
-            #region Í¼Æ¬½ÓÊÕ
+            #region å›¾ç‰‡æ¥æ”¶
             //Image
             HOperatorSet.CountChannels(Image, out var channels);
             if (channels == 1)
@@ -1459,7 +1459,7 @@ namespace BusbarCompressionSystem.ViewModel
         {
             try
             {
-                #region Í¼Æ¬½ÓÊÕ
+                #region å›¾ç‰‡æ¥æ”¶
                 //Image
                 HOperatorSet.CountChannels(Image, out var channels);
                 if (channels == 1)
@@ -1483,7 +1483,7 @@ namespace BusbarCompressionSystem.ViewModel
 
                         if (i == 0)
                         {
-                            DataModel.FaraVisionDataModel.Processmodel.Status = ToolStatus.Ê¶±ğÖĞ;
+                            DataModel.FaraVisionDataModel.Processmodel.Status = ToolStatus.è¯†åˆ«ä¸­;
                         }
                         DataModel.FaraVisionDataModel.Processmodel.ToolIndex = i + 1;
                         ToolModel tool = DataModel.FaraVisionDataModel.Processmodel.Tools[i];
@@ -1521,12 +1521,12 @@ namespace BusbarCompressionSystem.ViewModel
 
 
                         ClearTool(tool);
-                        tool.ToolStatus = ToolStatus.Ê¶±ğÖĞ;
+                        tool.ToolStatus = ToolStatus.è¯†åˆ«ä¸­;
                         try
                         {
-                            if (tool.TestMode == TestModes.¶şÎ¬Âë)
+                            if (tool.TestMode == TestModes.äºŒç»´ç )
                             {
-                                #region ¶ÁÈ¡¶şÎ¬Âë
+                                #region è¯»å–äºŒç»´ç 
                                 List<Reg.Barcode> barcodelist = null;
 
                                 try
@@ -1535,12 +1535,12 @@ namespace BusbarCompressionSystem.ViewModel
                                     if (barcodelist.Count > 0)
                                     {
                                         tool.BarcodeStr = barcodelist[0].codestr;
-                                        //  NoticeBox.Show(barcodelist[0].codestr, "¶şÎ¬Âë¶ÁÈ¡³É¹¦", MessageBoxIcon.Success, true, 5000);
+                                        //  NoticeBox.Show(barcodelist[0].codestr, "äºŒç»´ç è¯»å–æˆåŠŸ", MessageBoxIcon.Success, true, 5000);
                                         //if (tool.SendBarcodeData)
                                         //{
                                         //    SendMsgSoft(tool.BarcodeStr);
                                         //}
-                                        writeLog($"¶şÎ¬Âë¶ÁÈ¡³É¹¦:{barcodelist[0].codestr}");
+                                        writeLog($"äºŒç»´ç è¯»å–æˆåŠŸ:{barcodelist[0].codestr}");
 
                                         if (tool.MPMode)
                                         {
@@ -1548,7 +1548,7 @@ namespace BusbarCompressionSystem.ViewModel
                                         }
                                         if (tool.SendBarcode)
                                         {
-                                            tool.ToolStatus = ToolStatus.µÈ´ıÖĞ;
+                                            tool.ToolStatus = ToolStatus.ç­‰å¾…ä¸­;
 
                                             if (DataModel.FaraVisionDataModel.Settingmodel.TcpClientH.Connect(DataModel.FaraVisionDataModel.Settingmodel.BarcodeReporter.RemoteIP, DataModel.FaraVisionDataModel.Settingmodel.BarcodeReporter.RemotePort))
                                             {
@@ -1563,7 +1563,7 @@ namespace BusbarCompressionSystem.ViewModel
                                                         DataModel.FaraVisionDataModel.Processmodel.SNList.Add(s);
                                                     }));
                                                     tool.ToolStatus = ToolStatus.OK;
-                                                    writeLog($"É¨Âë»ã±¨Èí¼ş·µ»Ø³ÉÆ·±àºÅ:{s}");
+                                                    writeLog($"æ‰«ç æ±‡æŠ¥è½¯ä»¶è¿”å›æˆå“ç¼–å·:{s}");
                                                     DataModel.FaraVisionDataModel.Processmodel.Barcodes = string.Empty;
 
 
@@ -1571,7 +1571,7 @@ namespace BusbarCompressionSystem.ViewModel
                                                 else
                                                 {
                                                     tool.ToolStatus = ToolStatus.NG2;
-                                                    writeLog($"É¨Âë»ã±¨Èí¼ş·µ»ØÎª¿Õ");
+                                                    writeLog($"æ‰«ç æ±‡æŠ¥è½¯ä»¶è¿”å›ä¸ºç©º");
 
                                                 }
 
@@ -1580,7 +1580,7 @@ namespace BusbarCompressionSystem.ViewModel
                                             else
                                             {
                                                 tool.ToolStatus = ToolStatus.NG2;
-                                                writeLog($"Á¬½ÓÉ¨Âë»ã±¨Èí¼şNG2");
+                                                writeLog($"è¿æ¥æ‰«ç æ±‡æŠ¥è½¯ä»¶NG2");
                                             }
 
 
@@ -1592,12 +1592,12 @@ namespace BusbarCompressionSystem.ViewModel
 
 
 
-                                        //#region ·¢ËÍ¶şÎ¬Âë¸øÉÏÎ»»úÉè±¸
+                                        //#region å‘é€äºŒç»´ç ç»™ä¸Šä½æœºè®¾å¤‡
                                         //DataModel.Settingmodel.TcpServerSoft.SendMessage(tool.BarcodeStr);
                                         //Thread.Sleep(tool.Delaytimes);
                                         //string s = DataModel.Settingmodel.TcpServerSoft.GetMsg();
 
-                                        //writeLog($"¶şÎ¬ÂëĞ£Ñé·µ»Ø´íÎó:{s}");
+                                        //writeLog($"äºŒç»´ç æ ¡éªŒè¿”å›é”™è¯¯:{s}");
 
                                         //if (string.IsNullOrEmpty(s) || s != "OK")
                                         //{
@@ -1629,7 +1629,7 @@ namespace BusbarCompressionSystem.ViewModel
                                     else
                                     {
                                         tool.BarcodeStr = string.Empty;
-                                        writeLog($"¶şÎ¬Âë¶ÁÈ¡Ê§°Ü:{barcodelist[0].codestr}");
+                                        writeLog($"äºŒç»´ç è¯»å–å¤±è´¥:{barcodelist[0].codestr}");
                                         tool.ToolStatus = ToolStatus.NG;
 
                                     }
@@ -1641,10 +1641,10 @@ namespace BusbarCompressionSystem.ViewModel
 
                                 #endregion
                             }
-                            else if (tool.TestMode == TestModes.Ä£°åÆ¥Åä)
+                            else if (tool.TestMode == TestModes.æ¨¡æ¿åŒ¹é…)
                             {
-                                #region ¶ÁÈ¡Î»ÖÃ
-                                /// NG  Î´°²×°ºÃ  NG2:È±ÉÙÅä¼ş  OK:ºÏ¸ñ              
+                                #region è¯»å–ä½ç½®
+                                /// NG  æœªå®‰è£…å¥½  NG2:ç¼ºå°‘é…ä»¶  OK:åˆæ ¼              
 
                                 try
                                 {
@@ -1707,9 +1707,9 @@ namespace BusbarCompressionSystem.ViewModel
 
                                 #endregion
                             }
-                            else if (tool.TestMode == TestModes.Ãæ»ı)
+                            else if (tool.TestMode == TestModes.é¢ç§¯)
                             {
-                                #region ¶ÁÈ¡Ãæ»ı
+                                #region è¯»å–é¢ç§¯
 
                                 int Areaint = CoculateDimension(Image, tool, hwindow, false);
                                 tool.ActualDimension = Areaint;
@@ -1729,12 +1729,12 @@ namespace BusbarCompressionSystem.ViewModel
                         }
                         catch {; }
 
-                        writeLog($"ÊÓ¾õ->ÊÓ¾õ:¼ÆËãÍê³É", false);
-                        string s1 = $"{DataModel.FaraVisionDataModel.Processmodel.Tools[i].Name}:Ê¶±ğºÄÊ±:{stopwatch.ElapsedMilliseconds}ms";
+                        writeLog($"è§†è§‰->è§†è§‰:è®¡ç®—å®Œæˆ", false);
+                        string s1 = $"{DataModel.FaraVisionDataModel.Processmodel.Tools[i].Name}:è¯†åˆ«è€—æ—¶:{stopwatch.ElapsedMilliseconds}ms";
                         Save_record(s1);
                         stopwatch.Restart();
 
-                        #region ±£´æÍ¼Æ¬
+                        #region ä¿å­˜å›¾ç‰‡
                         try
                         {
                             if (tool.ToolStatus == ToolStatus.OK)
@@ -1742,10 +1742,10 @@ namespace BusbarCompressionSystem.ViewModel
                                 if (DataModel.Settingmodel.ImageSaveSetting.SaveOK)
                                 {
 
-                                    string savefilename = $"{DataModel.FaraVisionDataModel.Settingmodel.ImageSaveSetting.ImageSaveDir}\\Íâ¹Û¼ì²â\\{DateTime.Now.ToString("yyyyMMdd")}\\OK\\{DataModel.FaraVisionDataModel.Processmodel.BarcodeStr}-{tool.Index.ToString("00")}-{tool.Name}-{tool.ToolStatus}-{DateTime.Now.ToString("yyyyMMddHHmmssFFF")}.jpg";
+                                    string savefilename = $"{DataModel.FaraVisionDataModel.Settingmodel.ImageSaveSetting.ImageSaveDir}\\å¤–è§‚æ£€æµ‹\\{DateTime.Now.ToString("yyyyMMdd")}\\OK\\{DataModel.FaraVisionDataModel.Processmodel.BarcodeStr}-{tool.Index.ToString("00")}-{tool.Name}-{tool.ToolStatus}-{DateTime.Now.ToString("yyyyMMddHHmmssFFF")}.jpg";
                                     try
                                     {
-                                        savefilename = $"{DataModel.FaraVisionDataModel.Settingmodel.ImageSaveSetting.ImageSaveDir}\\Íâ¹Û¼ì²â\\{DateTime.Now.ToString("yyyyMMdd")}\\OK\\{DataModel.FaraVisionDataModel.Processmodel.SNList[DataModel.FaraVisionDataModel.Processmodel.Tools[i].ProductPositionNO]}-{tool.Index.ToString("00")}-{tool.Name}-{tool.ToolStatus}-{DateTime.Now.ToString("yyyyMMddHHmmssFFF")}.jpg";
+                                        savefilename = $"{DataModel.FaraVisionDataModel.Settingmodel.ImageSaveSetting.ImageSaveDir}\\å¤–è§‚æ£€æµ‹\\{DateTime.Now.ToString("yyyyMMdd")}\\OK\\{DataModel.FaraVisionDataModel.Processmodel.SNList[DataModel.FaraVisionDataModel.Processmodel.Tools[i].ProductPositionNO]}-{tool.Index.ToString("00")}-{tool.Name}-{tool.ToolStatus}-{DateTime.Now.ToString("yyyyMMddHHmmssFFF")}.jpg";
                                     }
                                     catch {; }
 
@@ -1759,10 +1759,10 @@ namespace BusbarCompressionSystem.ViewModel
                             {
                                 if (DataModel.Settingmodel.ImageSaveSetting.SaveNG)
                                 {
-                                    string savefilename = $"{DataModel.FaraVisionDataModel.Settingmodel.ImageSaveSetting.ImageSaveDir}\\Íâ¹Û¼ì²â\\{DateTime.Now.ToString("yyyyMMdd")}\\NG\\{DataModel.FaraVisionDataModel.Processmodel.BarcodeStr}-{tool.Index.ToString("00")}-{tool.Name}-{tool.ToolStatus}-{DateTime.Now.ToString("yyyyMMddHHmmssFFF")}.jpg";
+                                    string savefilename = $"{DataModel.FaraVisionDataModel.Settingmodel.ImageSaveSetting.ImageSaveDir}\\å¤–è§‚æ£€æµ‹\\{DateTime.Now.ToString("yyyyMMdd")}\\NG\\{DataModel.FaraVisionDataModel.Processmodel.BarcodeStr}-{tool.Index.ToString("00")}-{tool.Name}-{tool.ToolStatus}-{DateTime.Now.ToString("yyyyMMddHHmmssFFF")}.jpg";
                                     try
                                     {
-                                        savefilename = $"{DataModel.FaraVisionDataModel.Settingmodel.ImageSaveSetting.ImageSaveDir}\\Íâ¹Û¼ì²â\\{DateTime.Now.ToString("yyyyMMdd")}\\NG\\{DataModel.FaraVisionDataModel.Processmodel.SNList[DataModel.FaraVisionDataModel.Processmodel.Tools[i].ProductPositionNO]}-{tool.Index.ToString("00")}-{tool.Name}-{tool.ToolStatus}-{DateTime.Now.ToString("yyyyMMddHHmmssFFF")}.jpg";
+                                        savefilename = $"{DataModel.FaraVisionDataModel.Settingmodel.ImageSaveSetting.ImageSaveDir}\\å¤–è§‚æ£€æµ‹\\{DateTime.Now.ToString("yyyyMMdd")}\\NG\\{DataModel.FaraVisionDataModel.Processmodel.SNList[DataModel.FaraVisionDataModel.Processmodel.Tools[i].ProductPositionNO]}-{tool.Index.ToString("00")}-{tool.Name}-{tool.ToolStatus}-{DateTime.Now.ToString("yyyyMMddHHmmssFFF")}.jpg";
                                     }
                                     catch {; }
                                     string dir = Path.GetDirectoryName(savefilename);
@@ -1775,7 +1775,7 @@ namespace BusbarCompressionSystem.ViewModel
                         }
                         catch (Exception ex)
                         {
-                            writeLog($"ÊÓ¾õ->±£´æÕÕÆ¬:±£´æÊ§°Ü£º{ex.ToString()}", false);
+                            writeLog($"è§†è§‰->ä¿å­˜ç…§ç‰‡:ä¿å­˜å¤±è´¥ï¼š{ex.ToString()}", false);
                         }
 
                         #endregion
@@ -1789,7 +1789,7 @@ namespace BusbarCompressionSystem.ViewModel
                                      where ToolModel.Command == DataModel.FaraVisionDataModel.Processmodel.RCMD
                                      select ToolModel);
                             var wait = (from ToolModel in r
-                                        where (ToolModel.ToolStatus == ToolStatus.µÈ´ıÖĞ || ToolModel.ToolStatus == ToolStatus.Ê¶±ğÖĞ)
+                                        where (ToolModel.ToolStatus == ToolStatus.ç­‰å¾…ä¸­ || ToolModel.ToolStatus == ToolStatus.è¯†åˆ«ä¸­)
                                         select ToolModel);
 
                             if (wait.Count() == 0)
@@ -1861,7 +1861,7 @@ namespace BusbarCompressionSystem.ViewModel
                                        where (ToolModel.ToolStatus == ToolStatus.NG2)
                                        select ToolModel);
                             var wait = (from ToolModel in DataModel.FaraVisionDataModel.Processmodel.Tools
-                                        where (ToolModel.ToolStatus == ToolStatus.µÈ´ıÖĞ || ToolModel.ToolStatus == ToolStatus.Ê¶±ğÖĞ)
+                                        where (ToolModel.ToolStatus == ToolStatus.ç­‰å¾…ä¸­ || ToolModel.ToolStatus == ToolStatus.è¯†åˆ«ä¸­)
                                         select ToolModel);
 
                             if (ok.Count() == c)
@@ -1893,7 +1893,7 @@ namespace BusbarCompressionSystem.ViewModel
                                 //PLC_write((UInt16)2);
                             }
 
-                            #region ±£´æÅÄÕÕ¼ÇÂ¼µ½±¾µØ
+                            #region ä¿å­˜æ‹ç…§è®°å½•åˆ°æœ¬åœ°
                             DateTime dt = DateTime.Now;
                             updatetakephoto2(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, status == 0, dt);
                             sqlite.UpdateTakePhoto2(
@@ -1909,9 +1909,9 @@ namespace BusbarCompressionSystem.ViewModel
 
 
 
-                        writeLog($"ÊÓ¾õ->ÊÓ¾õ:±£´æÍê³É", false);
+                        writeLog($"è§†è§‰->è§†è§‰:ä¿å­˜å®Œæˆ", false);
 
-                        string s2 = $"{DataModel.FaraVisionDataModel.Processmodel.Tools[i].Name}:±£´æÍ¼Æ¬·¢ËÍ½á¹ûºÄÊ±:{stopwatch.ElapsedMilliseconds}ms";
+                        string s2 = $"{DataModel.FaraVisionDataModel.Processmodel.Tools[i].Name}:ä¿å­˜å›¾ç‰‡å‘é€ç»“æœè€—æ—¶:{stopwatch.ElapsedMilliseconds}ms";
                         Save_record(s2);
 
 
@@ -1943,21 +1943,21 @@ namespace BusbarCompressionSystem.ViewModel
             tool.ActualY = 0;
             tool.ActualAngle = 0;
             tool.ActualDimension = 0;
-            tool.ToolStatus = ToolStatus.µÈ´ıÖĞ;
+            tool.ToolStatus = ToolStatus.ç­‰å¾…ä¸­;
 
         }
 
         #endregion
 
-        #region Íâ¹Û¼ì²â
+        #region å¤–è§‚æ£€æµ‹
         #endregion
         #endregion
 
-        #region »úÆ÷ÈË
+        #region æœºå™¨äºº
         public void SendMsgRobot(string cmd)
         {
             DataModel.Settingmodel.TcpServerRobot.SendMessage(cmd);
-            writeLog($"ÊÓ¾õ->»úÆ÷ÈË:{cmd}");
+            writeLog($"è§†è§‰->æœºå™¨äºº:{cmd}");
         }
 
         public void InitRobotServer()
@@ -1974,7 +1974,7 @@ namespace BusbarCompressionSystem.ViewModel
                 try
                 {
                     DataModel.Settingmodel.TcpServerRobot.StartListener(DataModel.Settingmodel.RobotConnect.LocalIP, DataModel.Settingmodel.RobotConnect.LocalPort);
-                    writeLog("TCP·şÎñ¶ËÆô¶¯ÕìÌı[µÈ´ı»úÆ÷ÈËÁ¬Ïß]");
+                    writeLog("TCPæœåŠ¡ç«¯å¯åŠ¨ä¾¦å¬[ç­‰å¾…æœºå™¨äººè¿çº¿]");
                 }
                 catch (Exception ex2)
                 {
@@ -1988,14 +1988,14 @@ namespace BusbarCompressionSystem.ViewModel
             try
             {
                 TCPevent TCPevent = (TCPevent)e;
-                if (TCPevent.Msg == "¿Í»§¶ËÁ¬½Ó")
+                if (TCPevent.Msg == "å®¢æˆ·ç«¯è¿æ¥")
                 {
-                    writeLog("»úÆ÷ÈËÒÑ¾­Á¬½Ó");
+                    writeLog("æœºå™¨äººå·²ç»è¿æ¥");
                     DataModel.Settingmodel.RobotConnect.IsConnected = true;
                 }
-                else if (TCPevent.Msg == "¿Í»§¶ËÖØĞÂÁ¬½Ó")
+                else if (TCPevent.Msg == "å®¢æˆ·ç«¯é‡æ–°è¿æ¥")
                 {
-                    writeLog("»úÆ÷ÈËÖØĞÂÁ¬½Ó");
+                    writeLog("æœºå™¨äººé‡æ–°è¿æ¥");
                     DataModel.Settingmodel.RobotConnect.IsConnected = true;
                 }
             }
@@ -2007,14 +2007,14 @@ namespace BusbarCompressionSystem.ViewModel
             try
             {
                 TCPevent TCPevent = (TCPevent)e;
-                if (TCPevent.Msg == "¿Í»§¶ËµôÏß")
+                if (TCPevent.Msg == "å®¢æˆ·ç«¯æ‰çº¿")
                 {
-                    writeLog("»úÆ÷ÈËÒÑ¾­ÀëÏß");
+                    writeLog("æœºå™¨äººå·²ç»ç¦»çº¿");
                     DataModel.Settingmodel.RobotConnect.IsConnected = false;
                 }
-                else if (TCPevent.Msg == "·¢ËÍÊ§°Ü£¬¿Í»§¶ËµôÏß")
+                else if (TCPevent.Msg == "å‘é€å¤±è´¥ï¼Œå®¢æˆ·ç«¯æ‰çº¿")
                 {
-                    writeLog("·¢ËÍÊ§°Ü£¬¿Í»§¶ËµôÏß");
+                    writeLog("å‘é€å¤±è´¥ï¼Œå®¢æˆ·ç«¯æ‰çº¿");
                     DataModel.Settingmodel.RobotConnect.IsConnected = false;
                 }
                 else
@@ -2031,7 +2031,7 @@ namespace BusbarCompressionSystem.ViewModel
             if (DataModel.FaraVisionDataModel.Settingmodel.SaveProcessData)
             {
                 DateTime dt = DateTime.Now;
-                string filename = $"{Environment.CurrentDirectory}\\Ê¶±ğ¹ı³ÌÈÕÖ¾\\{dt.ToString("yyyy-MM-dd")}\\{dt.ToString("yyyyMMddHH")}.txt";
+                string filename = $"{Environment.CurrentDirectory}\\è¯†åˆ«è¿‡ç¨‹æ—¥å¿—\\{dt.ToString("yyyy-MM-dd")}\\{dt.ToString("yyyyMMddHH")}.txt";
                 string dir = Path.GetDirectoryName(filename);
                 if (!Directory.Exists(dir))
                 {
@@ -2052,14 +2052,14 @@ namespace BusbarCompressionSystem.ViewModel
 
                 TCPevent TCPevent = (TCPevent)e;
                 string cmd = (string)TCPevent.Msg;
-                writeLog($"»úÆ÷ÈË->ÊÓ¾õ:{cmd}");
+                writeLog($"æœºå™¨äºº->è§†è§‰:{cmd}");
                 DataModel.Processmodel.CMD = cmd;
                 DataModel.FaraVisionDataModel.Processmodel.RCMD = cmd;
 
                 if (cmd.StartsWith("A"))
                 {
 
-                    //#region ÁÙÊ±ÅÄÕÕ´úÂë
+                    //#region ä¸´æ—¶æ‹ç…§ä»£ç 
                     //string s = cmd.Replace("A", "");
                     //int cmdint = -1;
                     //if (int.TryParse(s, out cmdint))
@@ -2077,7 +2077,7 @@ namespace BusbarCompressionSystem.ViewModel
                     //#endregion
 
 
-                    #region ÕıÈ·ÅÄÕÕ´úÂë
+                    #region æ­£ç¡®æ‹ç…§ä»£ç 
 
                     for (int i = 0; i < DataModel.FaraVisionDataModel.Processmodel.Tools.Count; i++)
                     {
@@ -2087,16 +2087,16 @@ namespace BusbarCompressionSystem.ViewModel
                             {
                                 ClearTools();
                             }
-                            writeLog($"»úÆ÷ÈË->ÊÓ¾õ:{cmd}¿ªÊ¼ÉèÖÃ²ÎÊı", false);
+                            writeLog($"æœºå™¨äºº->è§†è§‰:{cmd}å¼€å§‹è®¾ç½®å‚æ•°", false);
                             DataModel.FaraVisionDataModel.Processmodel.ToolIndex = i + 1;
                             int cameraindex = DataModel.FaraVisionDataModel.Processmodel.Tools[i].CameraIndex;
                             DataModel.FaraVisionDataModel.Processmodel.CameraList[cameraindex].CameraModel.exposuretime = DataModel.FaraVisionDataModel.Processmodel.Tools[i].ExposureTime;
                             DataModel.FaraVisionDataModel.Processmodel.CameraList[cameraindex].CameraModel.camera.Exposure = DataModel.FaraVisionDataModel.Processmodel.Tools[i].ExposureTime;
                             DataModel.FaraVisionDataModel.Processmodel.CameraList[cameraindex].CameraModel.camera.bnSetParam_Click();
                             Thread.Sleep(DataModel.FaraVisionDataModel.Settingmodel.delaytime);
-                            writeLog($"»úÆ÷ÈË->ÊÓ¾õ:{cmd}¿ªÊ¼´¥·¢", false);
+                            writeLog($"æœºå™¨äºº->è§†è§‰:{cmd}å¼€å§‹è§¦å‘", false);
                             DataModel.FaraVisionDataModel.Processmodel.CameraList[cameraindex].CameraModel.camera.bnTriggerExec_Click();
-                            writeLog($"»úÆ÷ÈË->ÊÓ¾õ:{cmd}´¥·¢Íê³É", false);
+                            writeLog($"æœºå™¨äºº->è§†è§‰:{cmd}è§¦å‘å®Œæˆ", false);
 
                             break;
                         }
@@ -2113,7 +2113,7 @@ namespace BusbarCompressionSystem.ViewModel
                 }
                 else if (cmd == "CHECK1")
                 {
-                    #region ¶ÁÈ¡²úÆ·±àºÅ
+                    #region è¯»å–äº§å“ç¼–å·
                     string s = PLC_Readstring(DataModel.Settingmodel.AddressSN + 25 * 4);
                     string[] ss = s.Split(';');
                     if (ss.Length == 2)
@@ -2129,13 +2129,13 @@ namespace BusbarCompressionSystem.ViewModel
                     }
                     else
                     {
-                        writeLog($"ÊÓ¾õ¼ì²â²úÆ·±àºÅ¶ÁÈ¡´íÎó:{s}");
+                        writeLog($"è§†è§‰æ£€æµ‹äº§å“ç¼–å·è¯»å–é”™è¯¯:{s}");
                     }
 
                     #endregion
 
 
-                    #region ¶ÁÈ¡Ñ¹Á¦Êı¾İ
+                    #region è¯»å–å‹åŠ›æ•°æ®
                     UInt16 AveragePressure = PLC_ReadUint16(DataModel.Settingmodel.AddressPressure);
                     UInt16 MaxPressure = PLC_ReadUint16(DataModel.Settingmodel.AddressPressure + 2);
                     UInt16 MinPressure = PLC_ReadUint16(DataModel.Settingmodel.AddressPressure + 4);
@@ -2153,37 +2153,37 @@ namespace BusbarCompressionSystem.ViewModel
 
                     var r = sqlite.Check1(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN);
                     string MSG = "NG1";
-                    string resultstr = "ÅÄÕÕÁôµ×²»Á¼";
+                    string resultstr = "æ‹ç…§ç•™åº•ä¸è‰¯";
                     switch (r)
                     {
                         case 0:
                             {
                                 MSG = "OK";
-                                resultstr = "ºÏ¸ñ";
+                                resultstr = "åˆæ ¼";
                                 break;
                             }
                         case 1:
                             {
                                 MSG = "NG1";
-                                resultstr = "ÅÄÕÕÁôµ×²»Á¼";
+                                resultstr = "æ‹ç…§ç•™åº•ä¸è‰¯";
                                 break;
                             }
                         case 2:
                             {
                                 MSG = "NG2";
-                                resultstr = "ÄÍÑ¹²âÊÔ²»ºÏ¸ñ";
+                                resultstr = "è€å‹æµ‹è¯•ä¸åˆæ ¼";
                                 break;
                             }
                         case 3:
                             {
                                 MSG = "NG3";
-                                resultstr = "×èÖµ²âÊÔ²»ºÏ¸ñ";
+                                resultstr = "é˜»å€¼æµ‹è¯•ä¸åˆæ ¼";
                                 break;
                             }
                         case 4:
                             {
                                 MSG = "NG4";
-                                resultstr = "AOI²âÊÔ²»ºÏ¸ñ";
+                                resultstr = "AOIæµ‹è¯•ä¸åˆæ ¼";
                                 break;
                             }
                     }
@@ -2191,7 +2191,7 @@ namespace BusbarCompressionSystem.ViewModel
                     //if (MSG != "OK")
                     //{
 
-                    #region ±£´æ¹ı³ÌÊı¾İµ½·şÎñÆ÷
+                    #region ä¿å­˜è¿‡ç¨‹æ•°æ®åˆ°æœåŠ¡å™¨
 
                     foreach (var pi in DataModel.Recordmodel.ProductInfoRecords)
                     {
@@ -2205,13 +2205,13 @@ namespace BusbarCompressionSystem.ViewModel
                         }
                     }
                     #endregion
-                    #region »ã±¨½á¹ûÊı¾İ
+                    #region æ±‡æŠ¥ç»“æœæ•°æ®
                     report(ss[1], ss[0], resultstr);
                     #endregion
 
                     //}
 
-                    writeLog($"Êı¾İĞ£Ñé1->½á¹û:{resultstr}");
+                    writeLog($"æ•°æ®æ ¡éªŒ1->ç»“æœ:{resultstr}");
                     SendMsgRobot(MSG);
 
                 }
@@ -2221,45 +2221,45 @@ namespace BusbarCompressionSystem.ViewModel
 
                     var r = sqlite.Check2(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN);
                     string MSG = "NG1";
-                    string resultstr = "ÅÄÕÕÁôµ×²»Á¼";
+                    string resultstr = "æ‹ç…§ç•™åº•ä¸è‰¯";
                     switch (r)
                     {
                         case 0:
                             {
                                 MSG = "OK";
-                                resultstr = "ºÏ¸ñ";
+                                resultstr = "åˆæ ¼";
                                 break;
                             }
                         case 1:
                             {
                                 MSG = "NG1";
-                                resultstr = "ÅÄÕÕÁôµ×²»Á¼";
+                                resultstr = "æ‹ç…§ç•™åº•ä¸è‰¯";
                                 break;
                             }
                         case 2:
                             {
                                 MSG = "NG2";
-                                resultstr = "ÄÍÑ¹²âÊÔ²»ºÏ¸ñ";
+                                resultstr = "è€å‹æµ‹è¯•ä¸åˆæ ¼";
                                 break;
                             }
                         case 3:
                             {
                                 MSG = "NG3";
-                                resultstr = "×èÖµ²âÊÔ²»ºÏ¸ñ";
+                                resultstr = "é˜»å€¼æµ‹è¯•ä¸åˆæ ¼";
                                 break;
                             }
                         case 4:
                             {
                                 MSG = "NG4";
-                                resultstr = "AOI²âÊÔ²»ºÏ¸ñ";
+                                resultstr = "AOIæµ‹è¯•ä¸åˆæ ¼";
                                 break;
                             }
                     }
 
-                    writeLog($"Êı¾İĞ£Ñé2->½á¹û:{resultstr}");
+                    writeLog($"æ•°æ®æ ¡éªŒ2->ç»“æœ:{resultstr}");
                     SendMsgRobot(MSG);
 
-                    #region ±£´æ¹ı³ÌÊı¾İµ½·şÎñÆ÷
+                    #region ä¿å­˜è¿‡ç¨‹æ•°æ®åˆ°æœåŠ¡å™¨
 
                     foreach (var pi in DataModel.Recordmodel.ProductInfoRecords)
                     {
@@ -2274,7 +2274,7 @@ namespace BusbarCompressionSystem.ViewModel
                     }
 
                     #endregion
-                    #region »ã±¨½á¹ûÊı¾İ                    
+                    #region æ±‡æŠ¥ç»“æœæ•°æ®                    
                     report2(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, resultstr);
                     #endregion
 
@@ -2299,14 +2299,26 @@ namespace BusbarCompressionSystem.ViewModel
                         sn,
                         DataModel.Settingmodel.SETTING_DATA.ProcedureName,
                         DataModel.Settingmodel.SETTING_DATA.MachineID,
-                        result == "OK" ? "ºÏ¸ñ" : result,
+                        result == "OK" ? "åˆæ ¼" : result,
                         DataModel.Settingmodel.SETTING_DATA.StandardCode
                         );
-                writeLog($"{sn}:{result};±¨¹¤:{r}");
+
+                if (r)
+                {
+                    writeLog($"{sn}:{result};æŠ¥å·¥:True");
+                }
+                else
+                {
+                    writeLog($"{sn}:{result};æŠ¥å·¥:False(ä¸šåŠ¡é€»è¾‘é—®é¢˜è¯·æŸ¥çœ‹æ—¥å¿—)");
+                }
                 return r;
             }
-            catch (Exception ex) {; }
-            return false;
+            catch (Exception ex)
+            {
+                writeLog($"{sn}:{result};æŠ¥å·¥:False(ç¨‹åºå¼‚å¸¸)");
+                writeError($"æŠ¥å·¥ç¨‹åºå¼‚å¸¸: SN={sn}, å·¥å•={wocode}, å¼‚å¸¸={ex.Message}");
+                return false;
+            }
         }
         private bool report2(string wocode, string sn, string result)
         {
@@ -2318,14 +2330,26 @@ namespace BusbarCompressionSystem.ViewModel
                         sn,
                         DataModel.Settingmodel.SETTING_DATA.ProcedureName2,
                         DataModel.Settingmodel.SETTING_DATA.MachineID,
-                        result == "OK" ? "ºÏ¸ñ" : result,
+                        result == "OK" ? "åˆæ ¼" : result,
                         DataModel.Settingmodel.SETTING_DATA.StandardCode2
                         );
-                writeLog($"{sn}:{result};±¨¹¤2:{r}");
+
+                if (r)
+                {
+                    writeLog($"{sn}:{result};æŠ¥å·¥2:True");
+                }
+                else
+                {
+                    writeLog($"{sn}:{result};æŠ¥å·¥2:False(ä¸šåŠ¡é€»è¾‘é—®é¢˜è¯·æŸ¥çœ‹æ—¥å¿—)");
+                }
                 return r;
             }
-            catch (Exception ex) {; }
-            return false;
+            catch (Exception ex)
+            {
+                writeLog($"{sn}:{result};æŠ¥å·¥2:False(ç¨‹åºå¼‚å¸¸)");
+                writeError($"æŠ¥å·¥2ç¨‹åºå¼‚å¸¸: SN={sn}, å·¥å•={wocode}, å¼‚å¸¸={ex.Message}");
+                return false;
+            }
         }
 
 
@@ -2333,7 +2357,7 @@ namespace BusbarCompressionSystem.ViewModel
 
         #endregion
 
-        #region ÕÕÆ¬´æ´¢
+        #region ç…§ç‰‡å­˜å‚¨
         public void SaveImage(HObject Image, string sn, string type, int index, string Result)
         {
             string savefilename = $"{DataModel.Settingmodel.ImageSaveSetting.ImageSaveDir}\\{DateTime.Now.ToString("yyyyMMdd")}\\{type}\\{Result}\\{sn}-{index.ToString("00")}-{DateTime.Now.ToString("yyyyMMddHHmmssFFF")}.jpg";
