@@ -1467,7 +1467,6 @@ namespace BusbarCompressionSystem.ViewModel
                     HOperatorSet.Compose3(Image, Image, Image, out var multiChannelImage);
                     Image.Dispose();
                     Image = multiChannelImage;
-                    multiChannelImage?.Dispose();
                 }
 
                 HWindow hwindow = DataModel.FaraVisionDataModel.Settingmodel.HWindow;

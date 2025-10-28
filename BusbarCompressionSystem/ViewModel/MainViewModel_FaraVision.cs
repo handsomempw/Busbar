@@ -1,4 +1,9 @@
-﻿using BusbarCompressionSystem.Model.FaraVision.Tool;
+﻿// ==========================================
+// 文件: MainViewModel_FaraVision.cs
+// 描述: FaraVision 相关视图模型，负责工程管理、工具增删改、
+//       图像/模型读写以及基于 HALCON 的面积计算等核心逻辑。
+// ==========================================
+using BusbarCompressionSystem.Model.FaraVision.Tool;
 using GalaSoft.MvvmLight;
 using HalconDotNet;
 using System;
@@ -22,6 +27,9 @@ namespace BusbarCompressionSystem.ViewModel
     public partial class MainViewModel : ViewModelBase
     {
 
+        /// <summary>
+        /// 初始化界面命令绑定（RelayCommand）。
+        /// </summary>
         public void Initrelaycommand()
         {
             DeleteToolCMD = new RelayCommand(DeleteTool);
@@ -36,6 +44,10 @@ namespace BusbarCompressionSystem.ViewModel
 
 
 
+        /// <summary>
+        /// 初始化 HALCON 显示窗口，使所有工具共享相同的 HWindow。
+        /// </summary>
+        /// <param name="_HWindow">HALCON 的 HWindow 对象</param>
         public void InitHwindow(HWindow _HWindow)
         {
             DataModel.FaraVisionDataModel.Settingmodel.HWindow = _HWindow;
@@ -45,6 +57,9 @@ namespace BusbarCompressionSystem.ViewModel
                 DataModel.FaraVisionDataModel.Processmodel.Tools[i].ShapeMatch.HWindow = _HWindow;
             }
         }
+        /// <summary>
+        /// 初始化模板匹配（shm）文件，若缺失或加载失败会记录日志。
+        /// </summary>
         public void InitShm()
         {
             for (int i = 0; i < DataModel.FaraVisionDataModel.Processmodel.Tools.Count; i++)
@@ -143,6 +158,9 @@ namespace BusbarCompressionSystem.ViewModel
             Load_Prj();
         }
 
+        /// <summary>
+        /// 从工程目录读取 Tool*.xml 构建工具列表，同时加载对应的示教图像缩略图显示。
+        /// </summary>
         public void LoadPrjXmls()
         {
 
@@ -235,6 +253,11 @@ namespace BusbarCompressionSystem.ViewModel
             //}
         }
 
+        /// <summary>
+        /// 读取指定序号的 Tool 配置 XML。
+        /// </summary>
+        /// <param name="index">工具序号(1-based)</param>
+        /// <returns>反序列化的 ToolModel，失败则返回 null</returns>
         private ToolModel LoadPrjXml(int index)
         {
             string dir = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}";
@@ -364,6 +387,10 @@ namespace BusbarCompressionSystem.ViewModel
             DeleteTool(index);
 
         }
+        /// <summary>
+        /// 删除指定索引的工具，并同步删除对应 jpg/xml/shm 文件。
+        /// 若其后仍有工具，则将后续文件整体前移保持序号连续。
+        /// </summary>
         public void DeleteTool(int index)
         {
             try
@@ -388,6 +415,7 @@ namespace BusbarCompressionSystem.ViewModel
                     if (index != DataModel.FaraVisionDataModel.Processmodel.Tools.Count - 1)
                     {
 
+                        // 将后续工具的 Tool{i+2}.xxx 前移到 Tool{i+1}.xxx
                         for (int i = index; i < DataModel.FaraVisionDataModel.Processmodel.Tools.Count - 1; i++)
                         {
                             string jpgsrc = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{i + 1}.jpg";
@@ -436,6 +464,9 @@ namespace BusbarCompressionSystem.ViewModel
             InsertTool(index);
 
         }
+        /// <summary>
+        /// 在指定位置插入工具，同时从后向前移动文件避免覆盖。
+        /// </summary>
         public void InsertTool(int index, ToolModel tool = null)
         {
             try
@@ -448,6 +479,7 @@ namespace BusbarCompressionSystem.ViewModel
                     return;
                 }
 
+                // 从后向前移动 Tool 文件，避免文件名冲突覆盖
                 for (int i = DataModel.FaraVisionDataModel.Processmodel.Tools.Count - 1; i >= index; i--)
                 {
                     string jpgsrc = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{i + 1}.jpg";
@@ -537,6 +569,9 @@ namespace BusbarCompressionSystem.ViewModel
             }
             catch (Exception ex) { }
         }
+        /// <summary>
+        /// 在指定位置插入拷贝的工具，并自后向前复制文件避免覆盖。
+        /// </summary>
         public void CopyTool(int index, ToolModel tool)
         {
             try
@@ -549,6 +584,7 @@ namespace BusbarCompressionSystem.ViewModel
                     return;
                 }
 
+                // 从后向前复制，避免目标文件被覆盖
                 for (int i = DataModel.FaraVisionDataModel.Processmodel.Tools.Count - 1; i >= index - 1; i--)
                 {
                     string jpgsrc = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{i + 1}.jpg";
@@ -663,6 +699,9 @@ namespace BusbarCompressionSystem.ViewModel
             InsertTool(index);
         }
 
+        /// <summary>
+        /// 重新计算并设置工具的连续序号，并重命名磁盘文件保持一致。
+        /// </summary>
         public string autoindex()
         {
             string error = string.Empty;
@@ -675,6 +714,7 @@ namespace BusbarCompressionSystem.ViewModel
                 {
                     DataModel.FaraVisionDataModel.Processmodel.Tools[i].Index = i + 1;
 
+                    // 将 xml/shm/jpg 文件名中的序号重命名为新的序号
                     string s1 = ChangeToolIndex(initindex, newindex, "xml");
                     string s2 = ChangeToolIndex(initindex, newindex, "shm");
                     string s3 = ChangeToolIndex(initindex, newindex, "jpg");
@@ -696,6 +736,9 @@ namespace BusbarCompressionSystem.ViewModel
             return error;
         }
 
+        /// <summary>
+        /// 将 Tool{InitIndex}.type 重命名为 Tool{NewIndex}.type。
+        /// </summary>
         public string ChangeToolIndex(int InitIndex, int NewIndex, string type)
         {
             try
@@ -970,6 +1013,10 @@ namespace BusbarCompressionSystem.ViewModel
 
         #region 面积计算
 
+        /// <summary>
+        /// 面积计算（支持灰度/颜色阈值），并可在窗口重绘 ROI 与结果区域。
+        /// </summary>
+        /// <returns>面积，失败返回 -1，无区域返回 0</returns>
         public int CoculateDimension(HObject image, ToolModel tool, HWindow hwindow, bool redraw = true)
         {
             try
@@ -1005,9 +1052,11 @@ namespace BusbarCompressionSystem.ViewModel
                 try
                 {
 
+                    // 1) 生成 ROI 并缩小运算域
                     HOperatorSet.GenRectangle1(out ROI, tool.DimensionROI.Row1, tool.DimensionROI.Col1, tool.DimensionROI.Row2, tool.DimensionROI.Col2);
                     HOperatorSet.ReduceDomain(image, ROI, out ReduceImage);
 
+                    // 2) 阈值分割：灰度 or RGB 三通道交集
                     if (tool.GrayMode)
                     {
                         HOperatorSet.Threshold(ReduceImage, out Region, tool.MinGray, tool.MaxGray);
@@ -1025,6 +1074,7 @@ namespace BusbarCompressionSystem.ViewModel
                     }
 
 
+                    // 3) 连通域、按面积筛选并合并
                     HOperatorSet.Connection(Region, out ConnectedRegions);
                     HOperatorSet.SelectShape(ConnectedRegions, out SelectedRegions, "area", "and", tool.MinAreaFilter, tool.MaxAreaFilter);
                     HOperatorSet.Union1(SelectedRegions, out RegionUnion);
@@ -1052,6 +1102,7 @@ namespace BusbarCompressionSystem.ViewModel
                 }
                 catch (Exception ex) { }
 
+                // 统一释放 HObject 资源，避免句柄泄漏
                 ROI?.Dispose();
                 ReduceImage?.Dispose();
                 Region?.Dispose();
@@ -1084,6 +1135,9 @@ namespace BusbarCompressionSystem.ViewModel
         }
         #endregion
 
+        /// <summary>
+        /// 将 Bitmap 等比缩放至不超过 W×H 的尺寸。
+        /// </summary>
         public Bitmap GetReducedImage(double W, double H, Bitmap src)
         {
             try
@@ -1096,6 +1150,7 @@ namespace BusbarCompressionSystem.ViewModel
                 Bitmap r = new Bitmap((int)W, (int)H, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
                 Graphics g = Graphics.FromImage(r);
                 g.Clear(Color.Transparent);
+                // 按比例绘制缩放图像
                 g.DrawImage(src, new Rectangle(0, 0, (int)W, (int)H));
                 g.Save();
                 g.Dispose();
@@ -1108,6 +1163,9 @@ namespace BusbarCompressionSystem.ViewModel
 
         }
 
+        /// <summary>
+        /// 使用 HALCON 将 HObject 图像等比缩放至不超过 W×H 的尺寸。
+        /// </summary>
         public HObject GetReducedImage(double W, double H, HObject src)
         {
             HObject dst;
