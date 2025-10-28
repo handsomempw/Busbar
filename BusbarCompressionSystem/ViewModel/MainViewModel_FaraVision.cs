@@ -21,11 +21,17 @@ using Panuon.WPF.UI;
 using System.Xml.Serialization;
 using GalaSoft.MvvmLight.Command;
 using BusbarCompressionSystem.FaraVision;
+using System.Runtime.InteropServices; // 用于GDI句柄管理
 
 namespace BusbarCompressionSystem.ViewModel
 {
     public partial class MainViewModel : ViewModelBase
     {
+        /// <summary>
+        /// 用于释放GDI句柄，防止句柄泄漏
+        /// </summary>
+        [DllImport("gdi32.dll", EntryPoint = "DeleteObject")]
+        private static extern bool DeleteObject(IntPtr hObject);
 
         /// <summary>
         /// 初始化界面命令绑定（RelayCommand）。
@@ -210,11 +216,28 @@ namespace BusbarCompressionSystem.ViewModel
                             //Hobject2Bitmap.HobjectToBitmap(tool.Image, out src);
                             Hobject2Bitmap.HobjectToBitmap24(dst, out bmp);
 
-                            tool.CurrentBitmapSource = null;
-                            tool.CurrentBitmapSource = Imaging.CreateBitmapSourceFromHBitmap(bmp.GetHbitmap(), IntPtr.Zero, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
+                            // 修复GDI句柄泄漏：GetHbitmap()创建的句柄需要手动释放
+                            IntPtr hBitmap1 = bmp.GetHbitmap();
+                            try
+                            {
+                                tool.CurrentBitmapSource = null;
+                                tool.CurrentBitmapSource = Imaging.CreateBitmapSourceFromHBitmap(hBitmap1, IntPtr.Zero, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
+                            }
+                            finally
+                            {
+                                DeleteObject(hBitmap1); // 释放GDI句柄
+                            }
 
-                            tool.BitmapSource = null;
-                            tool.BitmapSource = Imaging.CreateBitmapSourceFromHBitmap(bmp.GetHbitmap(), IntPtr.Zero, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
+                            IntPtr hBitmap2 = bmp.GetHbitmap();
+                            try
+                            {
+                                tool.BitmapSource = null;
+                                tool.BitmapSource = Imaging.CreateBitmapSourceFromHBitmap(hBitmap2, IntPtr.Zero, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
+                            }
+                            finally
+                            {
+                                DeleteObject(hBitmap2); // 释放GDI句柄
+                            }
 
                             bmp?.Dispose();
                             dst?.Dispose();
