@@ -1105,7 +1105,7 @@ namespace BusbarCompressionSystem.ViewModel
                         HOperatorSet.Decompose3(ReduceImage, out ImageR, out ImageG, out ImageB);
 
                         HOperatorSet.Threshold(ImageR, out RegionR, tool.MinRed, tool.MaxRed);
-                        HOperatorSet.Threshold(ImageG, out RegionG, tool.MinGreen, tool.MaxBlue);
+                        HOperatorSet.Threshold(ImageG, out RegionG, tool.MinGreen, tool.MaxGreen);
                         HOperatorSet.Threshold(ImageB, out RegionB, tool.MinBlue, tool.MaxBlue);
 
                         HOperatorSet.Intersection(RegionR, RegionG, out RegionIntersection);
