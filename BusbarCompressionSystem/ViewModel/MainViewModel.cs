@@ -26,6 +26,7 @@ using PositionDetect;
 using System.Drawing;
 using System.Linq;
 using Honeywell;
+using System.Runtime.InteropServices; // 用于GDI句柄管理
 
 namespace BusbarCompressionSystem.ViewModel
 {
@@ -1491,8 +1492,17 @@ namespace BusbarCompressionSystem.ViewModel
                         {
                             var dst = GetReducedImage(DataModel.FaraVisionDataModel.Settingmodel.ImageSize, DataModel.FaraVisionDataModel.Settingmodel.ImageSize, Image);
                             Hobject2Bitmap.HobjectToBitmap24(dst, out bmp);
-                            tool.CurrentBitmapSource = null;
-                            tool.CurrentBitmapSource = Imaging.CreateBitmapSourceFromHBitmap(bmp.GetHbitmap(), IntPtr.Zero, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
+                            // 修复GDI句柄泄漏：GetHbitmap()创建的句柄需要手动释放
+                            IntPtr hBitmap = bmp.GetHbitmap();
+                            try
+                            {
+                                tool.CurrentBitmapSource = null;
+                                tool.CurrentBitmapSource = Imaging.CreateBitmapSourceFromHBitmap(hBitmap, IntPtr.Zero, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
+                            }
+                            finally
+                            {
+                                DeleteObject(hBitmap); // 释放GDI句柄
+                            }
                             bmp?.Dispose();
                             dst?.Dispose();
                         }

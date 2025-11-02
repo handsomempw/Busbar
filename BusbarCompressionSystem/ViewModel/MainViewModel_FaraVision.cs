@@ -378,10 +378,18 @@ namespace BusbarCompressionSystem.ViewModel
                 string jpgfilename = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{DataModel.FaraVisionDataModel.Processmodel.selectedindex + 1}.jpg";
                 using (Bitmap bmp = (Bitmap)Bitmap.FromFile(jpgfilename))
                 {
-                    BitmapSource bs = Imaging.CreateBitmapSourceFromHBitmap(bmp.GetHbitmap(), IntPtr.Zero, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
-                    DataModel.FaraVisionDataModel.Processmodel.ShowBitmapSource = null;
-                    DataModel.FaraVisionDataModel.Processmodel.ShowBitmapSource = bs;
-
+                    // 修复GDI句柄泄漏：GetHbitmap()创建的句柄需要手动释放
+                    IntPtr hBitmap = bmp.GetHbitmap();
+                    try
+                    {
+                        BitmapSource bs = Imaging.CreateBitmapSourceFromHBitmap(hBitmap, IntPtr.Zero, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
+                        DataModel.FaraVisionDataModel.Processmodel.ShowBitmapSource = null;
+                        DataModel.FaraVisionDataModel.Processmodel.ShowBitmapSource = bs;
+                    }
+                    finally
+                    {
+                        DeleteObject(hBitmap); // 释放GDI句柄
+                    }
                 }
                 GC.Collect();
                 return true;
@@ -1010,10 +1018,18 @@ namespace BusbarCompressionSystem.ViewModel
                 string jpgfilename = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{DataModel.FaraVisionDataModel.Processmodel.selectedindex + 1}.jpg";
                 using (Bitmap bmp = (Bitmap)Bitmap.FromFile(jpgfilename))
                 {
-                    BitmapSource bs = Imaging.CreateBitmapSourceFromHBitmap(bmp.GetHbitmap(), IntPtr.Zero, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
-                    DataModel.FaraVisionDataModel.Processmodel.ShowBitmapSource = null;
-                    DataModel.FaraVisionDataModel.Processmodel.ShowBitmapSource = bs;
-
+                    // 修复GDI句柄泄漏：GetHbitmap()创建的句柄需要手动释放
+                    IntPtr hBitmap = bmp.GetHbitmap();
+                    try
+                    {
+                        BitmapSource bs = Imaging.CreateBitmapSourceFromHBitmap(hBitmap, IntPtr.Zero, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
+                        DataModel.FaraVisionDataModel.Processmodel.ShowBitmapSource = null;
+                        DataModel.FaraVisionDataModel.Processmodel.ShowBitmapSource = bs;
+                    }
+                    finally
+                    {
+                        DeleteObject(hBitmap); // 释放GDI句柄
+                    }
                 }
                 GC.Collect();
                 return true;

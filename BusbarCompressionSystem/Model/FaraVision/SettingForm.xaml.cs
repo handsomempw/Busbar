@@ -20,6 +20,7 @@ using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
+using System.Runtime.InteropServices; // 用于GDI句柄管理
 
 namespace BusbarCompressionSystem.Model.FaraVision
 {
@@ -30,6 +31,12 @@ namespace BusbarCompressionSystem.Model.FaraVision
     /// </summary>
     public partial class SettingForm : WindowX
     {
+        /// <summary>
+        /// 释放GDI句柄，防止句柄泄漏
+        /// </summary>
+        [DllImport("gdi32.dll", EntryPoint = "DeleteObject")]
+        private static extern bool DeleteObject(IntPtr hObject);
+
         ViewModelLocator vml;
         ToolModel t = null;
 
@@ -75,11 +82,29 @@ namespace BusbarCompressionSystem.Model.FaraVision
                         Hobject2Bitmap.HobjectToBitmap24(Image, out src);
                         Hobject2Bitmap.HobjectToBitmap24(dst, out bmp);
 
-                        vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool.CurrentBitmapSource = null;
-                        vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool.CurrentBitmapSource = Imaging.CreateBitmapSourceFromHBitmap(bmp.GetHbitmap(), IntPtr.Zero, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
+                        // 修复GDI句柄泄漏：第一个BitmapSource
+                        IntPtr hBitmap1 = bmp.GetHbitmap();
+                        try
+                        {
+                            vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool.CurrentBitmapSource = null;
+                            vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool.CurrentBitmapSource = Imaging.CreateBitmapSourceFromHBitmap(hBitmap1, IntPtr.Zero, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
+                        }
+                        finally
+                        {
+                            DeleteObject(hBitmap1); // 释放GDI句柄
+                        }
 
-                        vml.Main.DataModel.FaraVisionDataModel.Processmodel.ShowBitmapSource = null;
-                        vml.Main.DataModel.FaraVisionDataModel.Processmodel.ShowBitmapSource = Imaging.CreateBitmapSourceFromHBitmap(src.GetHbitmap(), IntPtr.Zero, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
+                        // 修复GDI句柄泄漏：第二个BitmapSource
+                        IntPtr hBitmap2 = src.GetHbitmap();
+                        try
+                        {
+                            vml.Main.DataModel.FaraVisionDataModel.Processmodel.ShowBitmapSource = null;
+                            vml.Main.DataModel.FaraVisionDataModel.Processmodel.ShowBitmapSource = Imaging.CreateBitmapSourceFromHBitmap(hBitmap2, IntPtr.Zero, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
+                        }
+                        finally
+                        {
+                            DeleteObject(hBitmap2); // 释放GDI句柄
+                        }
 
                         bmp?.Dispose();
                         dst?.Dispose();
