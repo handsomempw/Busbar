@@ -107,12 +107,12 @@ namespace BusbarCompressionSystem
 
                 if (r9.Count() == 0)
                 {
-                    error += "极壳压力下限\r\n";
+                    error += "极壳压力上限\r\n";
                     r = false;
                 }
                 if (r10.Count() == 0)
                 {
-                    error += "极壳压力上限\r\n";
+                    error += "极壳压力下限\r\n";
                     r = false;
                 }
                 if (r11.Count() == 0)
