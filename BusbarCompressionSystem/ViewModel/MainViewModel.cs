@@ -63,6 +63,48 @@ namespace BusbarCompressionSystem.ViewModel
 
         public DataModel DataModel { get; set; } = new DataModel();
 
+        private void SaveXmlSafely<T>(string filename, T data)
+        {
+            string dir = Path.GetDirectoryName(filename);
+            if (!Directory.Exists(dir))
+            {
+                Directory.CreateDirectory(dir);
+            }
+
+            string tempFile = $"{filename}.tmp";
+            string backupFile = $"{filename}.bak";
+
+            try
+            {
+                using (var stream = new FileStream(tempFile, FileMode.Create, FileAccess.Write, FileShare.None))
+                {
+                    var serializer = new XmlSerializer(typeof(T));
+                    serializer.Serialize(stream, data);
+                    stream.Flush();
+                }
+
+                if (File.Exists(filename))
+                {
+                    File.Replace(tempFile, filename, backupFile, true);
+                    if (File.Exists(backupFile))
+                    {
+                        File.Delete(backupFile);
+                    }
+                }
+                else
+                {
+                    File.Move(tempFile, filename);
+                }
+            }
+            catch
+            {
+                if (File.Exists(tempFile))
+                {
+                    File.Delete(tempFile);
+                }
+                throw;
+            }
+        }
 
         #region 数据保存加载
         #region 过程数据
@@ -70,17 +112,7 @@ namespace BusbarCompressionSystem.ViewModel
         {
 
             string filename = $"{Environment.CurrentDirectory}\\配置\\过程数据.xml";
-            string dir = Path.GetDirectoryName(filename);
-            if (!Directory.Exists(dir))
-            {
-                Directory.CreateDirectory(dir);
-            }
-
-            using (var stream = File.Open(filename, FileMode.Create))
-            {
-                var serializer = new XmlSerializer(typeof(Processmodel));
-                serializer.Serialize(stream, DataModel.Processmodel);
-            }
+            SaveXmlSafely(filename, DataModel.Processmodel);
         }
         public void LoadProcessmodel()
         {
@@ -118,17 +150,7 @@ namespace BusbarCompressionSystem.ViewModel
         {
 
             string filename = $"{Environment.CurrentDirectory}\\配置\\配置数据.xml";
-            string dir = Path.GetDirectoryName(filename);
-            if (!Directory.Exists(dir))
-            {
-                Directory.CreateDirectory(dir);
-            }
-
-            using (var stream = File.Open(filename, FileMode.Create))
-            {
-                var serializer = new XmlSerializer(typeof(SettingModel));
-                serializer.Serialize(stream, DataModel.Settingmodel);
-            }
+            SaveXmlSafely(filename, DataModel.Settingmodel);
         }
         public void LoadSettingModel()
         {
@@ -167,16 +189,7 @@ namespace BusbarCompressionSystem.ViewModel
         public void SaveRecordModel()
         {
             string filename = $"{Environment.CurrentDirectory}\\配置\\日志数据.xml";
-            string dir = Path.GetDirectoryName(filename);
-            if (!Directory.Exists(dir))
-            {
-                Directory.CreateDirectory(dir);
-            }
-            using (var stream = File.Open(filename, FileMode.Create))
-            {
-                var serializer = new XmlSerializer(typeof(RecordModel));
-                serializer.Serialize(stream, DataModel.Recordmodel);
-            }
+            SaveXmlSafely(filename, DataModel.Recordmodel);
         }
         public void LoadRecordModel()
         {

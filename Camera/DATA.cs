@@ -25,10 +25,27 @@ namespace Camera
                 {
                     Directory.CreateDirectory(dir);
                 }
-                using (var stream = new FileStream(filename, FileMode.Create))
+                string tempFile = $"{filename}.tmp";
+                string backupFile = $"{filename}.bak";
+
+                using (var stream = new FileStream(tempFile, FileMode.Create, FileAccess.Write, FileShare.None))
                 {
                     XmlSerializer sz = new XmlSerializer(typeof(CameraModel));
                     sz.Serialize(stream, CameraModel);
+                    stream.Flush();
+                }
+
+                if (File.Exists(filename))
+                {
+                    File.Replace(tempFile, filename, backupFile, true);
+                    if (File.Exists(backupFile))
+                    {
+                        File.Delete(backupFile);
+                    }
+                }
+                else
+                {
+                    File.Move(tempFile, filename);
                 }
             }
             catch {; }

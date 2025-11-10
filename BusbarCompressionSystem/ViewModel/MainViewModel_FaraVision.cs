@@ -866,17 +866,7 @@ namespace BusbarCompressionSystem.ViewModel
         {
 
             string filename = $"{Environment.CurrentDirectory}\\配置\\过程数据.xml";
-            string dir = Path.GetDirectoryName(filename);
-            if (!Directory.Exists(dir))
-            {
-                Directory.CreateDirectory(dir);
-            }
-
-            using (var stream = File.Open(filename, FileMode.Create))
-            {
-                var serializer = new XmlSerializer(typeof(Processmodel));
-                serializer.Serialize(stream, DataModel.Processmodel);
-            }
+            SaveXmlSafely(filename, DataModel.Processmodel);
         }
         public void Faravision_LoadProcessmodel()
         {
@@ -914,17 +904,7 @@ namespace BusbarCompressionSystem.ViewModel
         {
 
             string filename = $"{Environment.CurrentDirectory}\\配置\\视觉配置数据.xml";
-            string dir = Path.GetDirectoryName(filename);
-            if (!Directory.Exists(dir))
-            {
-                Directory.CreateDirectory(dir);
-            }
-
-            using (var stream = File.Open(filename, FileMode.Create))
-            {
-                var serializer = new XmlSerializer(typeof(SettingModel));
-                serializer.Serialize(stream, DataModel.FaraVisionDataModel.Settingmodel);
-            }
+            SaveXmlSafely(filename, DataModel.FaraVisionDataModel.Settingmodel);
         }
         public void Faravision_LoadSettingModel()
         {
@@ -963,16 +943,7 @@ namespace BusbarCompressionSystem.ViewModel
         public void Faravision_SaveRecordModel()
         {
             string filename = $"{Environment.CurrentDirectory}\\配置\\视觉日志数据.xml";
-            string dir = Path.GetDirectoryName(filename);
-            if (!Directory.Exists(dir))
-            {
-                Directory.CreateDirectory(dir);
-            }
-            using (var stream = File.Open(filename, FileMode.Create))
-            {
-                var serializer = new XmlSerializer(typeof(RecordModel));
-                serializer.Serialize(stream, DataModel.FaraVisionDataModel.Recordmodel);
-            }
+            SaveXmlSafely(filename, DataModel.FaraVisionDataModel.Recordmodel);
         }
         public void Faravision_LoadRecordModel()
         {
