@@ -538,40 +538,52 @@ namespace BusbarCompressionSystem.ViewModel
 
         public void ScannerProcess()
         {
-            if (DataModel.Settingmodel.ScannerMode == "HF800")
+            try
             {
-                var r = DataModel.Settingmodel.HF800.Scanner();
-                string s = r.value.Replace("\r", "").Replace("\n", "");
-                DataModel.Processmodel.sninputstr = s;
-                //SQLITEDATABASE.sqlite.CREATENEWLINE("1", "1", s);
-                PLC_write((DataModel.Settingmodel.AddressStart + 1).ToString(), (UInt16)(r.Status == Honeywell.Status.OK ? 1 : 2));
-
-            }
-            else
-            {
-                var r = DataModel.Settingmodel.ScannerModel.Scanner();
-                string s = r.receivestring.Replace("\r", "").Replace("\n", "");
-                if (!String.IsNullOrEmpty(s))
+                if (DataModel.Settingmodel.ScannerMode == "HF800")
                 {
-                    //s = "7Y00000000" + ((byte)(new Random().NextDouble() * 10)).ToString();
-                    //s = $"7Y0000{DateTime.Now.ToString("MMss")}";
-
-                    DataModel.Processmodel.sninputstr = s;
-
-                    var R = ScanSN();
-
-
-                    PLC_write((DataModel.Settingmodel.AddressStart + 1).ToString(), (UInt16)(r.IsSuccess & R ? 1 : 2));
+                    var r = DataModel.Settingmodel.HF800.Scanner();
+                    // 添加空值检查，防止r.value为null时崩溃
+                    if (r.Status == Honeywell.Status.OK && !string.IsNullOrEmpty(r.value))
+                    {
+                        string s = r.value.Replace("\r", "").Replace("\n", "").Trim();
+                        DataModel.Processmodel.sninputstr = s;
+                        //SQLITEDATABASE.sqlite.CREATENEWLINE("1", "1", s);
+                        PLC_write((DataModel.Settingmodel.AddressStart + 1).ToString(), (UInt16)1);
+                    }
+                    else
+                    {
+                        // 扫码失败，写入PLC失败状态
+                        PLC_write((DataModel.Settingmodel.AddressStart + 1).ToString(), (UInt16)2);
+                    }
                 }
                 else
                 {
-                    PLC_write((DataModel.Settingmodel.AddressStart + 1).ToString(), (UInt16)(2));
-
+                    var r = DataModel.Settingmodel.ScannerModel.Scanner();
+                    string s = r.receivestring?.Replace("\r", "").Replace("\n", "").Trim() ?? "";
+                    if (!String.IsNullOrEmpty(s))
+                    {
+                        //s = "7Y00000000" + ((byte)(new Random().NextDouble() * 10)).ToString();
+                        //s = $"7Y0000{DateTime.Now.ToString("MMss")}";
+                        DataModel.Processmodel.sninputstr = s;
+                        var R = ScanSN();
+                        PLC_write((DataModel.Settingmodel.AddressStart + 1).ToString(), (UInt16)(r.IsSuccess && R ? 1 : 2));
+                    }
+                    else
+                    {
+                        PLC_write((DataModel.Settingmodel.AddressStart + 1).ToString(), (UInt16)2);
+                    }
                 }
             }
-
-
-
+            catch (Exception ex)
+            {
+                // 异常处理，防止崩溃，写入PLC失败状态
+                try
+                {
+                    PLC_write((DataModel.Settingmodel.AddressStart + 1).ToString(), (UInt16)2);
+                }
+                catch { }
+            }
         }
 
         public void TakePhoto1Process()

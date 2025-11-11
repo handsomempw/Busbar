@@ -94,6 +94,16 @@ namespace BusbarCompressionSystem
                 vml.Main.SavePrjXmls();
 
                 vml.Main.CloseCamera();
+                
+                // 关闭扫码器连接，防止资源残留
+                try
+                {
+                    if (vml.Main.DataModel.Settingmodel.ScannerMode == "HF800")
+                    {
+                        vml.Main.DataModel.Settingmodel.HF800.disconnect();
+                    }
+                }
+                catch { }
 
                 Environment.Exit(0);
             }
