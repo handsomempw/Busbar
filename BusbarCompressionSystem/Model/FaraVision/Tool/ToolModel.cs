@@ -9,6 +9,7 @@ using System.Windows.Media.Imaging;
 using System.Windows.Media;
 using System.Xml.Serialization;
 using BusbarCompressionSystem.FaraVision;
+using BusbarCompressionSystem.Model.FaraVision;
 
 namespace BusbarCompressionSystem.Model.FaraVision.Tool
 {
@@ -246,6 +247,106 @@ namespace BusbarCompressionSystem.Model.FaraVision.Tool
         public int MinAreaFilter { set; get; } = 0;
         [XmlElement("过滤最大面积")]
         public int MaxAreaFilter { set; get; } = int.MaxValue;
+        #endregion
+
+        #region 尺寸测量
+        /// <summary>
+        /// 尺寸测量类型
+        /// </summary>
+        [XmlElement("尺寸测量类型")]
+        public DimensionMeasureType MeasureType { set; get; } = DimensionMeasureType.直线到直线;
+
+        /// <summary>
+        /// 测量对象1 ROI（直线或圆）
+        /// </summary>
+        [XmlElement("测量对象1ROI")]
+        public ROI MeasureObject1ROI { set; get; } = new ROI();
+
+        /// <summary>
+        /// 测量对象2 ROI（直线或圆）
+        /// </summary>
+        [XmlElement("测量对象2ROI")]
+        public ROI MeasureObject2ROI { set; get; } = new ROI();
+
+        /// <summary>
+        /// 实际测量值（单位：mm，通过DimensionK参数转换）
+        /// </summary>
+        [XmlElement("实际测量值mm")]
+        public double ActualMeasureValue { set; get; } = 0;
+
+        /// <summary>
+        /// 最小允许值（单位：mm）
+        /// </summary>
+        [XmlElement("最小测量值mm")]
+        public double MinMeasureValue { set; get; } = 0;
+
+        /// <summary>
+        /// 最大允许值（单位：mm）
+        /// </summary>
+        [XmlElement("最大测量值mm")]
+        public double MaxMeasureValue { set; get; } = 1000;
+
+        /// <summary>
+        /// 世界坐标校准：尺寸测量专用比例参数（单位：um/pixel），独立于位置检测的K参数
+        /// </summary>
+        [XmlElement("尺寸测量比例um/pixel")]
+        public double DimensionK { set; get; } = 1000;
+
+        /// <summary>
+        /// 校准真实尺寸（单位：mm）
+        /// </summary>
+        [XmlElement("校准真实尺寸mm")]
+        public double CalibrationRealSize { set; get; } = 0;
+
+        /// <summary>
+        /// 校准像素尺寸（单位：pixel，测量得到）
+        /// </summary>
+        [XmlElement("校准像素尺寸")]
+        public double CalibrationPixelSize { set; get; } = 0;
+
+        // ========== 卡尺工具参数 ==========
+
+        /// <summary>
+        /// 卡尺长度（沿测量方向的长度，单位：pixel）
+        /// </summary>
+        [XmlElement("卡尺长度")]
+        public int CaliperLength { set; get; } = 100;
+
+        /// <summary>
+        /// 卡尺宽度（垂直于测量方向的宽度，单位：pixel）
+        /// </summary>
+        [XmlElement("卡尺宽度")]
+        public int CaliperWidth { set; get; } = 5;
+
+        /// <summary>
+        /// 卡尺角度（测量方向的角度，单位：度）
+        /// </summary>
+        [XmlElement("卡尺角度")]
+        public double CaliperAngle { set; get; } = 0;
+
+        /// <summary>
+        /// 边缘检测阈值（灰度值差异）
+        /// </summary>
+        [XmlElement("边缘检测阈值")]
+        public int EdgeThreshold { set; get; } = 30;
+
+        /// <summary>
+        /// 边缘极性（"positive"从暗到亮, "negative"从亮到暗, "all"全部边缘）
+        /// </summary>
+        [XmlElement("边缘极性")]
+        public string EdgePolarity { set; get; } = "all";
+
+        /// <summary>
+        /// 亚像素精度
+        /// </summary>
+        [XmlElement("亚像素精度")]
+        public bool SubPixelAccuracy { set; get; } = true;
+
+        /// <summary>
+        /// 边缘选择策略（"first"第一个, "last"最后一个, "all"全部, "strongest"最强）
+        /// </summary>
+        [XmlElement("边缘选择策略")]
+        public string EdgeSelection { set; get; } = "first";
         #endregion
 
         [XmlIgnore]

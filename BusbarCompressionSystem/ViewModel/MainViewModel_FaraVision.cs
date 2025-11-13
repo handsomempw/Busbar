@@ -1145,6 +1145,591 @@ namespace BusbarCompressionSystem.ViewModel
         }
         #endregion
 
+        #region 尺寸测量
+
+        /// <summary>
+        /// 尺寸测量核心方法，根据测量类型调用相应的子方法
+        /// </summary>
+        /// <param name="image">输入图像</param>
+        /// <param name="tool">工具模型</param>
+        /// <param name="hwindow">HALCON窗口（用于绘制）</param>
+        /// <param name="redraw">是否重绘</param>
+        /// <returns>测量值（单位：mm），失败返回-1</returns>
+        public double MeasureDimension(HObject image, ToolModel tool, HWindow hwindow, bool redraw = true)
+        {
+            try
+            {
+                double result = -1;
+
+                // 验证基本参数
+                if (tool.DimensionK <= 0 || (tool.DimensionK == 1000 && tool.CalibrationRealSize == 0))
+                {
+                    throw new Exception("世界坐标未校准：请先进行校准");
+                }
+
+                switch (tool.MeasureType)
+                {
+                    case DimensionMeasureType.直线到直线:
+                        result = MeasureLineToLine(image, tool, hwindow, redraw);
+                        break;
+                    case DimensionMeasureType.直线到圆心:
+                        result = MeasureLineToCircle(image, tool, hwindow, redraw);
+                        break;
+                    case DimensionMeasureType.圆心到圆心:
+                        result = MeasureCircleToCircle(image, tool, hwindow, redraw);
+                        break;
+                }
+
+                // 转换为实际尺寸（mm）
+                // DimensionK的单位是um/pixel，需要转换为mm/pixel
+                if (result > 0 && tool.DimensionK > 0)
+                {
+                    return result * tool.DimensionK / 1000.0; // 转换为mm
+                }
+
+                return result;
+            }
+            catch (Exception e)
+            {
+                // 重新抛出异常，让UI层显示详细错误信息
+                throw new Exception($"测量失败: {e.Message}", e);
+            }
+        }
+
+        /// <summary>
+        /// 直线到直线距离测量
+        /// </summary>
+        private double MeasureLineToLine(HObject image, ToolModel tool, HWindow hwindow, bool redraw)
+        {
+            HTuple measureHandle1 = null, measureHandle2 = null;
+            try
+            {
+                // 验证ROI有效性
+                if (tool.MeasureObject1ROI.Row1 == tool.MeasureObject1ROI.Row2 && 
+                    tool.MeasureObject1ROI.Col1 == tool.MeasureObject1ROI.Col2)
+                {
+                    throw new Exception("测量对象1 ROI无效：ROI区域太小");
+                }
+                if (tool.MeasureObject2ROI.Row1 == tool.MeasureObject2ROI.Row2 && 
+                    tool.MeasureObject2ROI.Col1 == tool.MeasureObject2ROI.Col2)
+                {
+                    throw new Exception("测量对象2 ROI无效：ROI区域太小");
+                }
+
+                // 检测第一条直线
+                HTuple row1, col1;
+                if (!DetectEdgeWithCaliper(image, tool, tool.MeasureObject1ROI, out row1, out col1))
+                {
+                    throw new Exception("测量对象1边缘检测失败：请检查ROI位置、边缘类型和灵敏度设置");
+                }
+
+                // 检测第二条直线
+                HTuple row2, col2;
+                if (!DetectEdgeWithCaliper(image, tool, tool.MeasureObject2ROI, out row2, out col2))
+                {
+                    throw new Exception("测量对象2边缘检测失败：请检查ROI位置、边缘类型和灵敏度设置");
+                }
+
+                // 计算两条直线间的距离（平行线间距）
+                // 使用点到直线的距离公式
+                double distance = Math.Abs((row2.D - row1.D) * Math.Sin(Math.Atan2(row2.D - row1.D, col2.D - col1.D)) + 
+                                          (col2.D - col1.D) * Math.Cos(Math.Atan2(row2.D - row1.D, col2.D - col1.D)));
+
+                // 简化：直接计算两点间距离（适用于平行线）
+                double deltaRow = row2.D - row1.D;
+                double deltaCol = col2.D - col1.D;
+                distance = Math.Sqrt(deltaRow * deltaRow + deltaCol * deltaCol);
+
+                if (redraw)
+                {
+                    hwindow.SetLineWidth(2);
+                    hwindow.SetColor("green");
+                    hwindow.DispLine(row1.D, col1.D, row2.D, col2.D);
+                }
+
+                return distance;
+            }
+            catch (Exception ex)
+            {
+                // 记录详细错误信息，便于调试
+                System.Diagnostics.Debug.WriteLine($"MeasureLineToLine错误: {ex.Message}");
+                throw; // 重新抛出异常，让上层捕获并显示
+            }
+            finally
+            {
+                if (measureHandle1 != null) HOperatorSet.CloseMeasure(measureHandle1);
+                if (measureHandle2 != null) HOperatorSet.CloseMeasure(measureHandle2);
+            }
+        }
+
+        /// <summary>
+        /// 直线到圆心距离测量
+        /// </summary>
+        private double MeasureLineToCircle(HObject image, ToolModel tool, HWindow hwindow, bool redraw)
+        {
+            HTuple measureHandle = null;
+            try
+            {
+                // 检测直线
+                HTuple lineRow, lineCol;
+                if (!DetectEdgeWithCaliper(image, tool, tool.MeasureObject1ROI, out lineRow, out lineCol))
+                {
+                    return -1;
+                }
+
+                // 检测圆心
+                HTuple circleRow, circleCol, circleRadius;
+                if (!DetectCircle(image, tool, tool.MeasureObject2ROI, out circleRow, out circleCol, out circleRadius))
+                {
+                    return -1;
+                }
+
+                // 计算点到直线的距离
+                // 使用HALCON的distance_pl算子
+                HTuple distance;
+                HOperatorSet.DistancePl(circleRow, circleCol, lineRow, lineCol, lineRow + 1, lineCol + 1, out distance);
+
+                if (redraw)
+                {
+                    hwindow.SetLineWidth(2);
+                    hwindow.SetColor("green");
+                    hwindow.DispLine(lineRow.D, lineCol.D, circleRow.D, circleCol.D);
+                    hwindow.SetColor("yellow");
+                    hwindow.DispCircle(circleRow.D, circleCol.D, circleRadius.D);
+                }
+
+                return distance.D;
+            }
+            catch (Exception ex)
+            {
+                return -1;
+            }
+            finally
+            {
+                if (measureHandle != null) HOperatorSet.CloseMeasure(measureHandle);
+            }
+        }
+
+        /// <summary>
+        /// 圆心到圆心距离测量
+        /// </summary>
+        private double MeasureCircleToCircle(HObject image, ToolModel tool, HWindow hwindow, bool redraw)
+        {
+            try
+            {
+                // 检测第一个圆心
+                HTuple circle1Row, circle1Col, circle1Radius;
+                if (!DetectCircle(image, tool, tool.MeasureObject1ROI, out circle1Row, out circle1Col, out circle1Radius))
+                {
+                    return -1;
+                }
+
+                // 检测第二个圆心
+                HTuple circle2Row, circle2Col, circle2Radius;
+                if (!DetectCircle(image, tool, tool.MeasureObject2ROI, out circle2Row, out circle2Col, out circle2Radius))
+                {
+                    return -1;
+                }
+
+                // 计算两点间距离
+                HTuple distance;
+                HOperatorSet.DistancePp(circle1Row, circle1Col, circle2Row, circle2Col, out distance);
+
+                if (redraw)
+                {
+                    hwindow.SetLineWidth(2);
+                    hwindow.SetColor("green");
+                    hwindow.DispLine(circle1Row.D, circle1Col.D, circle2Row.D, circle2Col.D);
+                    hwindow.SetColor("yellow");
+                    hwindow.DispCircle(circle1Row.D, circle1Col.D, circle1Radius.D);
+                    hwindow.DispCircle(circle2Row.D, circle2Col.D, circle2Radius.D);
+                }
+
+                return distance.D;
+            }
+            catch (Exception ex)
+            {
+                return -1;
+            }
+        }
+
+        /// <summary>
+        /// 使用卡尺工具检测边缘（用于直线检测）
+        /// </summary>
+        private bool DetectEdgeWithCaliper(HObject image, ToolModel tool, ROI roi, out HTuple row, out HTuple col)
+        {
+            row = null;
+            col = null;
+            HTuple measureHandle = null;
+
+            try
+            {
+                // 计算ROI中心点和角度
+                double centerRow = (roi.Row1 + roi.Row2) / 2.0;
+                double centerCol = (roi.Col1 + roi.Col2) / 2.0;
+
+                // 如果未设置角度，根据ROI自动计算
+                double angle = tool.CaliperAngle;
+                if (angle == 0)
+                {
+                    double deltaRow = roi.Row2 - roi.Row1;
+                    double deltaCol = roi.Col2 - roi.Col1;
+                    angle = Math.Atan2(deltaRow, deltaCol) * 180.0 / Math.PI;
+                }
+
+                // 获取图像尺寸
+                HTuple width, height;
+                HOperatorSet.GetImageSize(image, out width, out height);
+
+                // 生成卡尺工具
+                HOperatorSet.GenMeasureRectangle2(
+                    centerRow,
+                    centerCol,
+                    angle * Math.PI / 180.0,
+                    tool.CaliperLength / 2.0,
+                    tool.CaliperWidth / 2.0,
+                    width,
+                    height,
+                    tool.SubPixelAccuracy ? "bicubic" : "nearest_neighbor",
+                    out measureHandle
+                );
+
+                // 检测边缘
+                HTuple rowEdge, columnEdge, amplitude, distance;
+                HOperatorSet.MeasurePos(
+                    image,
+                    measureHandle,
+                    1.0, // sigma
+                    tool.EdgeThreshold,
+                    tool.EdgePolarity,
+                    tool.EdgeSelection,
+                    out rowEdge,
+                    out columnEdge,
+                    out amplitude,
+                    out distance
+                );
+
+                // 释放资源
+                HOperatorSet.CloseMeasure(measureHandle);
+                measureHandle = null;
+
+                // 返回边缘位置（如果检测到边缘，返回第一个）
+                if (rowEdge.Length > 0)
+                {
+                    row = rowEdge[0];
+                    col = columnEdge[0];
+                    return true;
+                }
+
+                // 边缘检测失败，返回false
+                return false;
+            }
+            catch (Exception ex)
+            {
+                if (measureHandle != null)
+                {
+                    try { HOperatorSet.CloseMeasure(measureHandle); } catch { }
+                }
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 检测圆（用于圆心检测）
+        /// </summary>
+        private bool DetectCircle(HObject image, ToolModel tool, ROI roi, out HTuple row, out HTuple col, out HTuple radius)
+        {
+            row = null;
+            col = null;
+            radius = null;
+            HObject reduceImage = null, edges = null, contours = null, selectedContours = null;
+
+            try
+            {
+                // 生成ROI并缩小运算域
+                HObject roiRegion;
+                HOperatorSet.GenRectangle1(out roiRegion, roi.Row1, roi.Col1, roi.Row2, roi.Col2);
+                HOperatorSet.ReduceDomain(image, roiRegion, out reduceImage);
+                roiRegion.Dispose();
+
+                // 边缘检测
+                HOperatorSet.EdgesSubPix(reduceImage, out edges, "canny", 1.0, 20, 40);
+
+                // 选择圆形轮廓
+                HOperatorSet.SelectShapeXld(edges, out selectedContours, "circularity", "and", 0.7, 1.0);
+
+                if (selectedContours.CountObj() == 0)
+                {
+                    reduceImage?.Dispose();
+                    edges?.Dispose();
+                    selectedContours?.Dispose();
+                    return false;
+                }
+
+                // 拟合圆
+                HTuple rowCenter, colCenter, radiusCenter, startPhi, endPhi, pointOrder;
+                HOperatorSet.FitCircleContourXld(selectedContours, "algebraic", -1, 0, 0, 3, 2, 
+                    out rowCenter, out colCenter, out radiusCenter, out startPhi, out endPhi, out pointOrder);
+
+                if (rowCenter.Length > 0)
+                {
+                    row = rowCenter[0];
+                    col = colCenter[0];
+                    radius = radiusCenter[0];
+
+                    reduceImage?.Dispose();
+                    edges?.Dispose();
+                    selectedContours?.Dispose();
+                    return true;
+                }
+
+                reduceImage?.Dispose();
+                edges?.Dispose();
+                selectedContours?.Dispose();
+                return false;
+            }
+            catch (Exception ex)
+            {
+                reduceImage?.Dispose();
+                edges?.Dispose();
+                selectedContours?.Dispose();
+                return false;
+            }
+        }
+
+        #endregion
+
+        #region 边缘预览
+
+        /// <summary>
+        /// 预览指定ROI区域内的边缘轮廓
+        /// </summary>
+        /// <param name="image">输入图像</param>
+        /// <param name="tool">工具模型</param>
+        /// <param name="roi">要预览的ROI区域</param>
+        /// <param name="hwindow">HALCON窗口</param>
+        /// <param name="color">显示颜色</param>
+        /// <returns>是否预览成功</returns>
+        public bool PreviewEdgesForROI(HObject image, ToolModel tool, ROI roi, HWindow hwindow, string color = "green")
+        {
+            HTuple measureHandle = null;
+            try
+            {
+                // 验证ROI有效性
+                if (roi.Row1 == roi.Row2 && roi.Col1 == roi.Col2)
+                {
+                    return false; // ROI区域太小，跳过预览
+                }
+
+                // 计算ROI中心点和角度（用于卡尺工具）
+                double centerRow = (roi.Row1 + roi.Row2) / 2.0;
+                double centerCol = (roi.Col1 + roi.Col2) / 2.0;
+
+                // 根据ROI形状自动计算角度
+                double angle = 0;
+                double deltaRow = roi.Row2 - roi.Row1;
+                double deltaCol = roi.Col2 - roi.Col1;
+                if (deltaRow != 0 || deltaCol != 0)
+                {
+                    angle = Math.Atan2(deltaRow, deltaCol) * 180.0 / Math.PI;
+                }
+
+                // 获取图像尺寸
+                HTuple width, height;
+                HOperatorSet.GetImageSize(image, out width, out height);
+
+                // 生成卡尺工具（使用较小的尺寸以提高检测密度）
+                HOperatorSet.GenMeasureRectangle2(
+                    centerRow,
+                    centerCol,
+                    angle * Math.PI / 180.0,
+                    tool.CaliperLength / 2.0,
+                    tool.CaliperWidth / 2.0,
+                    width,
+                    height,
+                    tool.SubPixelAccuracy ? "bicubic" : "nearest_neighbor",
+                    out measureHandle
+                );
+
+                // 检测边缘
+                HTuple rowEdge, columnEdge, amplitude, distance;
+                HOperatorSet.MeasurePos(
+                    image,
+                    measureHandle,
+                    1.0, // sigma
+                    tool.EdgeThreshold,
+                    tool.EdgePolarity,
+                    tool.EdgeSelection,
+                    out rowEdge,
+                    out columnEdge,
+                    out amplitude,
+                    out distance
+                );
+
+                // 在图像上绘制检测到的边缘点
+                if (rowEdge.Length > 0)
+                {
+                    hwindow.SetLineWidth(1);
+                    hwindow.SetDraw("margin");
+                    hwindow.SetColor(color);
+
+                    // 绘制边缘点为小十字
+                    for (int i = 0; i < rowEdge.Length; i++)
+                    {
+                        double row = rowEdge[i].D;
+                        double col = columnEdge[i].D;
+
+                        // 绘制小十字标记
+                        hwindow.DispLine((double)(row - 2), (double)col, (double)(row + 2), (double)col); // 垂直线
+                        hwindow.DispLine((double)row, (double)(col - 2), (double)row, (double)(col + 2)); // 水平线
+                    }
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                // 预览失败不影响主流程，只记录日志
+                System.Diagnostics.Debug.WriteLine($"边缘预览失败: {ex.Message}");
+                return false;
+            }
+            finally
+            {
+                if (measureHandle != null)
+                {
+                    try { HOperatorSet.CloseMeasure(measureHandle); } catch { }
+                }
+            }
+        }
+
+        /// <summary>
+        /// 预览所有测量对象的边缘轮廓
+        /// </summary>
+        /// <param name="image">输入图像</param>
+        /// <param name="tool">工具模型</param>
+        /// <param name="hwindow">HALCON窗口</param>
+        /// <returns>是否预览成功</returns>
+        public bool PreviewEdges(HObject image, ToolModel tool, HWindow hwindow)
+        {
+            try
+            {
+                if (image == null || hwindow == null)
+                {
+                    return false;
+                }
+
+                // 清空窗口并重新显示图像
+                hwindow.ClearWindow();
+                hwindow.DispObj(image);
+
+                // 绘制ROI矩形框
+                hwindow.SetLineWidth(2);
+                hwindow.SetDraw("margin");
+
+                // 绘制测量对象1的ROI（绿色）
+                if (tool.MeasureObject1ROI.Row1 != tool.MeasureObject1ROI.Row2 ||
+                    tool.MeasureObject1ROI.Col1 != tool.MeasureObject1ROI.Col2)
+                {
+                    hwindow.SetColor("green");
+                    hwindow.DispRectangle1((double)tool.MeasureObject1ROI.Row1, (double)tool.MeasureObject1ROI.Col1,
+                                         (double)tool.MeasureObject1ROI.Row2, (double)tool.MeasureObject1ROI.Col2);
+
+                    // 预览测量对象1的边缘
+                    PreviewEdgesForROI(image, tool, tool.MeasureObject1ROI, hwindow, "lime");
+                }
+
+                // 绘制测量对象2的ROI（黄色）
+                if (tool.MeasureObject2ROI.Row1 != tool.MeasureObject2ROI.Row2 ||
+                    tool.MeasureObject2ROI.Col1 != tool.MeasureObject2ROI.Col2)
+                {
+                    hwindow.SetColor("yellow");
+                    hwindow.DispRectangle1((double)tool.MeasureObject2ROI.Row1, (double)tool.MeasureObject2ROI.Col1,
+                                         (double)tool.MeasureObject2ROI.Row2, (double)tool.MeasureObject2ROI.Col2);
+
+                    // 预览测量对象2的边缘
+                    PreviewEdgesForROI(image, tool, tool.MeasureObject2ROI, hwindow, "yellow");
+                }
+
+                // 更新WPF显示：从HALCON窗口获取当前显示内容并更新到ShowBitmapSource
+                UpdateWpfDisplayFromHWindow(hwindow);
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"边缘预览失败: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 从HALCON窗口获取当前显示内容并更新WPF的ShowBitmapSource
+        /// </summary>
+        /// <param name="hwindow">HALCON窗口</param>
+        private void UpdateWpfDisplayFromHWindow(HWindow hwindow)
+        {
+            try
+            {
+                // 验证HALCON窗口状态
+                if (hwindow == null)
+                {
+                    System.Diagnostics.Debug.WriteLine("HALCON窗口为空，跳过显示更新");
+                    return;
+                }
+
+                // 强制刷新HALCON窗口，确保所有绘制操作已完成
+                HOperatorSet.SetWindowParam(hwindow, "flush", "true");
+
+                // 短暂延迟确保窗口刷新完成
+                System.Threading.Thread.Sleep(50);
+
+                // 从HALCON窗口获取当前显示的图像
+                HObject windowImage = null;
+                HOperatorSet.GenEmptyObj(out windowImage);
+                HOperatorSet.DumpWindowImage(out windowImage, hwindow);
+
+                // 验证获取的图像是否有效
+                HTuple width, height;
+                HOperatorSet.GetImageSize(windowImage, out width, out height);
+                if (width.I <= 0 || height.I <= 0)
+                {
+                    System.Diagnostics.Debug.WriteLine("获取的窗口图像无效");
+                    windowImage?.Dispose();
+                    return;
+                }
+
+                // 转换为WPF BitmapSource
+                Hobject2Bitmap.HobjectToBitmap24(windowImage, out System.Drawing.Bitmap bmp);
+
+                // 修复GDI句柄泄漏：GetHbitmap()创建的句柄需要手动释放
+                IntPtr hBitmap = bmp.GetHbitmap();
+                try
+                {
+                    BitmapSource bs = Imaging.CreateBitmapSourceFromHBitmap(hBitmap, IntPtr.Zero, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
+
+                    // 更新WPF显示（先置null再赋值，确保绑定更新）
+                    DataModel.FaraVisionDataModel.Processmodel.ShowBitmapSource = null;
+                    DataModel.FaraVisionDataModel.Processmodel.ShowBitmapSource = bs;
+
+                    // 强制触发UI更新
+                    RaisePropertyChanged(() => DataModel.FaraVisionDataModel.Processmodel.ShowBitmapSource);
+                }
+                finally
+                {
+                    DeleteObject(hBitmap); // 释放GDI句柄
+                }
+
+                bmp?.Dispose();
+                windowImage?.Dispose();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"更新WPF显示失败: {ex.Message}");
+            }
+        }
+
+        #endregion
+
         /// <summary>
         /// 将 Bitmap 等比缩放至不超过 W×H 的尺寸。
         /// </summary>

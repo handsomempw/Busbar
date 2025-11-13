@@ -1760,6 +1760,37 @@ namespace BusbarCompressionSystem.ViewModel
                                 GC.Collect();
                                 #endregion
                             }
+                            else if (tool.TestMode == TestModes.尺寸测量)
+                            {
+                                #region 尺寸测量
+
+                                try
+                                {
+                                    double measureValue = MeasureDimension(Image, tool, hwindow, false);
+                                    tool.ActualMeasureValue = measureValue;
+
+                                    if (measureValue >= 0 && measureValue >= tool.MinMeasureValue && measureValue <= tool.MaxMeasureValue)
+                                    {
+                                        tool.ToolStatus = ToolStatus.OK;
+                                    }
+                                    else if (measureValue < 0)
+                                    {
+                                        tool.ToolStatus = ToolStatus.NG2; // 测量失败
+                                    }
+                                    else
+                                    {
+                                        tool.ToolStatus = ToolStatus.NG; // 测量值超出范围
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    tool.ToolStatus = ToolStatus.NG2;
+                                    writeLog($"尺寸测量失败: {ex.Message}", false);
+                                }
+
+                                GC.Collect();
+                                #endregion
+                            }
                         }
                         catch {; }
 

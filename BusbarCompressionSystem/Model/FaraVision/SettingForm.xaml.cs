@@ -44,6 +44,8 @@ namespace BusbarCompressionSystem.Model.FaraVision
         bool selectbroi = false;
         bool selectproi = false;
         bool selectdroi = false;
+        bool selectmeasureobject1roi = false;
+        bool selectmeasureobject2roi = false;
 
         public SettingForm()
         {
@@ -179,12 +181,24 @@ namespace BusbarCompressionSystem.Model.FaraVision
                     RectangleDimension.Width = rect.Width;
                     RectangleDimension.Height = rect.Height;
                 }
+                else if (selectmeasureobject1roi)
+                {
+                    RectangleMeasureObject1.Margin = new Thickness(rect.Left, rect.Top, 0, 0);
+                    RectangleMeasureObject1.Width = rect.Width;
+                    RectangleMeasureObject1.Height = rect.Height;
+                }
+                else if (selectmeasureobject2roi)
+                {
+                    RectangleMeasureObject2.Margin = new Thickness(rect.Left, rect.Top, 0, 0);
+                    RectangleMeasureObject2.Width = rect.Width;
+                    RectangleMeasureObject2.Height = rect.Height;
+                }
             }
         }
 
         private void rectange_MouseDown(object sender, MouseButtonEventArgs e)
         {
-            if (selectproi || selectbroi || selectdroi)
+            if (selectproi || selectbroi || selectdroi || selectmeasureobject1roi || selectmeasureobject2roi)
             {
                 _downPoint = e.GetPosition(show_image_canvas);
                 _started = true;
@@ -233,6 +247,30 @@ namespace BusbarCompressionSystem.Model.FaraVision
                 SelectDimensionROI.Background = selectdroi ? System.Windows.Media.Brushes.Orange : System.Windows.Media.Brushes.Gray;
 
             }
+            else if (selectmeasureobject1roi)
+            {
+                if (RectangleMeasureObject1.Width == 0 || RectangleMeasureObject1.Height == 0) { return; }
+                if (double.IsNaN(RectangleMeasureObject1.Width) || double.IsNaN(RectangleMeasureObject1.Height)) { return; }
+                _started = false;
+                t.MeasureObject1ROI.Row1 = (int)RectangleMeasureObject1.Margin.Top;
+                t.MeasureObject1ROI.Col1 = (int)RectangleMeasureObject1.Margin.Left;
+                t.MeasureObject1ROI.Row2 = (int)(RectangleMeasureObject1.Margin.Top + RectangleMeasureObject1.Height);
+                t.MeasureObject1ROI.Col2 = (int)(RectangleMeasureObject1.Margin.Left + RectangleMeasureObject1.Width);
+                selectmeasureobject1roi = false;
+                SelectMeasureObject1ROI.Background = selectmeasureobject1roi ? System.Windows.Media.Brushes.Lime : System.Windows.Media.Brushes.Gray;
+            }
+            else if (selectmeasureobject2roi)
+            {
+                if (RectangleMeasureObject2.Width == 0 || RectangleMeasureObject2.Height == 0) { return; }
+                if (double.IsNaN(RectangleMeasureObject2.Width) || double.IsNaN(RectangleMeasureObject2.Height)) { return; }
+                _started = false;
+                t.MeasureObject2ROI.Row1 = (int)RectangleMeasureObject2.Margin.Top;
+                t.MeasureObject2ROI.Col1 = (int)RectangleMeasureObject2.Margin.Left;
+                t.MeasureObject2ROI.Row2 = (int)(RectangleMeasureObject2.Margin.Top + RectangleMeasureObject2.Height);
+                t.MeasureObject2ROI.Col2 = (int)(RectangleMeasureObject2.Margin.Left + RectangleMeasureObject2.Width);
+                selectmeasureobject2roi = false;
+                SelectMeasureObject2ROI.Background = selectmeasureobject2roi ? System.Windows.Media.Brushes.Cyan : System.Windows.Media.Brushes.Gray;
+            }
 
         }
 
@@ -255,6 +293,14 @@ namespace BusbarCompressionSystem.Model.FaraVision
                 RectangleDimension.Margin = new Thickness(t.DimensionROI.Col1, t.DimensionROI.Row1, 0, 0);
                 RectangleDimension.Width = t.DimensionROI.Col2 - t.DimensionROI.Col1;
                 RectangleDimension.Height = t.DimensionROI.Row2 - t.DimensionROI.Row1;
+
+                RectangleMeasureObject1.Margin = new Thickness(t.MeasureObject1ROI.Col1, t.MeasureObject1ROI.Row1, 0, 0);
+                RectangleMeasureObject1.Width = t.MeasureObject1ROI.Col2 - t.MeasureObject1ROI.Col1;
+                RectangleMeasureObject1.Height = t.MeasureObject1ROI.Row2 - t.MeasureObject1ROI.Row1;
+
+                RectangleMeasureObject2.Margin = new Thickness(t.MeasureObject2ROI.Col1, t.MeasureObject2ROI.Row1, 0, 0);
+                RectangleMeasureObject2.Width = t.MeasureObject2ROI.Col2 - t.MeasureObject2ROI.Col1;
+                RectangleMeasureObject2.Height = t.MeasureObject2ROI.Row2 - t.MeasureObject2ROI.Row1;
             }
             catch (Exception ex) { }
 
@@ -464,6 +510,153 @@ namespace BusbarCompressionSystem.Model.FaraVision
                 NoticeBox.Show($"识别面积大小:{area}", "提示", MessageBoxIcon.Info, true, 10000);
             }
         }
+
+        #region 尺寸测量相关事件处理
+
+        private void SelectMeasureObject1ROI_Click(object sender, RoutedEventArgs e)
+        {
+            selectmeasureobject1roi = !selectmeasureobject1roi;
+            SelectMeasureObject1ROI.Background = selectmeasureobject1roi ? System.Windows.Media.Brushes.Lime : System.Windows.Media.Brushes.Gray;
+            // 取消其他ROI选择状态
+            if (selectmeasureobject1roi)
+            {
+                selectmeasureobject2roi = false;
+                SelectMeasureObject2ROI.Background = System.Windows.Media.Brushes.Gray;
+            }
+        }
+
+        private void SelectMeasureObject2ROI_Click(object sender, RoutedEventArgs e)
+        {
+            selectmeasureobject2roi = !selectmeasureobject2roi;
+            SelectMeasureObject2ROI.Background = selectmeasureobject2roi ? System.Windows.Media.Brushes.Cyan : System.Windows.Media.Brushes.Gray;
+            // 取消其他ROI选择状态
+            if (selectmeasureobject2roi)
+            {
+                selectmeasureobject1roi = false;
+                SelectMeasureObject1ROI.Background = System.Windows.Media.Brushes.Gray;
+            }
+        }
+
+        private void CalibrateDimensionK_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (t.MeasureObject1ROI.Row1 == 0 && t.MeasureObject1ROI.Row2 == 0 && 
+                    t.MeasureObject1ROI.Col1 == 0 && t.MeasureObject1ROI.Col2 == 0)
+                {
+                    NoticeBox.Show("请先选择测量对象1区域", "提示", MessageBoxIcon.Warning, true, 5000);
+                    return;
+                }
+
+                if (t.CalibrationRealSize <= 0)
+                {
+                    NoticeBox.Show("请输入有效的真实尺寸（大于0）", "提示", MessageBoxIcon.Warning, true, 5000);
+                    return;
+                }
+
+                if (t.Image == null)
+                {
+                    NoticeBox.Show("请先选择图片", "提示", MessageBoxIcon.Warning, true, 5000);
+                    return;
+                }
+
+                // 测量测量对象1的像素尺寸
+                double pixelSize = 0;
+                if (t.MeasureType == DimensionMeasureType.直线到直线 || t.MeasureType == DimensionMeasureType.直线到圆心)
+                {
+                    // 对于直线，测量ROI的长度
+                    double deltaRow = t.MeasureObject1ROI.Row2 - t.MeasureObject1ROI.Row1;
+                    double deltaCol = t.MeasureObject1ROI.Col2 - t.MeasureObject1ROI.Col1;
+                    pixelSize = Math.Sqrt(deltaRow * deltaRow + deltaCol * deltaCol);
+                }
+                else if (t.MeasureType == DimensionMeasureType.圆心到圆心)
+                {
+                    // 对于圆，测量ROI的对角线长度作为参考
+                    double deltaRow = t.MeasureObject1ROI.Row2 - t.MeasureObject1ROI.Row1;
+                    double deltaCol = t.MeasureObject1ROI.Col2 - t.MeasureObject1ROI.Col1;
+                    pixelSize = Math.Sqrt(deltaRow * deltaRow + deltaCol * deltaCol);
+                }
+
+                if (pixelSize <= 0)
+                {
+                    NoticeBox.Show("无法计算像素尺寸，请检查ROI设置", "错误", MessageBoxIcon.Error, true, 5000);
+                    return;
+                }
+
+                // 计算比例：真实尺寸(mm) / 像素尺寸(pixel) * 1000 = um/pixel
+                t.DimensionK = (t.CalibrationRealSize / pixelSize) * 1000.0;
+                t.CalibrationPixelSize = pixelSize;
+
+                NoticeBox.Show($"校准成功！\n像素尺寸: {pixelSize:F2} pixel\n比例: {t.DimensionK:F2} um/pixel", 
+                    "校准成功", MessageBoxIcon.Success, true, 5000);
+            }
+            catch (Exception ex)
+            {
+                NoticeBox.Show($"校准失败: {ex.Message}", "错误", MessageBoxIcon.Error, true, 5000);
+            }
+        }
+
+        private void DimensionMeasureApply_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (t.Image == null)
+                {
+                    NoticeBox.Show("请先选择图片", "提示", MessageBoxIcon.Warning, true, 5000);
+                    return;
+                }
+
+                if (t.MeasureObject1ROI.Row1 == 0 && t.MeasureObject1ROI.Row2 == 0 && 
+                    t.MeasureObject1ROI.Col1 == 0 && t.MeasureObject1ROI.Col2 == 0)
+                {
+                    NoticeBox.Show("请先选择测量对象1区域", "提示", MessageBoxIcon.Warning, true, 5000);
+                    return;
+                }
+
+                if (t.MeasureObject2ROI.Row1 == 0 && t.MeasureObject2ROI.Row2 == 0 && 
+                    t.MeasureObject2ROI.Col1 == 0 && t.MeasureObject2ROI.Col2 == 0)
+                {
+                    NoticeBox.Show("请先选择测量对象2区域", "提示", MessageBoxIcon.Warning, true, 5000);
+                    return;
+                }
+
+                // 检查是否已校准：DimensionK应该是通过校准计算得到的，如果还是默认值1000且CalibrationRealSize为0，说明未校准
+                if (t.DimensionK <= 0 || (t.DimensionK == 1000 && t.CalibrationRealSize == 0))
+                {
+                    NoticeBox.Show("请先进行世界坐标校准：\n1. 选择测量对象1区域\n2. 输入真实尺寸（mm）\n3. 点击校准按钮", 
+                        "需要校准", MessageBoxIcon.Warning, true, 8000);
+                    return;
+                }
+
+                // 执行测量
+                double measureValue = vml.Main.MeasureDimension(t.Image, t, vml.Main.DataModel.FaraVisionDataModel.Settingmodel.HWindow, true);
+                
+                if (measureValue < 0)
+                {
+                    NoticeBox.Show("测量失败，请检查：\n1. ROI区域是否正确框选\n2. 边缘类型是否匹配\n3. 边缘灵敏度是否合适\n4. 是否已进行世界坐标校准", 
+                        "测量失败", MessageBoxIcon.Error, true, 8000);
+                }
+                else
+                {
+                    string status = (measureValue >= t.MinMeasureValue && measureValue <= t.MaxMeasureValue) ? "OK" : "NG";
+                    NoticeBox.Show($"测量结果: {measureValue:F3} mm\n状态: {status}\n范围: {t.MinMeasureValue} - {t.MaxMeasureValue} mm", 
+                        "测量结果", MessageBoxIcon.Info, true, 10000);
+                }
+            }
+            catch (Exception ex)
+            {
+                // 显示详细的错误信息
+                string errorMsg = ex.Message;
+                if (ex.InnerException != null)
+                {
+                    errorMsg += "\n" + ex.InnerException.Message;
+                }
+                NoticeBox.Show($"测量失败: {errorMsg}\n\n建议：\n1. 检查ROI区域是否正确\n2. 调整边缘检测参数（展开卡尺参数）\n3. 确认已进行世界坐标校准", 
+                    "测量失败", MessageBoxIcon.Error, true, 10000);
+            }
+        }
+
+        #endregion
 
         private void move_to_center(TransformGroup group, double scale, double w1, double h1)
         {

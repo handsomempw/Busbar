@@ -30,6 +30,7 @@
             <FaraVision:TestMode2Visibility_Barcode       x:Key="TestMode2Visibility_Barcode"/>
             <FaraVision:TestMode2Visibility_Dimension     x:Key="TestMode2Visibility_Dimension"/>
             <FaraVision:TestMode2Visibility_ShapeMatch    x:Key="TestMode2Visibility_ShapeMatch"/>
+            <FaraVision:TestMode2Visibility_DimensionMeasure x:Key="TestMode2Visibility_DimensionMeasure"/>
 
         </ResourceDictionary>
     </Application.Resources>

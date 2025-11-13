@@ -27,6 +27,11 @@
                     <x:Type Type="faravision:TestModes"/>
                 </ObjectDataProvider.MethodParameters>
             </ObjectDataProvider>
+            <ObjectDataProvider x:Key="dimensionmeasuretypes" MethodName="GetValues" ObjectType="{x:Type sys:Enum}">
+                <ObjectDataProvider.MethodParameters>
+                    <x:Type Type="faravision:DimensionMeasureType"/>
+                </ObjectDataProvider.MethodParameters>
+            </ObjectDataProvider>
         </Grid.Resources>
 
         <Grid.ColumnDefinitions>
@@ -64,6 +69,9 @@
                     <Rectangle x:Name="RectangleBarcode"   Visibility="{Binding TestMode,Converter={StaticResource TestMode2Visibility_Barcode}}" StrokeThickness="2"    Stroke="OrangeRed" Canvas.Left="10" Canvas.Right="10" Width="50" Height="50"    HorizontalAlignment="Left" VerticalAlignment="Top"></Rectangle>
                     <Rectangle x:Name="RectanglePosition" Visibility="{Binding TestMode,Converter={StaticResource TestMode2Visibility_ShapeMatch}}"  StrokeThickness="2"   Stroke="Orange" Canvas.Left="10" Canvas.Right="10" Width="50" Height="50"    HorizontalAlignment="Left" VerticalAlignment="Top"></Rectangle>
                     <Rectangle x:Name="RectangleDimension" Visibility="{Binding TestMode,Converter={StaticResource TestMode2Visibility_Dimension}}"   StrokeThickness="2"   Stroke="Orange" Canvas.Left="10" Canvas.Right="10" Width="50" Height="50"    HorizontalAlignment="Left" VerticalAlignment="Top"></Rectangle>
+                    <!-- 尺寸测量工具的两个测量对象ROI -->
+                    <Rectangle x:Name="RectangleMeasureObject1" Visibility="{Binding TestMode,Converter={StaticResource TestMode2Visibility_DimensionMeasure}}" StrokeThickness="2" Stroke="Lime" Canvas.Left="10" Canvas.Right="10" Width="50" Height="50" HorizontalAlignment="Left" VerticalAlignment="Top"></Rectangle>
+                    <Rectangle x:Name="RectangleMeasureObject2" Visibility="{Binding TestMode,Converter={StaticResource TestMode2Visibility_DimensionMeasure}}" StrokeThickness="2" Stroke="Cyan" Canvas.Left="10" Canvas.Right="10" Width="50" Height="50" HorizontalAlignment="Left" VerticalAlignment="Top"></Rectangle>
 
                 </Canvas>
 
@@ -72,8 +80,9 @@
         </ScrollViewer>
 
         <GroupBox Header="工具参数" Grid.Column="1">
-            <Grid Grid.Column="1">
+                <Grid Grid.Column="1">
                 <Grid.RowDefinitions>
+                    <RowDefinition Height=" auto"/>
                     <RowDefinition Height=" auto"/>
                     <RowDefinition Height=" auto"/>
                     <RowDefinition Height=" auto"/>
@@ -447,7 +456,167 @@
                     </Grid>
 
                 </GroupBox>
-                <GroupBox Header="结果输出" Grid.Row="5" p:GroupBoxHelper.HeaderBackground="BlueViolet" BorderBrush="BlueViolet" Margin="0,5" 
+
+                <!-- 尺寸测量配置GroupBox -->
+                <GroupBox Header="尺寸测量" Grid.Row="5" p:GroupBoxHelper.HeaderBackground="MediumPurple" BorderBrush="MediumPurple" Margin="0,5" 
+                          VerticalAlignment="Top" p:GroupBoxHelper.HeaderForeground="White"
+                          Visibility="{Binding TestMode,Converter={StaticResource TestMode2Visibility_DimensionMeasure}}">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="500">
+                        <Grid Margin="2">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="auto"/>
+                                <ColumnDefinition MinWidth="150"/>
+                            </Grid.ColumnDefinitions>
+
+                            <!-- 测量类型选择 -->
+                            <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Margin="0,5">测量类型:</TextBlock>
+                            <ComboBox Grid.Row="0" Grid.Column="1" Margin="2" 
+                                      SelectedItem="{Binding MeasureType,UpdateSourceTrigger=PropertyChanged}" 
+                                      ItemsSource="{Binding Source={StaticResource dimensionmeasuretypes}}"
+                                      IsEditable="True" IsReadOnly="True"/>
+
+                            <!-- 测量对象1 ROI -->
+                            <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Margin="0,5">测量对象1区域:</TextBlock>
+                            <Button Grid.Row="1" Grid.Column="1" Margin="2" Name="SelectMeasureObject1ROI" 
+                                    Click="SelectMeasureObject1ROI_Click" Padding="5" HorizontalAlignment="Left">选择</Button>
+                            <Grid Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2" Margin="10,2,2,2">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition/>
+                                    <RowDefinition/>
+                                </Grid.RowDefinitions>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="auto"/>
+                                    <ColumnDefinition />
+                                    <ColumnDefinition Width="auto"/>
+                                    <ColumnDefinition />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center">ROW1:</TextBlock>
+                                <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center">ROW2:</TextBlock>
+                                <TextBlock Grid.Row="0" Grid.Column="2" VerticalAlignment="Center">COL1:</TextBlock>
+                                <TextBlock Grid.Row="1" Grid.Column="2" VerticalAlignment="Center">COL2:</TextBlock>
+                                <TextBox Grid.Row="0" Grid.Column="1" Margin="2" Text="{Binding MeasureObject1ROI.Row1}" />
+                                <TextBox Grid.Row="1" Grid.Column="1" Margin="2" Text="{Binding MeasureObject1ROI.Row2}" />
+                                <TextBox Grid.Row="0" Grid.Column="3" Margin="2" Text="{Binding MeasureObject1ROI.Col1}" />
+                                <TextBox Grid.Row="1" Grid.Column="3" Margin="2" Text="{Binding MeasureObject1ROI.Col2}" />
+                            </Grid>
+
+                            <!-- 测量对象2 ROI -->
+                            <TextBlock Grid.Row="3" Grid.Column="0" VerticalAlignment="Center" Margin="0,5">测量对象2区域:</TextBlock>
+                            <Button Grid.Row="3" Grid.Column="1" Margin="2" Name="SelectMeasureObject2ROI" 
+                                    Click="SelectMeasureObject2ROI_Click" Padding="5" HorizontalAlignment="Left">选择</Button>
+                            <Grid Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="2" Margin="10,2,2,2">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition/>
+                                    <RowDefinition/>
+                                </Grid.RowDefinitions>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="auto"/>
+                                    <ColumnDefinition />
+                                    <ColumnDefinition Width="auto"/>
+                                    <ColumnDefinition />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center">ROW1:</TextBlock>
+                                <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center">ROW2:</TextBlock>
+                                <TextBlock Grid.Row="0" Grid.Column="2" VerticalAlignment="Center">COL1:</TextBlock>
+                                <TextBlock Grid.Row="1" Grid.Column="2" VerticalAlignment="Center">COL2:</TextBlock>
+                                <TextBox Grid.Row="0" Grid.Column="1" Margin="2" Text="{Binding MeasureObject2ROI.Row1}" />
+                                <TextBox Grid.Row="1" Grid.Column="1" Margin="2" Text="{Binding MeasureObject2ROI.Row2}" />
+                                <TextBox Grid.Row="0" Grid.Column="3" Margin="2" Text="{Binding MeasureObject2ROI.Col1}" />
+                                <TextBox Grid.Row="1" Grid.Column="3" Margin="2" Text="{Binding MeasureObject2ROI.Col2}" />
+                            </Grid>
+
+                            <!-- 测量范围 -->
+                            <TextBlock Grid.Row="5" Grid.Column="0" VerticalAlignment="Center" Margin="0,5">测量范围(mm):</TextBlock>
+                            <Grid Grid.Row="5" Grid.Column="1" Margin="2">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBox Grid.Column="0" Margin="0,0,5,0" Text="{Binding MinMeasureValue}" />
+                                <TextBlock Grid.Column="1" VerticalAlignment="Center" Margin="5,0">-</TextBlock>
+                                <TextBox Grid.Column="2" Margin="5,0,0,0" Text="{Binding MaxMeasureValue}" />
+                            </Grid>
+
+                            <!-- 世界坐标校准 -->
+                            <GroupBox Grid.Row="6" Grid.ColumnSpan="2" Header="世界坐标校准" Margin="0,10,0,0">
+                                <Grid Margin="5">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Margin="0,5">真实尺寸(mm):</TextBlock>
+                                    <TextBox Grid.Row="0" Grid.Column="1" Margin="2" Text="{Binding CalibrationRealSize}" />
+                                    <Button Grid.Row="0" Grid.Column="2" Margin="5,2" Name="CalibrateDimensionK" 
+                                            Click="CalibrateDimensionK_Click" Padding="10,5" 
+                                            Background="Orange" Foreground="White">校准</Button>
+                                    <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Margin="0,5">比例(um/pixel):</TextBlock>
+                                    <TextBlock Grid.Row="1" Grid.Column="1" Margin="2,5" VerticalAlignment="Center" 
+                                               Text="{Binding DimensionK, StringFormat='{}{0:F2}'}" />
+                                    <TextBlock Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" 
+                                               Text="提示：先选择测量对象1区域，输入真实尺寸，点击校准按钮" 
+                                               Foreground="Gray" FontSize="10" Margin="0,5,0,0"/>
+                                </Grid>
+                            </GroupBox>
+
+                            <!-- 卡尺参数（基础模式） -->
+                            <Expander Grid.Row="7" Grid.ColumnSpan="2" Header="卡尺参数（标准设置）" IsExpanded="False" Margin="0,10,0,0">
+                                <Grid Margin="10,5">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Margin="0,5">边缘类型:</TextBlock>
+                                    <ComboBox Grid.Row="0" Grid.Column="1" Margin="2" SelectedValue="{Binding EdgePolarity}" SelectedValuePath="Tag">
+                                        <ComboBoxItem Content="全部边缘" Tag="all"/>
+                                        <ComboBoxItem Content="从暗到亮" Tag="positive"/>
+                                        <ComboBoxItem Content="从亮到暗" Tag="negative"/>
+                                    </ComboBox>
+                                    <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Margin="0,5">搜索范围:</TextBlock>
+                                    <Slider Grid.Row="1" Grid.Column="1" Minimum="50" Maximum="200" 
+                                            Value="{Binding CaliperLength}" TickFrequency="10" IsSnapToTickEnabled="True"/>
+                                    <TextBlock Grid.Row="1" Grid.Column="2" Text="{Binding CaliperLength, StringFormat='{}{0}像素'}" 
+                                               VerticalAlignment="Center" Margin="5,0,0,0" MinWidth="60"/>
+                                    <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" Margin="0,5">边缘灵敏度:</TextBlock>
+                                    <Slider Grid.Row="2" Grid.Column="1" Minimum="10" Maximum="100" 
+                                            Value="{Binding EdgeThreshold}" TickFrequency="5" IsSnapToTickEnabled="True"/>
+                                    <TextBlock Grid.Row="2" Grid.Column="2" Text="{Binding EdgeThreshold, StringFormat='{}{0}'}" 
+                                               VerticalAlignment="Center" Margin="5,0,0,0" MinWidth="30"/>
+                                </Grid>
+                            </Expander>
+
+                            <!-- 测试按钮 -->
+                            <Button Grid.Row="8" Grid.ColumnSpan="2" Name="DimensionMeasureApply" 
+                                    Click="DimensionMeasureApply_Click" Margin="5,10" Padding="10,5"
+                                    Background="Green" Foreground="White">测试测量</Button>
+                        </Grid>
+                    </ScrollViewer>
+                </GroupBox>
+
+                <GroupBox Header="结果输出" Grid.Row="6" p:GroupBoxHelper.HeaderBackground="BlueViolet" BorderBrush="BlueViolet" Margin="0,5" 
                           VerticalAlignment="Top" p:GroupBoxHelper.HeaderForeground="White" >
                     <Grid Margin="2">
                         <Grid.ColumnDefinitions>
