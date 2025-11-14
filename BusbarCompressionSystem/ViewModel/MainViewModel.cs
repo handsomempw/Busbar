@@ -374,6 +374,7 @@ namespace BusbarCompressionSystem.ViewModel
                     {
                         #region 读取数据
                         var readresult = modbusTcp.ReadUInt16(DataModel.Settingmodel.AddressStart.ToString(), 20);
+                        var secondScanResult = modbusTcp.ReadUInt16(DataModel.Settingmodel.SecondScanTrigAddress.ToString(), 1);
 
                         if (readresult.IsSuccess)
                         {
@@ -383,6 +384,8 @@ namespace BusbarCompressionSystem.ViewModel
                             int TV2Trig = readresult.Content[8];
                             int TV3Trig = readresult.Content[10];
 
+                            int SecondScanTrig = secondScanResult.IsSuccess ? secondScanResult.Content[0] : 0;
+
                             #region 扫码触发
                             try
                             {
@@ -391,6 +394,20 @@ namespace BusbarCompressionSystem.ViewModel
                                     new Thread(() =>
                                      {
                                          ScannerProcess();
+                                     }).Start();
+                                }
+                            }
+                            catch {; }
+                            #endregion
+
+                            #region 第二扫码触发
+                            try
+                            {
+                                if (SecondScanTrig == 1 & DataModel.Processmodel.SecondScan_Trig_IO.IOstatus == 0)
+                                {
+                                    new Thread(() =>
+                                     {
+                                         SecondScannerProcess();
                                      }).Start();
                                 }
                             }
@@ -468,6 +485,7 @@ namespace BusbarCompressionSystem.ViewModel
 
                             #region 数据复制刷新
                             DataModel.Processmodel.Scan_Trig_IO.IOstatus = ScanTrig;
+                            DataModel.Processmodel.SecondScan_Trig_IO.IOstatus = SecondScanTrig;
                             DataModel.Processmodel.TakePhoto1_Trig_IO.IOstatus = TakePhoto1Trig;
                             DataModel.Processmodel.TV1_Trig_IO.IOstatus = TV1Trig;
                             DataModel.Processmodel.TV2_Trig_IO.IOstatus = TV2Trig;
@@ -485,6 +503,7 @@ namespace BusbarCompressionSystem.ViewModel
                     {
                         #region 通讯失败数据置为-1
                         DataModel.Processmodel.Scan_Trig_IO.IOstatus = -1;
+                        DataModel.Processmodel.SecondScan_Trig_IO.IOstatus = -1;
                         DataModel.Processmodel.TakePhoto1_Trig_IO.IOstatus = -1;
                         DataModel.Processmodel.TV1_Trig_IO.IOstatus = -1;
                         DataModel.Processmodel.TV2_Trig_IO.IOstatus = -1;
@@ -559,6 +578,45 @@ namespace BusbarCompressionSystem.ViewModel
 
 
 
+        }
+
+        public void SecondScannerProcess()
+        {
+            if (DataModel.Settingmodel.SecondScannerMode == "HF800")
+            {
+                var r = DataModel.Settingmodel.SecondHF800.Scanner();
+                string s = r.value.Replace("\r", "").Replace("\n", "");
+                DataModel.Processmodel.sninputstr = s;
+                //SQLITEDATABASE.sqlite.CREATENEWLINE("1", "1", s);
+                PLC_write(DataModel.Settingmodel.SecondScanResultAddress.ToString(), (UInt16)(r.Status == Honeywell.Status.OK ? 1 : 2));
+
+                if (r.Status == Honeywell.Status.OK && !string.IsNullOrEmpty(s))
+                {
+                    // 写入SN到D1150
+                    PLC_Writestring(DataModel.Settingmodel.SecondScanSNAddress.ToString(), s);
+                }
+            }
+            else
+            {
+                var r = DataModel.Settingmodel.SecondScannerModel.Scanner();
+                string s = r.receivestring.Replace("\r", "").Replace("\n", "");
+                if (!String.IsNullOrEmpty(s))
+                {
+                    DataModel.Processmodel.sninputstr = s;
+
+                    PLC_write(DataModel.Settingmodel.SecondScanResultAddress.ToString(), (UInt16)(r.IsSuccess ? 1 : 2));
+
+                    if (r.IsSuccess)
+                    {
+                        // 写入SN到D1150
+                        PLC_Writestring(DataModel.Settingmodel.SecondScanSNAddress.ToString(), s);
+                    }
+                }
+                else
+                {
+                    PLC_write(DataModel.Settingmodel.SecondScanResultAddress.ToString(), (UInt16)(2));
+                }
+            }
         }
 
         public void TakePhoto1Process()

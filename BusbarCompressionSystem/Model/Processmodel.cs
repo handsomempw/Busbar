@@ -48,6 +48,10 @@ namespace BusbarCompressionSystem.Model
         public IO Scan_Trig_IO { get; set; } = new IO();
 
         [XmlIgnore]
+        [XmlElement("第二扫码触发")]
+        public IO SecondScan_Trig_IO { get; set; } = new IO();
+
+        [XmlIgnore]
         [XmlElement("拍照触发")]
         public IO TakePhoto1_Trig_IO { get; set; } = new IO();
 

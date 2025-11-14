@@ -55,11 +55,18 @@ namespace BusbarCompressionSystem.Model
         public Scanner.ScannerModel ScannerModel { set; get; } = new Scanner.ScannerModel();
 
         [XmlElement("霍尼韦尔扫码器")]
-
         public Honeywell.HF800 HF800 { set; get; } = new Honeywell.HF800();
 
+        [XmlElement("下料扫码器")]
+        public Scanner.ScannerModel SecondScannerModel { set; get; } = new Scanner.ScannerModel();
+
+        [XmlElement("下料霍尼韦尔扫码器")]
+        public Honeywell.HF800 SecondHF800 { set; get; } = new Honeywell.HF800();
 
         public string ScannerMode { set; get; } = "HF800";
+
+        [XmlElement("下料扫码器模式")]
+        public string SecondScannerMode { set; get; } = "HF800";
 
 
 
@@ -108,6 +115,15 @@ namespace BusbarCompressionSystem.Model
 
         [XmlElement("设备心跳地址")]
         public int ShankHandAddress { set; get; } = 1622;
+
+        [XmlElement("下料扫码触发地址")]
+        public int SecondScanTrigAddress { set; get; } = 1100;
+
+        [XmlElement("下料扫码返回地址")]
+        public int SecondScanResultAddress { set; get; } = 1101;
+
+        [XmlElement("下料位SN地址")]
+        public int SecondScanSNAddress { set; get; } = 1150;
 
         #endregion
 
