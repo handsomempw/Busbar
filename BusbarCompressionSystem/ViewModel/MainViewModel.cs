@@ -1,3 +1,17 @@
+/*
+ * 主要业务逻辑控制器
+ *
+ * MVVM架构中的ViewModel层核心，负责所有业务逻辑：
+ * 1. 硬件设备控制：相机、PLC、测试仪器、机器人协调工作
+ * 2. 生产流程管理：产品检测、测试、数据记录的完整流程
+ * 3. 数据处理：XML序列化保存/加载配置，数据库交互
+ * 4. 算法集成：Halcon视觉算法、位置检测算法等
+ * 5. 多线程管理：并发处理多工位测试和检测任务
+ *
+ * 核心业务流程：
+ * 产品进站 → 视觉检测 → 耐压测试 → 数据记录 → MES报工
+ */
+
 using BusbarCompressionSystem.Model;
 using GalaSoft.MvvmLight;
 using System.IO;

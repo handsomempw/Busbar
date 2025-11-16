@@ -1,4 +1,16 @@
-﻿using BusbarCompressionSystem.ViewModel;
+﻿/*
+ * 系统设置窗口
+ *
+ * 提供系统配置的图形化界面：
+ * 1. 硬件参数设置：相机、PLC、测试仪器等设备的配置
+ * 2. 生产参数调整：测试标准、流程参数等设置
+ * 3. 界面参数配置：显示选项、语言等个性化设置
+ * 4. 参数验证和保存：确保设置的合理性和持久化保存
+ *
+ * 作用：让操作员能够方便地调整系统运行参数，无需修改代码
+ */
+
+using BusbarCompressionSystem.ViewModel;
 using Panuon.WPF.UI;
 using System;
 using System.Collections.Generic;

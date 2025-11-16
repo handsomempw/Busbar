@@ -1,4 +1,16 @@
-﻿using BusbarCompressionSystem.Model.Setting;
+﻿/*
+ * 系统设置和硬件配置模型
+ *
+ * MVVM架构中的Model层，管理所有硬件设备和系统参数：
+ * - 相机配置：5路工业相机的连接参数和设置
+ * - 测试设备：AT9620耐压测试仪参数配置
+ * - 图像窗口：Halcon图像显示窗口管理
+ * - 网络设置：PLC、机器人等设备的通信配置
+ *
+ * 特点：通过XML序列化保存配置，支持程序重启后恢复设置
+ */
+
+using BusbarCompressionSystem.Model.Setting;
 using BusbarCompressionSystem.Model.Setting1;
 using GalaSoft.MvvmLight;
 using HalconDotNet;

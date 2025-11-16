@@ -1,16 +1,14 @@
 /*
-  In App.xaml:
-  <Application.Resources>
-      <vm:ViewModelLocator xmlns:vm="clr-namespace:BusbarCompressionSystem"
-                           x:Key="Locator" />
-  </Application.Resources>
-  
-  In the View:
-  DataContext="{Binding Source={StaticResource Locator}, Path=ViewModelName}"
-
-  You can also use Blend to do all this with the tool's support.
-  See http://www.galasoft.ch/mvvm
-*/
+ * MVVM架构的ViewModel定位器
+ *
+ * WPF MVVM模式的核心组件，负责创建和管理所有ViewModel实例：
+ * 1. 在App.xaml中注册为全局资源
+ * 2. 提供统一的ViewModel访问接口
+ * 3. 支持依赖注入和单例模式管理
+ * 4. 连接View层和ViewModel层的桥梁
+ *
+ * 使用方式：在XAML中通过DataContext绑定到具体的ViewModel
+ */
 
 using CommonServiceLocator;
 using GalaSoft.MvvmLight;

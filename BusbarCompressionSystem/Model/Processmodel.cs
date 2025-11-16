@@ -1,4 +1,16 @@
-﻿using GalaSoft.MvvmLight;
+﻿/*
+ * 生产流程参数模型
+ *
+ * MVVM架构中的Model层，管理生产过程中的动态数据：
+ * - 产品信息：SN、工单号、物料编码等基本信息
+ * - 测试参数：耐压测试参数、压力测试参数等
+ * - 实时数据：当前测试结果、状态信息等
+ * - 缓存数据：临时存储的检测和测试结果
+ *
+ * 作用：存储和管理生产线上实时变化的数据，支持数据绑定到UI显示
+ */
+
+using GalaSoft.MvvmLight;
 using System;
 using System.Collections.Generic;
 using System.Linq;

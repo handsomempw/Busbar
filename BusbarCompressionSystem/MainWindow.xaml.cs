@@ -1,4 +1,20 @@
-﻿using BusbarCompressionSystem.Model;
+﻿/*
+ * 主窗口控制器
+ *
+ * MVVM架构中的View层代码，主要负责：
+ * 1. 系统启动时初始化所有硬件设备（相机、PLC、测试仪器等）
+ * 2. 处理用户界面的事件和交互
+ * 3. 调用ViewModel执行业务逻辑
+ * 4. 管理多线程任务（耐压测试、视觉检测等）
+ *
+ * 核心功能模块：
+ * - 视觉检测AOI：使用Halcon进行图像处理
+ * - 耐压测试：控制AT9620设备进行多工位测试
+ * - PLC控制：与工业控制系统通信
+ * - 生产数据管理：实时记录和保存测试结果
+ */
+
+using BusbarCompressionSystem.Model;
 using BusbarCompressionSystem.Model.FaraVision;
 using BusbarCompressionSystem.ViewModel;
 using HalconDotNet;

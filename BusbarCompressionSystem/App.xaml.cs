@@ -1,4 +1,15 @@
-﻿using System;
+﻿/*
+ * WPF应用程序入口
+ *
+ * 这是WPF程序的启动文件，负责：
+ * 1. 程序启动时的初始化工作
+ * 2. 全局异常处理，防止程序崩溃时丢失数据
+ * 3. 错误信息记录到日志文件
+ *
+ * 核心功能：捕获程序运行中的异常，显示友好的错误提示，并记录详细信息到日志
+ */
+
+using System;
 using System.Collections.Generic;
 using System.Configuration;
 using System.Data;

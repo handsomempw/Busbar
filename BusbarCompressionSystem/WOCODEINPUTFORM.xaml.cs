@@ -1,4 +1,16 @@
-﻿using AT9620;
+﻿/*
+ * 工单信息输入窗口
+ *
+ * 生产任务管理的入口界面：
+ * 1. 工单号输入：关联MES系统的生产任务
+ * 2. 物料信息录入：产品型号、规格等基本信息
+ * 3. 生产参数设置：根据工单要求调整测试标准
+ * 4. 任务初始化：为新的生产批次准备系统状态
+ *
+ * 作用：建立生产任务与系统测试流程的关联，确保生产数据的准确追溯
+ */
+
+using AT9620;
 using BusbarCompressionSystem.Model;
 using BusbarCompressionSystem.ViewModel;
 using HalconDotNet;
