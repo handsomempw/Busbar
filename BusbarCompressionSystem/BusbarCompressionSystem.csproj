@@ -144,6 +144,7 @@
     <Compile Include="Model\FaraVision\newPrj.xaml.cs">
       <DependentUpon>newPrj.xaml</DependentUpon>
     </Compile>
+    <Compile Include="Model\ManualParameterConfig.cs" />
     <Compile Include="Model\Processmodel.cs" />
     <Compile Include="Model\Record1\Productinfo.cs" />
     <Compile Include="Model\Record1\ProductInfoRecord.cs" />

@@ -18,6 +18,7 @@
             <RowDefinition/>
             <RowDefinition/>
             <RowDefinition/>
+            <RowDefinition/>
         </Grid.RowDefinitions>
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="auto"/>
@@ -31,8 +32,9 @@
         <TextBlock  Margin="5 "  Grid.Row="1" Grid.Column="1"  Text="{Binding Processmodel.PartNOID}"/>
 
         <Button Margin="5 "  Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2" p:ButtonHelper.CornerRadius="15" Background="OrangeRed" Foreground="White" Click="Button_Click">下发参数</Button>
-        
-        
-        
+
+
+        <Button Margin="5 "  Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="2" p:ButtonHelper.CornerRadius="15" Background="DodgerBlue" Foreground="White" Click="Button_Click_Manual">加载手动参数</Button>
+
     </Grid>
 </p:WindowX>

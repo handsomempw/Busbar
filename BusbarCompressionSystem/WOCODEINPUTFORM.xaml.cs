@@ -194,5 +194,139 @@ namespace BusbarCompressionSystem
             }
 
         }
+
+        /// <summary>
+        /// 加载手动参数按钮点击事件
+        /// </summary>
+        private void Button_Click_Manual(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                // 确保配置目录存在
+                string configDir = $"{Environment.CurrentDirectory}\\配置";
+                if (!System.IO.Directory.Exists(configDir))
+                {
+                    System.IO.Directory.CreateDirectory(configDir);
+                }
+
+                // 创建示例配置文件（如果不存在）
+                string exampleConfigPath = $"{configDir}\\手动下发工艺参数配置.json";
+                if (!System.IO.File.Exists(exampleConfigPath))
+                {
+                    CreateExampleConfigFile(exampleConfigPath);
+                }
+
+                // 打开文件选择对话框
+                Microsoft.Win32.OpenFileDialog dlg = new Microsoft.Win32.OpenFileDialog();
+                dlg.DefaultExt = ".json";
+                dlg.Filter = "JSON配置文件 (*.json)|*.json";
+                dlg.InitialDirectory = configDir;
+
+                bool? result = dlg.ShowDialog();
+                if (result == true)
+                {
+                    // 读取JSON文件
+                    string jsonContent = System.IO.File.ReadAllText(dlg.FileName);
+
+                    // 反序列化
+                    var config = Newtonsoft.Json.JsonConvert.DeserializeObject<BusbarCompressionSystem.Model.ManualParameterConfig>(jsonContent);
+
+                    if (config == null)
+                    {
+                        MessageBoxX.Show("配置文件格式错误", MessageBoxIcon.Error);
+                        return;
+                    }
+
+                    // 应用参数到系统 - 赋值到 Processmodel.TVParameter
+                    vml.Main.DataModel.Processmodel.TVParameter.TestMode = (TestMode)config.TVParameter.TestMode;
+                    vml.Main.DataModel.Processmodel.TVParameter.Voltage = config.TVParameter.Voltage;
+                    vml.Main.DataModel.Processmodel.TVParameter.TestTime = config.TVParameter.TestTime;
+                    vml.Main.DataModel.Processmodel.TVParameter.RiseTime = config.TVParameter.RiseTime;
+                    vml.Main.DataModel.Processmodel.TVParameter.FallTime = config.TVParameter.FallTime;
+                    vml.Main.DataModel.Processmodel.TVParameter.High = config.TVParameter.High;
+                    vml.Main.DataModel.Processmodel.TVParameter.Low = config.TVParameter.Low;
+                    vml.Main.DataModel.Processmodel.TVParameter.Arc = config.TVParameter.Arc;
+                    vml.Main.DataModel.Processmodel.TVParameter.Freq = config.TVParameter.Freq;
+
+                    // 应用压力参数到系统
+                    vml.Main.DataModel.Processmodel.PressureParamter.Pressure = config.PressureParameter.Pressure;
+                    vml.Main.DataModel.Processmodel.PressureParamter.Max_Pressure = config.PressureParameter.Max_Pressure;
+                    vml.Main.DataModel.Processmodel.PressureParamter.Min_Pressure = config.PressureParameter.Min_Pressure;
+
+                    // 下发参数到设备（完全复用现有逻辑）
+                    var rd1 = vml.Main.DataModel.Settingmodel.AT9620_1.Download();
+                    var rd2 = vml.Main.DataModel.Settingmodel.AT9620_2.Download();
+                    var rd3 = vml.Main.DataModel.Settingmodel.AT9620_3.Download();
+                    var rd4 = vml.Main.Download_PressureParameter();
+
+                    // 根据设备启用状态判断结果（完全复用现有逻辑）
+                    if ((!rd1.Success) && vml.Main.DataModel.Processmodel.TVAvailable.TV1Available)
+                    {
+                        NoticeBox.Show("耐压工位1参数下发失败", "错误", MessageBoxIcon.Error);
+                    }
+                    else if ((!rd2.Success) && vml.Main.DataModel.Processmodel.TVAvailable.TV2Available)
+                    {
+                        NoticeBox.Show("耐压工位2参数下发失败", "错误", MessageBoxIcon.Error);
+                    }
+                    else if ((!rd3.Success) && vml.Main.DataModel.Processmodel.TVAvailable.TV3Available)
+                    {
+                        NoticeBox.Show("耐压工位3参数下发失败", "错误", MessageBoxIcon.Error);
+                    }
+                    else if (!rd4)
+                    {
+                        NoticeBox.Show("压力参数下发失败", "错误", MessageBoxIcon.Error);
+                    }
+                    else
+                    {
+                        NoticeBox.Show($"手动参数下发完成\n配置：{config.ConfigName}", "成功", MessageBoxIcon.Success, true, 5000);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBoxX.Show($"加载配置文件失败：{ex.Message}", MessageBoxIcon.Error);
+            }
+        }
+
+        /// <summary>
+        /// 创建示例配置文件
+        /// </summary>
+        private void CreateExampleConfigFile(string filePath)
+        {
+            try
+            {
+                var exampleConfig = new BusbarCompressionSystem.Model.ManualParameterConfig
+                {
+                    ConfigName = "标准工艺参数_2700V",
+                    CreateTime = "2025-01-17",
+                    Description = "2700V标准耐压测试参数",
+                    TVParameter = new BusbarCompressionSystem.Model.TVParameterConfig
+                    {
+                        TestMode = 0,
+                        Voltage = 2700,
+                        TestTime = 20,
+                        RiseTime = 2,
+                        FallTime = 2,
+                        High = 3,
+                        Low = 0.1f,
+                        Arc = 0,
+                        Freq = 50
+                    },
+                    PressureParameter = new BusbarCompressionSystem.Model.PressureParameterConfig
+                    {
+                        Pressure = 1000,
+                        Max_Pressure = 1050,
+                        Min_Pressure = 950
+                    }
+                };
+
+                string jsonContent = Newtonsoft.Json.JsonConvert.SerializeObject(exampleConfig, Newtonsoft.Json.Formatting.Indented);
+                System.IO.File.WriteAllText(filePath, jsonContent);
+            }
+            catch (Exception ex)
+            {
+                // 忽略创建示例文件的错误
+            }
+        }
     }
 }
