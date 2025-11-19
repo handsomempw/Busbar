@@ -47,6 +47,11 @@ namespace BusbarCompressionSystem.Model.FaraVision
         bool selectmeasureobject1roi = false;
         bool selectmeasureobject2roi = false;
 
+        // 线段ROI绘制状态（两次点击模式）
+        private bool _lineDrawingInProgress = false;  // 是否正在绘制线段（已点击第一个点）
+        private System.Windows.Point _lineStartPoint;  // 线段起点
+        private System.Windows.Threading.DispatcherTimer _metrologyPreviewTimer;  // Metrology参数变更防抖定时器
+
         public SettingForm()
         {
             InitializeComponent();
@@ -159,6 +164,25 @@ namespace BusbarCompressionSystem.Model.FaraVision
         private bool _started = false;
         private void rectange_MouseMove(object sender, MouseEventArgs e)
         {
+            // 处理线段ROI绘制时的实时预览
+            if (_lineDrawingInProgress && (selectmeasureobject1roi || selectmeasureobject2roi))
+            {
+                var currentPoint = e.GetPosition(show_image_canvas);
+
+                if (selectmeasureobject1roi)
+                {
+                    LineMeasureObject1.X2 = currentPoint.X;
+                    LineMeasureObject1.Y2 = currentPoint.Y;
+                }
+                else if (selectmeasureobject2roi)
+                {
+                    LineMeasureObject2.X2 = currentPoint.X;
+                    LineMeasureObject2.Y2 = currentPoint.Y;
+                }
+                return;
+            }
+
+            // 处理矩形ROI的拖动绘制
             if (_started)
             {
                 var point = e.GetPosition(show_image_canvas);
@@ -181,24 +205,44 @@ namespace BusbarCompressionSystem.Model.FaraVision
                     RectangleDimension.Width = rect.Width;
                     RectangleDimension.Height = rect.Height;
                 }
-                else if (selectmeasureobject1roi)
-                {
-                    RectangleMeasureObject1.Margin = new Thickness(rect.Left, rect.Top, 0, 0);
-                    RectangleMeasureObject1.Width = rect.Width;
-                    RectangleMeasureObject1.Height = rect.Height;
-                }
-                else if (selectmeasureobject2roi)
-                {
-                    RectangleMeasureObject2.Margin = new Thickness(rect.Left, rect.Top, 0, 0);
-                    RectangleMeasureObject2.Width = rect.Width;
-                    RectangleMeasureObject2.Height = rect.Height;
-                }
             }
         }
 
         private void rectange_MouseDown(object sender, MouseButtonEventArgs e)
         {
-            if (selectproi || selectbroi || selectdroi || selectmeasureobject1roi || selectmeasureobject2roi)
+            // 处理线段ROI的两次点击模式
+            if (selectmeasureobject1roi || selectmeasureobject2roi)
+            {
+                var clickPoint = e.GetPosition(show_image_canvas);
+
+                if (!_lineDrawingInProgress)
+                {
+                    // 第一次点击：记录起点
+                    _lineStartPoint = clickPoint;
+                    _lineDrawingInProgress = true;
+
+                    // 更新Line控件起点
+                    if (selectmeasureobject1roi)
+                    {
+                        LineMeasureObject1.X1 = clickPoint.X;
+                        LineMeasureObject1.Y1 = clickPoint.Y;
+                        LineMeasureObject1.X2 = clickPoint.X;  // 终点暂时与起点相同
+                        LineMeasureObject1.Y2 = clickPoint.Y;
+                    }
+                    else if (selectmeasureobject2roi)
+                    {
+                        LineMeasureObject2.X1 = clickPoint.X;
+                        LineMeasureObject2.Y1 = clickPoint.Y;
+                        LineMeasureObject2.X2 = clickPoint.X;
+                        LineMeasureObject2.Y2 = clickPoint.Y;
+                    }
+                }
+                // 第二次点击在MouseUp中处理
+                return;
+            }
+
+            // 处理矩形ROI的拖动模式
+            if (selectproi || selectbroi || selectdroi)
             {
                 _downPoint = e.GetPosition(show_image_canvas);
                 _started = true;
@@ -207,7 +251,51 @@ namespace BusbarCompressionSystem.Model.FaraVision
 
         private void rectange_MouseUp(object sender, MouseButtonEventArgs e)
         {
+            // 处理线段ROI的第二次点击（终点）
+            if (_lineDrawingInProgress && (selectmeasureobject1roi || selectmeasureobject2roi))
+            {
+                var endPoint = e.GetPosition(show_image_canvas);
 
+                // 检查线段长度是否有效（至少5像素）
+                double lineLength = Math.Sqrt(
+                    Math.Pow(endPoint.X - _lineStartPoint.X, 2) +
+                    Math.Pow(endPoint.Y - _lineStartPoint.Y, 2)
+                );
+
+                if (lineLength < 5)
+                {
+                    // 线段太短，忽略
+                    _lineDrawingInProgress = false;
+                    return;
+                }
+
+                // 保存线段ROI数据（Row=Y, Col=X）
+                if (selectmeasureobject1roi)
+                {
+                    t.MeasureObject1ROI.Row1 = (int)_lineStartPoint.Y;
+                    t.MeasureObject1ROI.Col1 = (int)_lineStartPoint.X;
+                    t.MeasureObject1ROI.Row2 = (int)endPoint.Y;
+                    t.MeasureObject1ROI.Col2 = (int)endPoint.X;
+
+                    selectmeasureobject1roi = false;
+                    SelectMeasureObject1ROI.Background = System.Windows.Media.Brushes.Gray;
+                }
+                else if (selectmeasureobject2roi)
+                {
+                    t.MeasureObject2ROI.Row1 = (int)_lineStartPoint.Y;
+                    t.MeasureObject2ROI.Col1 = (int)_lineStartPoint.X;
+                    t.MeasureObject2ROI.Row2 = (int)endPoint.Y;
+                    t.MeasureObject2ROI.Col2 = (int)endPoint.X;
+
+                    selectmeasureobject2roi = false;
+                    SelectMeasureObject2ROI.Background = System.Windows.Media.Brushes.Gray;
+                }
+
+                _lineDrawingInProgress = false;
+                return;
+            }
+
+            // 处理矩形ROI的拖动完成
             if (selectbroi)
             {
 
@@ -247,30 +335,6 @@ namespace BusbarCompressionSystem.Model.FaraVision
                 SelectDimensionROI.Background = selectdroi ? System.Windows.Media.Brushes.Orange : System.Windows.Media.Brushes.Gray;
 
             }
-            else if (selectmeasureobject1roi)
-            {
-                if (RectangleMeasureObject1.Width == 0 || RectangleMeasureObject1.Height == 0) { return; }
-                if (double.IsNaN(RectangleMeasureObject1.Width) || double.IsNaN(RectangleMeasureObject1.Height)) { return; }
-                _started = false;
-                t.MeasureObject1ROI.Row1 = (int)RectangleMeasureObject1.Margin.Top;
-                t.MeasureObject1ROI.Col1 = (int)RectangleMeasureObject1.Margin.Left;
-                t.MeasureObject1ROI.Row2 = (int)(RectangleMeasureObject1.Margin.Top + RectangleMeasureObject1.Height);
-                t.MeasureObject1ROI.Col2 = (int)(RectangleMeasureObject1.Margin.Left + RectangleMeasureObject1.Width);
-                selectmeasureobject1roi = false;
-                SelectMeasureObject1ROI.Background = selectmeasureobject1roi ? System.Windows.Media.Brushes.Lime : System.Windows.Media.Brushes.Gray;
-            }
-            else if (selectmeasureobject2roi)
-            {
-                if (RectangleMeasureObject2.Width == 0 || RectangleMeasureObject2.Height == 0) { return; }
-                if (double.IsNaN(RectangleMeasureObject2.Width) || double.IsNaN(RectangleMeasureObject2.Height)) { return; }
-                _started = false;
-                t.MeasureObject2ROI.Row1 = (int)RectangleMeasureObject2.Margin.Top;
-                t.MeasureObject2ROI.Col1 = (int)RectangleMeasureObject2.Margin.Left;
-                t.MeasureObject2ROI.Row2 = (int)(RectangleMeasureObject2.Margin.Top + RectangleMeasureObject2.Height);
-                t.MeasureObject2ROI.Col2 = (int)(RectangleMeasureObject2.Margin.Left + RectangleMeasureObject2.Width);
-                selectmeasureobject2roi = false;
-                SelectMeasureObject2ROI.Background = selectmeasureobject2roi ? System.Windows.Media.Brushes.Cyan : System.Windows.Media.Brushes.Gray;
-            }
 
         }
 
@@ -294,13 +358,16 @@ namespace BusbarCompressionSystem.Model.FaraVision
                 RectangleDimension.Width = t.DimensionROI.Col2 - t.DimensionROI.Col1;
                 RectangleDimension.Height = t.DimensionROI.Row2 - t.DimensionROI.Row1;
 
-                RectangleMeasureObject1.Margin = new Thickness(t.MeasureObject1ROI.Col1, t.MeasureObject1ROI.Row1, 0, 0);
-                RectangleMeasureObject1.Width = t.MeasureObject1ROI.Col2 - t.MeasureObject1ROI.Col1;
-                RectangleMeasureObject1.Height = t.MeasureObject1ROI.Row2 - t.MeasureObject1ROI.Row1;
+                // 刷新线段ROI（Row=Y, Col=X）
+                LineMeasureObject1.X1 = t.MeasureObject1ROI.Col1;
+                LineMeasureObject1.Y1 = t.MeasureObject1ROI.Row1;
+                LineMeasureObject1.X2 = t.MeasureObject1ROI.Col2;
+                LineMeasureObject1.Y2 = t.MeasureObject1ROI.Row2;
 
-                RectangleMeasureObject2.Margin = new Thickness(t.MeasureObject2ROI.Col1, t.MeasureObject2ROI.Row1, 0, 0);
-                RectangleMeasureObject2.Width = t.MeasureObject2ROI.Col2 - t.MeasureObject2ROI.Col1;
-                RectangleMeasureObject2.Height = t.MeasureObject2ROI.Row2 - t.MeasureObject2ROI.Row1;
+                LineMeasureObject2.X1 = t.MeasureObject2ROI.Col1;
+                LineMeasureObject2.Y1 = t.MeasureObject2ROI.Row1;
+                LineMeasureObject2.X2 = t.MeasureObject2ROI.Col2;
+                LineMeasureObject2.Y2 = t.MeasureObject2ROI.Row2;
             }
             catch (Exception ex) { }
 
@@ -517,11 +584,14 @@ namespace BusbarCompressionSystem.Model.FaraVision
         {
             selectmeasureobject1roi = !selectmeasureobject1roi;
             SelectMeasureObject1ROI.Background = selectmeasureobject1roi ? System.Windows.Media.Brushes.Lime : System.Windows.Media.Brushes.Gray;
-            // 取消其他ROI选择状态
+
+            // 设置ROI类型为Line（用于Metrology测量）
             if (selectmeasureobject1roi)
             {
+                t.MeasureObject1ROI.Type = ROIType.Line;
                 selectmeasureobject2roi = false;
                 SelectMeasureObject2ROI.Background = System.Windows.Media.Brushes.Gray;
+                _lineDrawingInProgress = false;  // 重置线段绘制状态
             }
         }
 
@@ -529,11 +599,14 @@ namespace BusbarCompressionSystem.Model.FaraVision
         {
             selectmeasureobject2roi = !selectmeasureobject2roi;
             SelectMeasureObject2ROI.Background = selectmeasureobject2roi ? System.Windows.Media.Brushes.Cyan : System.Windows.Media.Brushes.Gray;
-            // 取消其他ROI选择状态
+
+            // 设置ROI类型为Line（用于Metrology测量）
             if (selectmeasureobject2roi)
             {
+                t.MeasureObject2ROI.Type = ROIType.Line;
                 selectmeasureobject1roi = false;
                 SelectMeasureObject1ROI.Background = System.Windows.Media.Brushes.Gray;
+                _lineDrawingInProgress = false;  // 重置线段绘制状态
             }
         }
 
@@ -651,9 +724,45 @@ namespace BusbarCompressionSystem.Model.FaraVision
                 {
                     errorMsg += "\n" + ex.InnerException.Message;
                 }
-                NoticeBox.Show($"测量失败: {errorMsg}\n\n建议：\n1. 检查ROI区域是否正确\n2. 调整边缘检测参数（展开卡尺参数）\n3. 确认已进行世界坐标校准", 
+                NoticeBox.Show($"测量失败: {errorMsg}\n\n建议：\n1. 检查ROI区域是否正确\n2. 调整边缘检测参数（展开卡尺参数）\n3. 确认已进行世界坐标校准",
                     "测量失败", MessageBoxIcon.Error, true, 10000);
             }
+        }
+
+        /// <summary>
+        /// Metrology参数变更事件处理器（300ms防抖）
+        /// {{ AURA-X: Add - 实现参数变更时的防抖预览刷新. Approval: 寸止(Q10: Option B). }}
+        /// </summary>
+        private void MetrologyParameter_Changed(object sender, RoutedEventArgs e)
+        {
+            // 初始化定时器（仅第一次）
+            if (_metrologyPreviewTimer == null)
+            {
+                _metrologyPreviewTimer = new System.Windows.Threading.DispatcherTimer();
+                _metrologyPreviewTimer.Interval = TimeSpan.FromMilliseconds(300);
+                _metrologyPreviewTimer.Tick += (s, args) =>
+                {
+                    _metrologyPreviewTimer.Stop();
+
+                    // 执行预览刷新
+                    try
+                    {
+                        if (t.Image != null && t.TestMode == TestModes.尺寸测量)
+                        {
+                            // 调用MainViewModel的预览方法
+                            vml.Main.PreviewDimensionMeasurement(t.Image, t, vml.Main.DataModel.FaraVisionDataModel.Settingmodel.HWindow);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"Metrology预览刷新失败: {ex.Message}");
+                    }
+                };
+            }
+
+            // 重置定时器（防抖）
+            _metrologyPreviewTimer.Stop();
+            _metrologyPreviewTimer.Start();
         }
 
         #endregion

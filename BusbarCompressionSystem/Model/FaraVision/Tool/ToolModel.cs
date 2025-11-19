@@ -347,6 +347,78 @@ namespace BusbarCompressionSystem.Model.FaraVision.Tool
         /// </summary>
         [XmlElement("边缘选择策略")]
         public string EdgeSelection { set; get; } = "first";
+
+        // ========== HALCON Metrology 模型参数 ==========
+
+        /// <summary>
+        /// Metrology搜索范围/容差（Tolerance参数，单位：pixel）
+        /// 定义在线段两侧搜索边缘的范围
+        /// </summary>
+        [XmlElement("Metrology搜索范围")]
+        public int MetrologyTolerance { set; get; } = 200;
+
+        /// <summary>
+        /// 卡尺数量（num_measures参数）
+        /// 沿线段分布的测量点数量，越多精度越高但速度越慢
+        /// </summary>
+        [XmlElement("Metrology卡尺数量")]
+        public int MetrologyNumMeasures { set; get; } = 20;
+
+        /// <summary>
+        /// 高斯平滑系数（measure_sigma参数）
+        /// 用于边缘检测前的图像平滑，减少噪声影响
+        /// </summary>
+        [XmlElement("Metrology高斯平滑")]
+        public double MetrologyMeasureSigma { set; get; } = 2.0;
+
+        /// <summary>
+        /// 边缘检测阈值（measure_threshold参数）
+        /// 灰度梯度阈值，低于此值的边缘将被忽略
+        /// </summary>
+        [XmlElement("Metrology边缘阈值")]
+        public int MetrologyMeasureThreshold { set; get; } = 20;
+
+        /// <summary>
+        /// 边缘过渡类型（measure_transition参数）
+        /// 'positive': 暗到亮, 'negative': 亮到暗, 'uniform': 双向, 'all': 全部
+        /// </summary>
+        [XmlElement("Metrology边缘过渡类型")]
+        public string MetrologyMeasureTransition { set; get; } = "uniform";
+
+        /// <summary>
+        /// 边缘选择模式（measure_select参数）
+        /// 'first': 第一个, 'last': 最后一个, 'all': 全部
+        /// </summary>
+        [XmlElement("Metrology边缘选择")]
+        public string MetrologyMeasureSelect { set; get; } = "all";
+
+        /// <summary>
+        /// 最小拟合分数（min_score参数）
+        /// 拟合质量阈值，低于此值的结果将被拒绝（0.0-1.0）
+        /// </summary>
+        [XmlElement("Metrology最小分数")]
+        public double MetrologyMinScore { set; get; } = 0.4;
+
+        /// <summary>
+        /// 卡尺长度1（measure_length1参数，单位：pixel）
+        /// 卡尺矩形在测量方向上的半长度
+        /// </summary>
+        [XmlElement("Metrology卡尺长度1")]
+        public int MetrologyMeasureLength1 { set; get; } = 10;
+
+        /// <summary>
+        /// 卡尺长度2（measure_length2参数，单位：pixel）
+        /// 卡尺矩形垂直于测量方向的半宽度
+        /// </summary>
+        [XmlElement("Metrology卡尺长度2")]
+        public int MetrologyMeasureLength2 { set; get; } = 5;
+
+        /// <summary>
+        /// 是否显示调试信息（显示卡尺位置、边缘点等）
+        /// </summary>
+        [XmlElement("显示Metrology调试信息")]
+        public bool ShowMetrologyDebugInfo { set; get; } = true;
+
         #endregion
 
         [XmlIgnore]
@@ -389,8 +461,23 @@ namespace BusbarCompressionSystem.Model.FaraVision.Tool
 
 
 
+    /// <summary>
+    /// ROI类型枚举
+    /// </summary>
+    public enum ROIType
+    {
+        Rectangle,  // 矩形ROI
+        Line        // 线段ROI（用于Metrology测量）
+    }
+
     public class ROI : ObservableObject
     {
+        /// <summary>
+        /// ROI类型（矩形或线段）
+        /// </summary>
+        [XmlElement("ROI类型")]
+        public ROIType Type { set; get; } = ROIType.Rectangle;
+
         public int Row1 { set; get; } = 0;
         public int Row2 { set; get; } = 0;
         public int Col1 { set; get; } = 0;

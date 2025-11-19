@@ -1201,50 +1201,84 @@ namespace BusbarCompressionSystem.ViewModel
         /// </summary>
         private double MeasureLineToLine(HObject image, ToolModel tool, HWindow hwindow, bool redraw)
         {
-            HTuple measureHandle1 = null, measureHandle2 = null;
             try
             {
                 // 验证ROI有效性
-                if (tool.MeasureObject1ROI.Row1 == tool.MeasureObject1ROI.Row2 && 
+                if (tool.MeasureObject1ROI.Row1 == tool.MeasureObject1ROI.Row2 &&
                     tool.MeasureObject1ROI.Col1 == tool.MeasureObject1ROI.Col2)
                 {
                     throw new Exception("测量对象1 ROI无效：ROI区域太小");
                 }
-                if (tool.MeasureObject2ROI.Row1 == tool.MeasureObject2ROI.Row2 && 
+                if (tool.MeasureObject2ROI.Row1 == tool.MeasureObject2ROI.Row2 &&
                     tool.MeasureObject2ROI.Col1 == tool.MeasureObject2ROI.Col2)
                 {
                     throw new Exception("测量对象2 ROI无效：ROI区域太小");
                 }
 
-                // 检测第一条直线
-                HTuple row1, col1;
-                if (!DetectEdgeWithCaliper(image, tool, tool.MeasureObject1ROI, out row1, out col1))
+                // 使用Metrology模型检测第一条直线
+                double line1RowBegin, line1ColBegin, line1RowEnd, line1ColEnd;
+                HTuple edge1Rows, edge1Cols;
+                if (!DetectEdgeWithMetrology(image, tool, tool.MeasureObject1ROI,
+                    out line1RowBegin, out line1ColBegin, out line1RowEnd, out line1ColEnd,
+                    out edge1Rows, out edge1Cols))
                 {
-                    throw new Exception("测量对象1边缘检测失败：请检查ROI位置、边缘类型和灵敏度设置");
+                    throw new Exception("测量对象1边缘检测失败：请检查ROI位置、Metrology参数设置");
                 }
 
-                // 检测第二条直线
-                HTuple row2, col2;
-                if (!DetectEdgeWithCaliper(image, tool, tool.MeasureObject2ROI, out row2, out col2))
+                // 使用Metrology模型检测第二条直线
+                double line2RowBegin, line2ColBegin, line2RowEnd, line2ColEnd;
+                HTuple edge2Rows, edge2Cols;
+                if (!DetectEdgeWithMetrology(image, tool, tool.MeasureObject2ROI,
+                    out line2RowBegin, out line2ColBegin, out line2RowEnd, out line2ColEnd,
+                    out edge2Rows, out edge2Cols))
                 {
-                    throw new Exception("测量对象2边缘检测失败：请检查ROI位置、边缘类型和灵敏度设置");
+                    throw new Exception("测量对象2边缘检测失败：请检查ROI位置、Metrology参数设置");
                 }
 
-                // 计算两条直线间的距离（平行线间距）
-                // 使用点到直线的距离公式
-                double distance = Math.Abs((row2.D - row1.D) * Math.Sin(Math.Atan2(row2.D - row1.D, col2.D - col1.D)) + 
-                                          (col2.D - col1.D) * Math.Cos(Math.Atan2(row2.D - row1.D, col2.D - col1.D)));
+                // 计算两条直线间的精确距离
+                double distance = CalculateDistanceBetweenLines(
+                    line1RowBegin, line1ColBegin, line1RowEnd, line1ColEnd,
+                    line2RowBegin, line2ColBegin, line2RowEnd, line2ColEnd);
 
-                // 简化：直接计算两点间距离（适用于平行线）
-                double deltaRow = row2.D - row1.D;
-                double deltaCol = col2.D - col1.D;
-                distance = Math.Sqrt(deltaRow * deltaRow + deltaCol * deltaCol);
-
+                // 可视化绘制
                 if (redraw)
                 {
+                    // 绘制拟合直线（青色）
                     hwindow.SetLineWidth(2);
-                    hwindow.SetColor("green");
-                    hwindow.DispLine(row1.D, col1.D, row2.D, col2.D);
+                    hwindow.SetColor("cyan");
+                    hwindow.DispLine(line1RowBegin, line1ColBegin, line1RowEnd, line1ColEnd);
+                    hwindow.DispLine(line2RowBegin, line2ColBegin, line2RowEnd, line2ColEnd);
+
+                    // 绘制测量距离线（红色虚线）
+                    hwindow.SetColor("red");
+                    hwindow.SetLineStyle(new HTuple(new int[] { 10, 5 })); // 虚线样式
+                    // 计算两条直线中点连线
+                    double mid1Row = (line1RowBegin + line1RowEnd) / 2.0;
+                    double mid1Col = (line1ColBegin + line1ColEnd) / 2.0;
+                    double mid2Row = (line2RowBegin + line2RowEnd) / 2.0;
+                    double mid2Col = (line2ColBegin + line2ColEnd) / 2.0;
+                    hwindow.DispLine(mid1Row, mid1Col, mid2Row, mid2Col);
+                    hwindow.SetLineStyle(new HTuple()); // 恢复实线
+
+                    // 如果启用调试信息，绘制边缘点和卡尺位置
+                    if (tool.ShowMetrologyDebugInfo)
+                    {
+                        // 绘制边缘点（春绿色十字标记）
+                        hwindow.SetColor("spring green");
+                        hwindow.SetLineWidth(1);
+                        for (int i = 0; i < edge1Rows.Length; i++)
+                        {
+                            double row = edge1Rows[i].D;
+                            double col = edge1Cols[i].D;
+                            hwindow.DispCross(row, col, 6, 0); // 绘制十字
+                        }
+                        for (int i = 0; i < edge2Rows.Length; i++)
+                        {
+                            double row = edge2Rows[i].D;
+                            double col = edge2Cols[i].D;
+                            hwindow.DispCross(row, col, 6, 0);
+                        }
+                    }
                 }
 
                 return distance;
@@ -1254,11 +1288,6 @@ namespace BusbarCompressionSystem.ViewModel
                 // 记录详细错误信息，便于调试
                 System.Diagnostics.Debug.WriteLine($"MeasureLineToLine错误: {ex.Message}");
                 throw; // 重新抛出异常，让上层捕获并显示
-            }
-            finally
-            {
-                if (measureHandle1 != null) HOperatorSet.CloseMeasure(measureHandle1);
-                if (measureHandle2 != null) HOperatorSet.CloseMeasure(measureHandle2);
             }
         }
 
@@ -1435,6 +1464,164 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
+        /// 计算两条线段间的最短距离（使用HALCON的DistanceSs）
+        /// {{ AURA-X: Modify - 替换为distance_ss算子，计算线段间真实最短距离. Source: HALCON官方文档 distance_ss. }}
+        /// </summary>
+        /// <param name="line1RowBegin">线段1起点Row</param>
+        /// <param name="line1ColBegin">线段1起点Col</param>
+        /// <param name="line1RowEnd">线段1终点Row</param>
+        /// <param name="line1ColEnd">线段1终点Col</param>
+        /// <param name="line2RowBegin">线段2起点Row</param>
+        /// <param name="line2ColBegin">线段2起点Col</param>
+        /// <param name="line2RowEnd">线段2终点Row</param>
+        /// <param name="line2ColEnd">线段2终点Col</param>
+        /// <returns>两条线段间的最短距离（像素）</returns>
+        private double CalculateDistanceBetweenLines(
+            double line1RowBegin, double line1ColBegin, double line1RowEnd, double line1ColEnd,
+            double line2RowBegin, double line2ColBegin, double line2RowEnd, double line2ColEnd)
+        {
+            // 使用HALCON的DistanceSs算子计算两条线段之间的最短距离
+            // 该算子会精确计算线段间的真实最短距离，处理所有情况（平行、相交、斜线、端点距离等）
+            HTuple distanceMin, distanceMax;
+            HOperatorSet.DistanceSs(
+                line1RowBegin, line1ColBegin, line1RowEnd, line1ColEnd,  // 线段1的起点和终点
+                line2RowBegin, line2ColBegin, line2RowEnd, line2ColEnd,  // 线段2的起点和终点
+                out distanceMin,  // 最短距离
+                out distanceMax   // 最大距离（未使用）
+            );
+
+            return distanceMin.D;  // 返回最短距离
+        }
+
+        /// <summary>
+        /// 使用HALCON Metrology模型检测边缘并拟合直线
+        /// </summary>
+        /// <param name="image">输入图像</param>
+        /// <param name="tool">工具模型（包含Metrology参数）</param>
+        /// <param name="roi">线段ROI（起点和终点定义搜索区域）</param>
+        /// <param name="lineRowBegin">输出：拟合直线起点Row坐标</param>
+        /// <param name="lineColBegin">输出：拟合直线起点Col坐标</param>
+        /// <param name="lineRowEnd">输出：拟合直线终点Row坐标</param>
+        /// <param name="lineColEnd">输出：拟合直线终点Col坐标</param>
+        /// <param name="edgeRows">输出：检测到的边缘点Row坐标数组</param>
+        /// <param name="edgeCols">输出：检测到的边缘点Col坐标数组</param>
+        /// <returns>是否检测成功</returns>
+        private bool DetectEdgeWithMetrology(
+            HObject image, ToolModel tool, ROI roi,
+            out double lineRowBegin, out double lineColBegin,
+            out double lineRowEnd, out double lineColEnd,
+            out HTuple edgeRows, out HTuple edgeCols)
+        {
+            // 初始化输出参数
+            lineRowBegin = lineColBegin = lineRowEnd = lineColEnd = 0;
+            edgeRows = new HTuple();
+            edgeCols = new HTuple();
+
+            HTuple metrologyHandle = null;
+            HTuple width = null, height = null;
+
+            try
+            {
+                // 1. 获取图像尺寸
+                HOperatorSet.GetImageSize(image, out width, out height);
+
+                // 2. 创建Metrology模型
+                HOperatorSet.CreateMetrologyModel(out metrologyHandle);
+                HOperatorSet.SetMetrologyModelImageSize(metrologyHandle, width, height);
+
+                // 3. 构建线段参数 [Row1, Col1, Row2, Col2]
+                HTuple shapeParam = new HTuple();
+                shapeParam[0] = roi.Row1;
+                shapeParam[1] = roi.Col1;
+                shapeParam[2] = roi.Row2;
+                shapeParam[3] = roi.Col2;
+
+                // 4. 添加线对象到Metrology模型
+                HTuple index;
+                HOperatorSet.AddMetrologyObjectGeneric(
+                    metrologyHandle,
+                    "line",                          // 对象类型：线段
+                    shapeParam,                      // 线段参数
+                    tool.MetrologyTolerance,         // 搜索范围（Tolerance）
+                    tool.MetrologyNumMeasures,       // 卡尺数量
+                    1,                               // 卡尺间距（自动分布）
+                    tool.MetrologyMeasureThreshold,  // 边缘阈值
+                    new HTuple(),                    // GenParamName（空）
+                    new HTuple(),                    // GenParamValue（空）
+                    out index
+                );
+
+                // 5. 设置Metrology对象参数
+                HOperatorSet.SetMetrologyObjectParam(metrologyHandle, "all", "measure_transition", tool.MetrologyMeasureTransition);
+                HOperatorSet.SetMetrologyObjectParam(metrologyHandle, "all", "num_measures", tool.MetrologyNumMeasures);
+                HOperatorSet.SetMetrologyObjectParam(metrologyHandle, "all", "measure_sigma", tool.MetrologyMeasureSigma);
+                HOperatorSet.SetMetrologyObjectParam(metrologyHandle, "all", "measure_threshold", tool.MetrologyMeasureThreshold);
+                HOperatorSet.SetMetrologyObjectParam(metrologyHandle, "all", "measure_select", tool.MetrologyMeasureSelect);
+                HOperatorSet.SetMetrologyObjectParam(metrologyHandle, "all", "min_score", tool.MetrologyMinScore);
+                HOperatorSet.SetMetrologyObjectParam(metrologyHandle, "all", "measure_length1", tool.MetrologyMeasureLength1);
+                HOperatorSet.SetMetrologyObjectParam(metrologyHandle, "all", "measure_length2", tool.MetrologyMeasureLength2);
+
+                // 6. 执行测量
+                HOperatorSet.ApplyMetrologyModel(image, metrologyHandle);
+
+                // 7. 获取拟合结果（直线参数）
+                HTuple parameter;
+                HOperatorSet.GetMetrologyObjectResult(
+                    metrologyHandle,
+                    0,              // 对象索引（第一个对象）
+                    "all",          // 实例（全部）
+                    "result_type",  // 结果类型
+                    "all_param",    // 参数名称
+                    out parameter
+                );
+
+                // 检查是否获取到有效结果
+                if (parameter == null || parameter.Length < 4)
+                {
+                    return false;
+                }
+
+                // 8. 解析直线参数 [Row1, Col1, Row2, Col2]
+                lineRowBegin = parameter[0].D;
+                lineColBegin = parameter[1].D;
+                lineRowEnd = parameter[2].D;
+                lineColEnd = parameter[3].D;
+
+                // 9. 获取边缘点坐标（用于可视化）
+                HObject contours;
+                HOperatorSet.GetMetrologyObjectMeasures(
+                    out contours,
+                    metrologyHandle,
+                    "all",      // 对象索引
+                    "all",      // 实例
+                    out edgeRows,
+                    out edgeCols
+                );
+                contours?.Dispose();
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"DetectEdgeWithMetrology错误: {ex.Message}");
+                return false;
+            }
+            finally
+            {
+                // 释放Metrology模型资源
+                if (metrologyHandle != null)
+                {
+                    try
+                    {
+                        HOperatorSet.ClearMetrologyObject(metrologyHandle, "all");
+                        HOperatorSet.ClearMetrologyModel(metrologyHandle);
+                    }
+                    catch { }
+                }
+            }
+        }
+
+        /// <summary>
         /// 检测圆（用于圆心检测）
         /// </summary>
         private bool DetectCircle(HObject image, ToolModel tool, ROI roi, out HTuple row, out HTuple col, out HTuple radius)
@@ -1512,7 +1699,6 @@ namespace BusbarCompressionSystem.ViewModel
         /// <returns>是否预览成功</returns>
         public bool PreviewEdgesForROI(HObject image, ToolModel tool, ROI roi, HWindow hwindow, string color = "green")
         {
-            HTuple measureHandle = null;
             try
             {
                 // 验证ROI有效性
@@ -1521,6 +1707,121 @@ namespace BusbarCompressionSystem.ViewModel
                     return false; // ROI区域太小，跳过预览
                 }
 
+                // 根据ROI类型选择不同的预览方法
+                if (roi.Type == ROIType.Line && tool.TestMode == TestModes.尺寸测量)
+                {
+                    // 使用Metrology模型预览（用于尺寸测量）
+                    return PreviewEdgesWithMetrology(image, tool, roi, hwindow, color);
+                }
+                else
+                {
+                    // 使用传统卡尺工具预览（用于其他模式）
+                    return PreviewEdgesWithCaliper(image, tool, roi, hwindow, color);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"边缘预览失败: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 使用Metrology模型预览边缘（完整调试信息）
+        /// </summary>
+        private bool PreviewEdgesWithMetrology(HObject image, ToolModel tool, ROI roi, HWindow hwindow, string color)
+        {
+            try
+            {
+                // 使用Metrology检测边缘
+                double lineRowBegin, lineColBegin, lineRowEnd, lineColEnd;
+                HTuple edgeRows, edgeCols;
+                if (!DetectEdgeWithMetrology(image, tool, roi,
+                    out lineRowBegin, out lineColBegin, out lineRowEnd, out lineColEnd,
+                    out edgeRows, out edgeCols))
+                {
+                    return false;
+                }
+
+                // 1. 绘制拟合直线（青色）
+                hwindow.SetLineWidth(2);
+                hwindow.SetColor("cyan");
+                hwindow.DispLine(lineRowBegin, lineColBegin, lineRowEnd, lineColEnd);
+
+                // 2. 绘制边缘点（春绿色十字标记）
+                hwindow.SetColor("spring green");
+                hwindow.SetLineWidth(1);
+                for (int i = 0; i < edgeRows.Length; i++)
+                {
+                    double row = edgeRows[i].D;
+                    double col = edgeCols[i].D;
+                    hwindow.DispCross(row, col, 6, 0);
+                }
+
+                // 3. 如果启用调试信息，绘制卡尺位置
+                if (tool.ShowMetrologyDebugInfo)
+                {
+                    // 计算线段方向向量
+                    double dirRow = lineRowEnd - lineRowBegin;
+                    double dirCol = lineColEnd - lineColBegin;
+                    double lineLength = Math.Sqrt(dirRow * dirRow + dirCol * dirCol);
+                    dirRow /= lineLength;
+                    dirCol /= lineLength;
+
+                    // 垂直方向向量
+                    double perpRow = -dirCol;
+                    double perpCol = dirRow;
+
+                    // 绘制卡尺位置（黄色矩形）
+                    hwindow.SetColor("yellow");
+                    hwindow.SetLineWidth(1);
+                    hwindow.SetDraw("margin");
+
+                    for (int i = 0; i < tool.MetrologyNumMeasures; i++)
+                    {
+                        // 计算卡尺中心位置
+                        double t = (double)i / (tool.MetrologyNumMeasures - 1);
+                        double centerRow = lineRowBegin + t * (lineRowEnd - lineRowBegin);
+                        double centerCol = lineColBegin + t * (lineColEnd - lineColBegin);
+
+                        // 计算卡尺矩形的四个角点
+                        double halfLen1 = tool.MetrologyMeasureLength1;
+                        double halfLen2 = tool.MetrologyMeasureLength2;
+
+                        double row1 = centerRow - halfLen1 * dirRow - halfLen2 * perpRow;
+                        double col1 = centerCol - halfLen1 * dirCol - halfLen2 * perpCol;
+                        double row2 = centerRow + halfLen1 * dirRow - halfLen2 * perpRow;
+                        double col2 = centerCol + halfLen1 * dirCol - halfLen2 * perpCol;
+                        double row3 = centerRow + halfLen1 * dirRow + halfLen2 * perpRow;
+                        double col3 = centerCol + halfLen1 * dirCol + halfLen2 * perpCol;
+                        double row4 = centerRow - halfLen1 * dirRow + halfLen2 * perpRow;
+                        double col4 = centerCol - halfLen1 * dirCol + halfLen2 * perpCol;
+
+                        // 绘制矩形
+                        hwindow.DispLine(row1, col1, row2, col2);
+                        hwindow.DispLine(row2, col2, row3, col3);
+                        hwindow.DispLine(row3, col3, row4, col4);
+                        hwindow.DispLine(row4, col4, row1, col1);
+                    }
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Metrology预览失败: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 使用传统卡尺工具预览边缘
+        /// </summary>
+        private bool PreviewEdgesWithCaliper(HObject image, ToolModel tool, ROI roi, HWindow hwindow, string color)
+        {
+            HTuple measureHandle = null;
+            try
+            {
                 // 计算ROI中心点和角度（用于卡尺工具）
                 double centerRow = (roi.Row1 + roi.Row2) / 2.0;
                 double centerCol = (roi.Col1 + roi.Col2) / 2.0;
@@ -1589,8 +1890,7 @@ namespace BusbarCompressionSystem.ViewModel
             }
             catch (Exception ex)
             {
-                // 预览失败不影响主流程，只记录日志
-                System.Diagnostics.Debug.WriteLine($"边缘预览失败: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"卡尺预览失败: {ex.Message}");
                 return false;
             }
             finally
@@ -1725,6 +2025,28 @@ namespace BusbarCompressionSystem.ViewModel
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"更新WPF显示失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 预览尺寸测量（用于参数调整时的实时反馈）
+        /// {{ AURA-X: Add - 为Metrology参数变更提供实时预览. Approval: 寸止(Q10: Option B). }}
+        /// </summary>
+        public void PreviewDimensionMeasurement(HObject image, ToolModel tool, HWindow hwindow)
+        {
+            try
+            {
+                if (image == null || hwindow == null)
+                {
+                    return;
+                }
+
+                // 调用现有的PreviewEdges方法
+                PreviewEdges(image, tool, hwindow);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"尺寸测量预览失败: {ex.Message}");
             }
         }
 
