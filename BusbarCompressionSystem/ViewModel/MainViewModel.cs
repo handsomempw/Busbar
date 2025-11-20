@@ -227,38 +227,88 @@ namespace BusbarCompressionSystem.ViewModel
         #region 操作
         public string _ScanSN(string snstr)
         {
+            // {{ AURA-X: Modify - 添加详细性能诊断日志,记录每个步骤的耗时. Approval: 寸止(ID:20250120). }}
+            Stopwatch swTotal = Stopwatch.StartNew(); // 总耗时计时器
+            writePerfLog("SCAN_START", "扫码流程开始", extraInfo: $"Input={snstr}");
+
             //if (string.IsNullOrEmpty(DataModel.Processmodel.TakePhotoTestModel.Productinfo.SN))
             //{
+
+            // 步骤1: DecodeSN - 解析产品编号
+            Stopwatch sw1 = Stopwatch.StartNew();
+            writePerfLog("DECODE_START", "DecodeSN开始", extraInfo: $"Input={snstr}");
             string sn = MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.DecodeSN(snstr);
+            sw1.Stop();
+            writePerfLog("DECODE_END", "DecodeSN完成", sw1.ElapsedMilliseconds, $"Result={(!string.IsNullOrEmpty(sn) ? sn : "FAILED")}");
+
             if (!string.IsNullOrEmpty(sn))
             {
+                // 步骤2: get_WO_CODE - 查询批次号
+                Stopwatch sw2 = Stopwatch.StartNew();
+                writePerfLog("WOCODE_START", "查询批次号开始", extraInfo: $"SN={sn}");
                 string wocode = MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.get_WO_CODE(sn);
+                sw2.Stop();
+                writePerfLog("WOCODE_END", "查询批次号完成", sw2.ElapsedMilliseconds, $"WOCODE={wocode ?? "NULL"}");
+
+                // 步骤3: get_PartNO_ID - 查询规格信息
+                Stopwatch sw3 = Stopwatch.StartNew();
+                writePerfLog("PARTNOID_START", "查询规格信息开始", extraInfo: $"SN={sn}");
                 string partnoid = MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.get_PartNO_ID(sn);
+                sw3.Stop();
+                writePerfLog("PARTNOID_END", "查询规格信息完成", sw3.ElapsedMilliseconds, $"PartNOID={partnoid ?? "NULL"}");
+
+                // 业务逻辑验证
                 if (partnoid != DataModel.Processmodel.PartNOID)
                 {
+                    swTotal.Stop();
+                    writePerfLog("SCAN_FAILED", "扫码失败-规格不匹配", swTotal.ElapsedMilliseconds, $"Expected={DataModel.Processmodel.PartNOID}, Got={partnoid}");
                     return $"不同规格产品禁止混合作业:{partnoid},{DataModel.Processmodel.PartNOID}";
                 }
 
                 if (string.IsNullOrEmpty(wocode))
                 {
+                    swTotal.Stop();
+                    writePerfLog("SCAN_FAILED", "扫码失败-批次号为空", swTotal.ElapsedMilliseconds);
                     return "关联批次号读取失败";
                 }
                 if (string.IsNullOrEmpty(partnoid))
                 {
+                    swTotal.Stop();
+                    writePerfLog("SCAN_FAILED", "扫码失败-规格信息为空", swTotal.ElapsedMilliseconds);
                     return "关联规格信息读取失败";
                 }
+
                 //DataModel.Processmodel.TakePhotoTestModel.Productinfo.SN = sn;
                 //DataModel.Processmodel.TakePhotoTestModel.Productinfo.WOCODE = wocode;
                 //DataModel.Processmodel.TakePhotoTestModel.Productinfo.PartNOID = partnoid;
+
+                // 步骤4: PLC_Writestring - 写入PLC
+                Stopwatch sw4 = Stopwatch.StartNew();
                 string writeData = $"{sn};{wocode}";
+                writePerfLog("PLC_WRITE_START", "写入PLC开始", extraInfo: $"Address={DataModel.Settingmodel.AddressSN}, Data={writeData}");
                 bool writeSuccess = PLC_Writestring(DataModel.Settingmodel.AddressSN.ToString(), writeData);
+                sw4.Stop();
+                writePerfLog("PLC_WRITE_END", "写入PLC完成", sw4.ElapsedMilliseconds, $"Success={writeSuccess}");
                 writeLog($"扫码->写入PLC: 地址={DataModel.Settingmodel.AddressSN}, 数据=[{writeData}], 结果={writeSuccess}", false);
+
+                // 步骤5: SQLite写入
+                Stopwatch sw5 = Stopwatch.StartNew();
+                writePerfLog("SQLITE_START", "SQLite写入开始", extraInfo: $"SN={sn}, WOCODE={wocode}");
                 sqlite.CREATENEWLINE(wocode, partnoid, sn, DataModel.Settingmodel.SETTING_DATA.StationCode, DataModel.Settingmodel.SETTING_DATA.MachineID, DateTime.Now);
+                sw5.Stop();
+                writePerfLog("SQLITE_END", "SQLite写入完成", sw5.ElapsedMilliseconds);
+
+                // 扫码成功
+                swTotal.Stop();
+                writePerfLog("SCAN_SUCCESS", "扫码流程成功完成", swTotal.ElapsedMilliseconds,
+                    $"SN={sn} | 明细: DecodeSN={sw1.ElapsedMilliseconds}ms, WOCODE={sw2.ElapsedMilliseconds}ms, PartNOID={sw3.ElapsedMilliseconds}ms, PLC={sw4.ElapsedMilliseconds}ms, SQLite={sw5.ElapsedMilliseconds}ms");
                 return string.Empty;
 
             }
             else
             {
+                swTotal.Stop();
+                writePerfLog("SCAN_FAILED", "扫码失败-DecodeSN返回空", swTotal.ElapsedMilliseconds, $"Input={snstr}");
                 return "标签读取失败,请确认该产品编号是否正常";
             }
             //}
@@ -1227,6 +1277,74 @@ namespace BusbarCompressionSystem.ViewModel
                 writeError(ex.Message + Environment.NewLine + ex.StackTrace);
             }
             //}
+        }
+
+        /// <summary>
+        /// {{ AURA-X: Add - 添加性能诊断日志方法,用于记录耗时操作. Approval: 寸止(ID:20250120). }}
+        /// 写入性能诊断日志到独立文件,不影响现有业务日志
+        /// </summary>
+        /// <param name="tag">日志标签,如SCAN_START、DECODE_END等</param>
+        /// <param name="message">日志消息</param>
+        /// <param name="elapsedMs">耗时(毫秒),可选</param>
+        /// <param name="extraInfo">额外信息,可选</param>
+        private void writePerfLog(string tag, string message, long? elapsedMs = null, string extraInfo = null)
+        {
+            try
+            {
+                // 获取线程ID
+                int threadId = Thread.CurrentThread.ManagedThreadId;
+                string threadName = Thread.CurrentThread.Name ?? (threadId == 1 ? "UI-Thread" : $"Thread-{threadId}");
+
+                // 获取设备ID(从配置中读取)
+                string deviceId = DataModel.Settingmodel.SETTING_DATA?.MachineID ?? "Unknown";
+
+                // 构建日志内容
+                StringBuilder logBuilder = new StringBuilder();
+                logBuilder.Append($"[{DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff")}]");
+                logBuilder.Append($"[{threadName}]");
+                logBuilder.Append($"[{tag}]");
+                logBuilder.Append($"[Device-{deviceId}] ");
+                logBuilder.Append(message);
+
+                if (elapsedMs.HasValue)
+                {
+                    logBuilder.Append($" | 耗时={elapsedMs.Value}ms");
+                }
+
+                if (!string.IsNullOrEmpty(extraInfo))
+                {
+                    logBuilder.Append($" | {extraInfo}");
+                }
+
+                string logContent = logBuilder.ToString();
+
+                // 写入独立的性能日志文件
+                string filename = $"{Environment.CurrentDirectory}\\日志\\性能诊断\\{DateTime.Now.ToString("yyyyMMdd")}_performance.log";
+                string dir = Path.GetDirectoryName(filename);
+                if (!Directory.Exists(dir))
+                {
+                    Directory.CreateDirectory(dir);
+                }
+
+                // 使用文件锁确保多线程安全
+                lock (writeLog_Locker)
+                {
+                    using (StreamWriter sw = new StreamWriter(filename, true, Encoding.UTF8))
+                    {
+                        sw.WriteLine(logContent);
+                        sw.Close();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                // 性能日志失败不应影响业务,仅记录到错误日志
+                try
+                {
+                    writeError($"性能日志写入失败: {ex.Message}");
+                }
+                catch { }
+            }
         }
 
         internal void writeError(string Content)
