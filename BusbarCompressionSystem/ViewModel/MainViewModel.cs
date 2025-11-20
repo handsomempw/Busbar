@@ -250,7 +250,9 @@ namespace BusbarCompressionSystem.ViewModel
                 //DataModel.Processmodel.TakePhotoTestModel.Productinfo.SN = sn;
                 //DataModel.Processmodel.TakePhotoTestModel.Productinfo.WOCODE = wocode;
                 //DataModel.Processmodel.TakePhotoTestModel.Productinfo.PartNOID = partnoid;
-                PLC_Writestring(DataModel.Settingmodel.AddressSN.ToString(), $"{sn};{wocode}");
+                string writeData = $"{sn};{wocode}";
+                bool writeSuccess = PLC_Writestring(DataModel.Settingmodel.AddressSN.ToString(), writeData);
+                writeLog($"扫码->写入PLC: 地址={DataModel.Settingmodel.AddressSN}, 数据=[{writeData}], 结果={writeSuccess}", false);
                 sqlite.CREATENEWLINE(wocode, partnoid, sn, DataModel.Settingmodel.SETTING_DATA.StationCode, DataModel.Settingmodel.SETTING_DATA.MachineID, DateTime.Now);
                 return string.Empty;
 
@@ -597,9 +599,8 @@ namespace BusbarCompressionSystem.ViewModel
             }
             else
             {
-
-                writeLog($"拍照留底产品编号读取错误:{s}");
-
+                // 详细诊断信息
+                writeLog($"拍照留底产品编号读取错误->地址:{DataModel.Settingmodel.AddressSN}, 原始数据:[{s}], 长度:{s.Length}, 分段数:{ss.Length}, 内容:{string.Join("|", ss)}");
             }
 
 
@@ -2163,7 +2164,7 @@ namespace BusbarCompressionSystem.ViewModel
                     }
                     else
                     {
-                        writeLog($"视觉检测产品编号读取错误:{s}");
+                        writeLog($"视觉检测产品编号读取错误->地址:{DataModel.Settingmodel.AddressSN + 100}, 原始数据:[{s}], 长度:{s.Length}, 分段数:{ss.Length}");
                     }
 
                     #endregion
