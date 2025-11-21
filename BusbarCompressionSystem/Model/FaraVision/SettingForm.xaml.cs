@@ -614,58 +614,61 @@ namespace BusbarCompressionSystem.Model.FaraVision
         {
             try
             {
-                if (t.MeasureObject1ROI.Row1 == 0 && t.MeasureObject1ROI.Row2 == 0 && 
-                    t.MeasureObject1ROI.Col1 == 0 && t.MeasureObject1ROI.Col2 == 0)
-                {
-                    NoticeBox.Show("请先选择测量对象1区域", "提示", MessageBoxIcon.Warning, true, 5000);
-                    return;
-                }
-
-                if (t.CalibrationRealSize <= 0)
-                {
-                    NoticeBox.Show("请输入有效的真实尺寸（大于0）", "提示", MessageBoxIcon.Warning, true, 5000);
-                    return;
-                }
-
+                // 验证图像
                 if (t.Image == null)
                 {
                     NoticeBox.Show("请先选择图片", "提示", MessageBoxIcon.Warning, true, 5000);
                     return;
                 }
 
-                // 测量测量对象1的像素尺寸
-                double pixelSize = 0;
-                if (t.MeasureType == DimensionMeasureType.直线到直线 || t.MeasureType == DimensionMeasureType.直线到圆心)
+                // 验证ROI设置
+                if (t.MeasureObject1ROI.Row1 == 0 && t.MeasureObject1ROI.Row2 == 0 &&
+                    t.MeasureObject1ROI.Col1 == 0 && t.MeasureObject1ROI.Col2 == 0)
                 {
-                    // 对于直线，测量ROI的长度
-                    double deltaRow = t.MeasureObject1ROI.Row2 - t.MeasureObject1ROI.Row1;
-                    double deltaCol = t.MeasureObject1ROI.Col2 - t.MeasureObject1ROI.Col1;
-                    pixelSize = Math.Sqrt(deltaRow * deltaRow + deltaCol * deltaCol);
-                }
-                else if (t.MeasureType == DimensionMeasureType.圆心到圆心)
-                {
-                    // 对于圆，测量ROI的对角线长度作为参考
-                    double deltaRow = t.MeasureObject1ROI.Row2 - t.MeasureObject1ROI.Row1;
-                    double deltaCol = t.MeasureObject1ROI.Col2 - t.MeasureObject1ROI.Col1;
-                    pixelSize = Math.Sqrt(deltaRow * deltaRow + deltaCol * deltaCol);
-                }
-
-                if (pixelSize <= 0)
-                {
-                    NoticeBox.Show("无法计算像素尺寸，请检查ROI设置", "错误", MessageBoxIcon.Error, true, 5000);
+                    NoticeBox.Show("请先选择测量对象1区域", "提示", MessageBoxIcon.Warning, true, 5000);
                     return;
                 }
 
-                // 计算比例：真实尺寸(mm) / 像素尺寸(pixel) * 1000 = um/pixel
+                // 对于直线到直线测量，需要验证测量对象的ROI
+                if (t.MeasureType == DimensionMeasureType.直线到直线)
+                {
+                    if (t.MeasureObject2ROI.Row1 == 0 && t.MeasureObject2ROI.Row2 == 0 &&
+                        t.MeasureObject2ROI.Col1 == 0 && t.MeasureObject2ROI.Col2 == 0)
+                    {
+                        NoticeBox.Show("直线到直线测量需要选择测量对象2区域", "提示", MessageBoxIcon.Warning, true, 5000);
+                        return;
+                    }
+                }
+
+                // 验证真实尺寸输入
+                if (t.CalibrationRealSize <= 0)
+                {
+                    NoticeBox.Show("请输入有效的真实尺寸（大于0）", "提示", MessageBoxIcon.Warning, true, 5000);
+                    return;
+                }
+
+                // 执行完整的边缘检测+测量算法（校准模式）
+                // Source: 方案A完整测量校准 - 调用实际测量算法获取像素值
+                double pixelSize = vml.Main.MeasureDimension(t.Image, t, vml.Main.DataModel.FaraVisionDataModel.Settingmodel.HWindow, true, calibrationMode: true);
+
+                if (pixelSize <= 0)
+                {
+                    NoticeBox.Show("测量失败，请检查：\n1. ROI区域是否正确框选边缘\n2. 边缘类型（极性）是否匹配\n3. 边缘阈值是否合适\n4. Metrology参数是否正确",
+                        "测量失败", MessageBoxIcon.Error, true, 8000);
+                    return;
+                }
+
+                // 计算比例：真实尺寸(mm) / 测量像素尺寸(pixel) * 1000 = um/pixel
+                // Source: 方案A完整测量校准 - 基于实际测量值计算校准系数
                 t.DimensionK = (t.CalibrationRealSize / pixelSize) * 1000.0;
                 t.CalibrationPixelSize = pixelSize;
 
-                NoticeBox.Show($"校准成功！\n像素尺寸: {pixelSize:F2} pixel\n比例: {t.DimensionK:F2} um/pixel", 
-                    "校准成功", MessageBoxIcon.Success, true, 5000);
+                NoticeBox.Show($"校准成功！\n测量像素值: {pixelSize:F2} pixel\n真实尺寸: {t.CalibrationRealSize:F2} mm\n比例: {t.DimensionK:F2} um/pixel",
+                    "校准成功", MessageBoxIcon.Success, true, 8000);
             }
             catch (Exception ex)
             {
-                NoticeBox.Show($"校准失败: {ex.Message}", "错误", MessageBoxIcon.Error, true, 5000);
+                NoticeBox.Show($"校准失败: {ex.Message}", "错误", MessageBoxIcon.Error, true, 8000);
             }
         }
 

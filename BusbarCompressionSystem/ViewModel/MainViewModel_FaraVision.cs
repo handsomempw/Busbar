@@ -1154,17 +1154,21 @@ namespace BusbarCompressionSystem.ViewModel
         /// <param name="tool">工具模型</param>
         /// <param name="hwindow">HALCON窗口（用于绘制）</param>
         /// <param name="redraw">是否重绘</param>
-        /// <returns>测量值（单位：mm），失败返回-1</returns>
-        public double MeasureDimension(HObject image, ToolModel tool, HWindow hwindow, bool redraw = true)
+        /// <param name="calibrationMode">校准模式：true=返回像素值用于校准，false=返回mm值用于测量</param>
+        /// <returns>测量值（校准模式：pixel，正常模式：mm），失败返回-1</returns>
+        public double MeasureDimension(HObject image, ToolModel tool, HWindow hwindow, bool redraw = true, bool calibrationMode = false)
         {
             try
             {
                 double result = -1;
 
-                // 验证基本参数
-                if (tool.DimensionK <= 0 || (tool.DimensionK == 1000 && tool.CalibrationRealSize == 0))
+                // 验证基本参数（校准模式下跳过DimensionK验证）
+                if (!calibrationMode)
                 {
-                    throw new Exception("世界坐标未校准：请先进行校准");
+                    if (tool.DimensionK <= 0 || (tool.DimensionK == 1000 && tool.CalibrationRealSize == 0))
+                    {
+                        throw new Exception("世界坐标未校准：请先进行校准");
+                    }
                 }
 
                 switch (tool.MeasureType)
@@ -1180,7 +1184,13 @@ namespace BusbarCompressionSystem.ViewModel
                         break;
                 }
 
-                // 转换为实际尺寸（mm）
+                // 校准模式：返回原始像素值
+                if (calibrationMode)
+                {
+                    return result; // 返回像素值，用于计算DimensionK
+                }
+
+                // 正常测量模式：转换为实际尺寸（mm）
                 // DimensionK的单位是um/pixel，需要转换为mm/pixel
                 if (result > 0 && tool.DimensionK > 0)
                 {
