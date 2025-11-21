@@ -1,0 +1,220 @@
+diff --git a/BusbarCompressionSystem/ViewModel/MainViewModel_FaraVision.cs b/BusbarCompressionSystem/ViewModel/MainViewModel_FaraVision.cs
+index da59eb4..0a9a760 100644
+--- a/BusbarCompressionSystem/ViewModel/MainViewModel_FaraVision.cs
++++ b/BusbarCompressionSystem/ViewModel/MainViewModel_FaraVision.cs
+@@ -1249,18 +1249,31 @@ namespace BusbarCompressionSystem.ViewModel
+                     hwindow.DispLine(line1RowBegin, line1ColBegin, line1RowEnd, line1ColEnd);
+                     hwindow.DispLine(line2RowBegin, line2ColBegin, line2RowEnd, line2ColEnd);
+ 
+-                    // 绘制测量距离线（红色虚线）
++                    // 绘制真实最短距离连线
++                    // 计算两条线段之间的最近点对
++                    double closestRow1, closestCol1, closestRow2, closestCol2;
++                    CalculateClosestPointsBetweenSegments(
++                        line1RowBegin, line1ColBegin, line1RowEnd, line1ColEnd,
++                        line2RowBegin, line2ColBegin, line2RowEnd, line2ColEnd,
++                        out closestRow1, out closestCol1,
++                        out closestRow2, out closestCol2);
++
++                    // 验证：计算出的最近点对距离应与DistanceSs返回值一致
++                    double calculatedDistance = CalculateDistance(closestRow1, closestCol1, closestRow2, closestCol2);
++                    double tolerance = 0.01; // 允许0.01像素的误差（浮点精度）
++                    if (Math.Abs(calculatedDistance - distance) > tolerance)
++                    {
++                        // 如果不一致，输出调试信息
++                        System.Diagnostics.Debug.WriteLine($"警告：最近点对距离({calculatedDistance:F3})与DistanceSs({distance:F3})不一致，差值={Math.Abs(calculatedDistance - distance):F3}");
++                    }
++
++                    // 绘制测量距离线（红色虚线）- 连接两条线段的最近点
+                     hwindow.SetColor("red");
+                     hwindow.SetLineStyle(new HTuple(new int[] { 10, 5 })); // 虚线样式
+-                    // 计算两条直线中点连线
+-                    double mid1Row = (line1RowBegin + line1RowEnd) / 2.0;
+-                    double mid1Col = (line1ColBegin + line1ColEnd) / 2.0;
+-                    double mid2Row = (line2RowBegin + line2RowEnd) / 2.0;
+-                    double mid2Col = (line2ColBegin + line2ColEnd) / 2.0;
+-                    hwindow.DispLine(mid1Row, mid1Col, mid2Row, mid2Col);
++                    hwindow.DispLine(closestRow1, closestCol1, closestRow2, closestCol2);
+                     hwindow.SetLineStyle(new HTuple()); // 恢复实线
+ 
+-                    // 如果启用调试信息，绘制边缘点和卡尺位置
++                    // 如果启用调试信息，绘制边缘点、卡尺位置和最近点标记
+                     if (tool.ShowMetrologyDebugInfo)
+                     {
+                         // 绘制边缘点（春绿色十字标记）
+@@ -1278,6 +1291,17 @@ namespace BusbarCompressionSystem.ViewModel
+                             double col = edge2Cols[i].D;
+                             hwindow.DispCross(row, col, 6, 0);
+                         }
++
++                        // 绘制最近点标记（橙色圆圈）
++                        hwindow.SetColor("orange");
++                        hwindow.SetLineWidth(2);
++                        hwindow.DispCircle(closestRow1, closestCol1, 8);
++                        hwindow.DispCircle(closestRow2, closestCol2, 8);
++
++                        // 显示距离验证信息（白色文字）
++                        hwindow.SetColor("white");
++                        string debugInfo = $"DistanceSs: {distance:F2}px\nCalculated: {calculatedDistance:F2}px";
++                        hwindow.DispText(debugInfo, "image", closestRow1 - 30, closestCol1, "white", "box", "false");
+                     }
+                 }
+ 
+@@ -1493,6 +1517,157 @@ namespace BusbarCompressionSystem.ViewModel
+             return distanceMin.D;  // 返回最短距离
+         }
+ 
++        /// <summary>
++        /// 计算两条线段之间最近点对的坐标
++        /// {{ AURA-X: Modify - 使用HALCON projection_pl算子替代自定义几何算法，确保与DistanceSs完全一致. Source: HALCON官方文档 projection_pl. }}
++        /// </summary>
++        /// <param name="line1RowBegin">线段1起点Row</param>
++        /// <param name="line1ColBegin">线段1起点Col</param>
++        /// <param name="line1RowEnd">线段1终点Row</param>
++        /// <param name="line1ColEnd">线段1终点Col</param>
++        /// <param name="line2RowBegin">线段2起点Row</param>
++        /// <param name="line2ColBegin">线段2起点Col</param>
++        /// <param name="line2RowEnd">线段2终点Row</param>
++        /// <param name="line2ColEnd">线段2终点Col</param>
++        /// <param name="closestRow1">线段1上最近点的Row坐标</param>
++        /// <param name="closestCol1">线段1上最近点的Col坐标</param>
++        /// <param name="closestRow2">线段2上最近点的Row坐标</param>
++        /// <param name="closestCol2">线段2上最近点的Col坐标</param>
++        private void CalculateClosestPointsBetweenSegments(
++            double line1RowBegin, double line1ColBegin, double line1RowEnd, double line1ColEnd,
++            double line2RowBegin, double line2ColBegin, double line2RowEnd, double line2ColEnd,
++            out double closestRow1, out double closestCol1,
++            out double closestRow2, out double closestCol2)
++        {
++            // 使用HALCON的projection_pl算子和枚举法找到真实的最近点对
++            // 策略：枚举所有可能的候选点对，找到距离最小的一对
++
++            double minDistance = double.MaxValue;
++            closestRow1 = line1RowBegin;
++            closestCol1 = line1ColBegin;
++            closestRow2 = line2RowBegin;
++            closestCol2 = line2ColBegin;
++
++            // 候选1: 线段1的起点投影到线段2
++            HTuple projRow, projCol;
++            HOperatorSet.ProjectionPl(line1RowBegin, line1ColBegin,
++                                     line2RowBegin, line2ColBegin,
++                                     line2RowEnd, line2ColEnd,
++                                     out projRow, out projCol);
++            // 裁剪投影点到线段2范围内
++            double clampedRow2, clampedCol2;
++            ClampPointToSegment(projRow.D, projCol.D,
++                               line2RowBegin, line2ColBegin, line2RowEnd, line2ColEnd,
++                               out clampedRow2, out clampedCol2);
++            double dist = CalculateDistance(line1RowBegin, line1ColBegin, clampedRow2, clampedCol2);
++            if (dist < minDistance)
++            {
++                minDistance = dist;
++                closestRow1 = line1RowBegin;
++                closestCol1 = line1ColBegin;
++                closestRow2 = clampedRow2;
++                closestCol2 = clampedCol2;
++            }
++
++            // 候选2: 线段1的终点投影到线段2
++            HOperatorSet.ProjectionPl(line1RowEnd, line1ColEnd,
++                                     line2RowBegin, line2ColBegin,
++                                     line2RowEnd, line2ColEnd,
++                                     out projRow, out projCol);
++            ClampPointToSegment(projRow.D, projCol.D,
++                               line2RowBegin, line2ColBegin, line2RowEnd, line2ColEnd,
++                               out clampedRow2, out clampedCol2);
++            dist = CalculateDistance(line1RowEnd, line1ColEnd, clampedRow2, clampedCol2);
++            if (dist < minDistance)
++            {
++                minDistance = dist;
++                closestRow1 = line1RowEnd;
++                closestCol1 = line1ColEnd;
++                closestRow2 = clampedRow2;
++                closestCol2 = clampedCol2;
++            }
++
++            // 候选3: 线段2的起点投影到线段1
++            HOperatorSet.ProjectionPl(line2RowBegin, line2ColBegin,
++                                     line1RowBegin, line1ColBegin,
++                                     line1RowEnd, line1ColEnd,
++                                     out projRow, out projCol);
++            double clampedRow1, clampedCol1;
++            ClampPointToSegment(projRow.D, projCol.D,
++                               line1RowBegin, line1ColBegin, line1RowEnd, line1ColEnd,
++                               out clampedRow1, out clampedCol1);
++            dist = CalculateDistance(clampedRow1, clampedCol1, line2RowBegin, line2ColBegin);
++            if (dist < minDistance)
++            {
++                minDistance = dist;
++                closestRow1 = clampedRow1;
++                closestCol1 = clampedCol1;
++                closestRow2 = line2RowBegin;
++                closestCol2 = line2ColBegin;
++            }
++
++            // 候选4: 线段2的终点投影到线段1
++            HOperatorSet.ProjectionPl(line2RowEnd, line2ColEnd,
++                                     line1RowBegin, line1ColBegin,
++                                     line1RowEnd, line1ColEnd,
++                                     out projRow, out projCol);
++            ClampPointToSegment(projRow.D, projCol.D,
++                               line1RowBegin, line1ColBegin, line1RowEnd, line1ColEnd,
++                               out clampedRow1, out clampedCol1);
++            dist = CalculateDistance(clampedRow1, clampedCol1, line2RowEnd, line2ColEnd);
++            if (dist < minDistance)
++            {
++                minDistance = dist;
++                closestRow1 = clampedRow1;
++                closestCol1 = clampedCol1;
++                closestRow2 = line2RowEnd;
++                closestCol2 = line2ColEnd;
++            }
++        }
++
++        /// <summary>
++        /// 将投影点裁剪到线段范围内
++        /// 如果投影点在线段外，返回最近的端点
++        /// </summary>
++        private void ClampPointToSegment(
++            double projRow, double projCol,
++            double segRowBegin, double segColBegin, double segRowEnd, double segColEnd,
++            out double clampedRow, out double clampedCol)
++        {
++            // 计算线段的方向向量
++            double dirRow = segRowEnd - segRowBegin;
++            double dirCol = segColEnd - segColBegin;
++            double segmentLengthSquared = dirRow * dirRow + dirCol * dirCol;
++
++            // 处理退化线段（起点和终点重合）
++            if (segmentLengthSquared < 1e-10)
++            {
++                clampedRow = segRowBegin;
++                clampedCol = segColBegin;
++                return;
++            }
++
++            // 计算投影点在线段上的参数t（0表示起点，1表示终点）
++            double t = ((projRow - segRowBegin) * dirRow + (projCol - segColBegin) * dirCol) / segmentLengthSquared;
++
++            // 裁剪t到[0, 1]范围
++            t = Math.Max(0, Math.Min(1, t));
++
++            // 计算裁剪后的点坐标
++            clampedRow = segRowBegin + t * dirRow;
++            clampedCol = segColBegin + t * dirCol;
++        }
++
++        /// <summary>
++        /// 计算两点之间的欧氏距离
++        /// </summary>
++        private double CalculateDistance(double row1, double col1, double row2, double col2)
++        {
++            double dRow = row2 - row1;
++            double dCol = col2 - col1;
++            return Math.Sqrt(dRow * dRow + dCol * dCol);
++        }
++
+         /// <summary>
+         /// 使用HALCON Metrology模型检测边缘并拟合直线
+         /// </summary>
