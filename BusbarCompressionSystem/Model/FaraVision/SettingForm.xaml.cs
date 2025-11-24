@@ -51,6 +51,12 @@ namespace BusbarCompressionSystem.Model.FaraVision
         private bool _lineDrawingInProgress = false;  // 是否正在绘制线段（已点击第一个点）
         private System.Windows.Point _lineStartPoint;  // 线段起点
         private System.Windows.Threading.DispatcherTimer _metrologyPreviewTimer;  // Metrology参数变更防抖定时器
+        
+        // 圆形ROI绘制状态（点击圆心 + 拖动半径模式）
+        private bool _circleDrawingInProgress = false;  // 是否正在绘制圆形（已点击圆心）
+        private System.Windows.Point _circleCenter;  // 圆心位置
+        private System.Windows.Shapes.Ellipse _previewCircle;  // 预览圆形控件
+        private bool _isFirstCircleClick = true;  // 是否是第一次点击（记录圆心），用于区分MouseUp事件
 
         public SettingForm()
         {
@@ -164,6 +170,21 @@ namespace BusbarCompressionSystem.Model.FaraVision
         private bool _started = false;
         private void rectange_MouseMove(object sender, MouseEventArgs e)
         {
+            // 处理圆形ROI绘制时的实时预览（拖动半径）
+            if (_circleDrawingInProgress)
+            {
+                var currentPoint = e.GetPosition(show_image_canvas);
+                // 计算当前半径
+                double radius = Math.Sqrt(
+                    Math.Pow(currentPoint.X - _circleCenter.X, 2) +
+                    Math.Pow(currentPoint.Y - _circleCenter.Y, 2)
+                );
+                
+                // 更新圆形预览
+                UpdateCirclePreview(_circleCenter, radius);
+                return;
+            }
+            
             // 处理线段ROI绘制时的实时预览
             if (_lineDrawingInProgress && (selectmeasureobject1roi || selectmeasureobject2roi))
             {
@@ -210,8 +231,28 @@ namespace BusbarCompressionSystem.Model.FaraVision
 
         private void rectange_MouseDown(object sender, MouseButtonEventArgs e)
         {
+            // 处理圆形ROI的两次点击模式（点击圆心）
+            if ((selectmeasureobject1roi && t.MeasureObject1ROI.Type == ROIType.Circle) ||
+                (selectmeasureobject2roi && t.MeasureObject2ROI.Type == ROIType.Circle))
+            {
+                if (!_circleDrawingInProgress)
+                {
+                    // 第一次点击：记录圆心
+                    var clickPoint = e.GetPosition(show_image_canvas);
+                    _circleCenter = clickPoint;
+                    _circleDrawingInProgress = true;
+                    _isFirstCircleClick = true;  // 标记这是第一次点击
+                    
+                    // 初始化预览圆形控件
+                    InitializeCirclePreview();
+                }
+                // 第二次点击在MouseUp中处理
+                return;
+            }
+            
             // 处理线段ROI的两次点击模式
-            if (selectmeasureobject1roi || selectmeasureobject2roi)
+            if ((selectmeasureobject1roi && t.MeasureObject1ROI.Type == ROIType.Line) ||
+                (selectmeasureobject2roi && t.MeasureObject2ROI.Type == ROIType.Line))
             {
                 var clickPoint = e.GetPosition(show_image_canvas);
 
@@ -251,6 +292,80 @@ namespace BusbarCompressionSystem.Model.FaraVision
 
         private void rectange_MouseUp(object sender, MouseButtonEventArgs e)
         {
+            // 处理圆形ROI的点击（第一次点击的MouseUp忽略，第二次点击的MouseUp确定半径）
+            if (_circleDrawingInProgress && (selectmeasureobject1roi || selectmeasureobject2roi))
+            {
+                // 如果是第一次点击的MouseUp，忽略它，等待用户移动鼠标后的第二次点击
+                if (_isFirstCircleClick)
+                {
+                    _isFirstCircleClick = false;  // 标记下次点击为第二次
+                    return;  // 忽略第一次点击的MouseUp
+                }
+                
+                // 第二次点击：确定半径
+                var endPoint = e.GetPosition(show_image_canvas);
+                
+                // 计算半径
+                double radius = Math.Sqrt(
+                    Math.Pow(endPoint.X - _circleCenter.X, 2) +
+                    Math.Pow(endPoint.Y - _circleCenter.Y, 2)
+                );
+                
+                // 检查半径是否有效（至少5像素）
+                if (radius < 5)
+                {
+                    // 半径太小，忽略
+                    RemoveCirclePreview();
+                    _circleDrawingInProgress = false;
+                    _isFirstCircleClick = true;  // 重置状态
+                    return;
+                }
+                
+                // 保存圆形ROI数据（Row=Y, Col=X）
+                if (selectmeasureobject1roi)
+                {
+                    t.MeasureObject1ROI.CircleCenterRow = _circleCenter.Y;
+                    t.MeasureObject1ROI.CircleCenterCol = _circleCenter.X;
+                    t.MeasureObject1ROI.CircleRadius = radius;
+                    
+                    selectmeasureobject1roi = false;
+                    SelectMeasureObject1ROI.Background = System.Windows.Media.Brushes.Gray;
+                }
+                else if (selectmeasureobject2roi)
+                {
+                    t.MeasureObject2ROI.CircleCenterRow = _circleCenter.Y;
+                    t.MeasureObject2ROI.CircleCenterCol = _circleCenter.X;
+                    t.MeasureObject2ROI.CircleRadius = radius;
+                    
+                    selectmeasureobject2roi = false;
+                    SelectMeasureObject2ROI.Background = System.Windows.Media.Brushes.Gray;
+                }
+                
+                // 清理WPF预览圆形
+                RemoveCirclePreview();
+                _circleDrawingInProgress = false;
+                _isFirstCircleClick = true;  // 重置状态，准备下次绘制
+                
+                // 更新UI参数显示
+                UpdateROIParamsUIVisibility();
+                
+                // 调用HALCON预览方法显示圆形ROI和边缘检测结果
+                try
+                {
+                    if (t.Image != null && t.TestMode == TestModes.尺寸测量)
+                    {
+                        vml.Main.PreviewDimensionMeasurement(t.Image, t, vml.Main.DataModel.FaraVisionDataModel.Settingmodel.HWindow);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"圆形ROI预览失败: {ex.Message}");
+                    NoticeBox.Show($"预览失败: {ex.Message}\n请检查Metrology参数设置", "提示", MessageBoxIcon.Warning, true, 5000);
+                }
+                
+                return;
+            }
+            
             // 处理线段ROI的第二次点击（终点）
             if (_lineDrawingInProgress && (selectmeasureobject1roi || selectmeasureobject2roi))
             {
@@ -585,13 +700,14 @@ namespace BusbarCompressionSystem.Model.FaraVision
             selectmeasureobject1roi = !selectmeasureobject1roi;
             SelectMeasureObject1ROI.Background = selectmeasureobject1roi ? System.Windows.Media.Brushes.Lime : System.Windows.Media.Brushes.Gray;
 
-            // 设置ROI类型为Line（用于Metrology测量）
+            // 根据当前测量类型确定ROI类型（由MeasureType_SelectionChanged统一管理）
             if (selectmeasureobject1roi)
             {
-                t.MeasureObject1ROI.Type = ROIType.Line;
                 selectmeasureobject2roi = false;
                 SelectMeasureObject2ROI.Background = System.Windows.Media.Brushes.Gray;
                 _lineDrawingInProgress = false;  // 重置线段绘制状态
+                _circleDrawingInProgress = false;  // 重置圆形绘制状态
+                _isFirstCircleClick = true;  // 重置圆形点击状态
             }
         }
 
@@ -600,13 +716,101 @@ namespace BusbarCompressionSystem.Model.FaraVision
             selectmeasureobject2roi = !selectmeasureobject2roi;
             SelectMeasureObject2ROI.Background = selectmeasureobject2roi ? System.Windows.Media.Brushes.Cyan : System.Windows.Media.Brushes.Gray;
 
-            // 设置ROI类型为Line（用于Metrology测量）
+            // 根据当前测量类型确定ROI类型（由MeasureType_SelectionChanged统一管理）
             if (selectmeasureobject2roi)
             {
-                t.MeasureObject2ROI.Type = ROIType.Line;
                 selectmeasureobject1roi = false;
                 SelectMeasureObject1ROI.Background = System.Windows.Media.Brushes.Gray;
                 _lineDrawingInProgress = false;  // 重置线段绘制状态
+                _circleDrawingInProgress = false;  // 重置圆形绘制状态
+                _isFirstCircleClick = true;  // 重置圆形点击状态
+            }
+        }
+
+        /// <summary>
+        /// 测量类型切换事件：根据测量类型自动设置ROI类型
+        /// </summary>
+        private void MeasureType_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (t == null) return;
+            
+            // 根据测量类型自动设置ROI类型
+            switch (t.MeasureType)
+            {
+                case DimensionMeasureType.直线到直线:
+                    // 两个对象都是Line
+                    t.MeasureObject1ROI.Type = ROIType.Line;
+                    t.MeasureObject2ROI.Type = ROIType.Line;
+                    break;
+                    
+                case DimensionMeasureType.直线到圆心:
+                    // 对象1是Line，对象2是Circle
+                    t.MeasureObject1ROI.Type = ROIType.Line;
+                    t.MeasureObject2ROI.Type = ROIType.Circle;
+                    break;
+                    
+                case DimensionMeasureType.圆心到圆心:
+                    // 两个对象都是Circle
+                    t.MeasureObject1ROI.Type = ROIType.Circle;
+                    t.MeasureObject2ROI.Type = ROIType.Circle;
+                    break;
+            }
+            
+            // 更新UI显示：根据ROI类型切换参数显示
+            UpdateROIParamsUIVisibility();
+            
+            // 清理现有ROI选择状态
+            selectmeasureobject1roi = false;
+            selectmeasureobject2roi = false;
+            SelectMeasureObject1ROI.Background = System.Windows.Media.Brushes.Gray;
+            SelectMeasureObject2ROI.Background = System.Windows.Media.Brushes.Gray;
+            
+            // 重置绘制状态
+            _lineDrawingInProgress = false;
+            _circleDrawingInProgress = false;
+            _isFirstCircleClick = true;  // 重置圆形点击状态
+            RemoveCirclePreview();
+            
+            // 清空线段预览（将线段设置为0长度，实际上隐藏它们）
+            LineMeasureObject1.X1 = 0;
+            LineMeasureObject1.Y1 = 0;
+            LineMeasureObject1.X2 = 0;
+            LineMeasureObject1.Y2 = 0;
+            LineMeasureObject2.X1 = 0;
+            LineMeasureObject2.Y1 = 0;
+            LineMeasureObject2.X2 = 0;
+            LineMeasureObject2.Y2 = 0;
+        }
+
+        /// <summary>
+        /// 根据ROI类型更新参数UI的显示/隐藏
+        /// </summary>
+        private void UpdateROIParamsUIVisibility()
+        {
+            if (t == null) return;
+            
+            // 测量对象1的UI切换
+            if (t.MeasureObject1ROI.Type == ROIType.Circle)
+            {
+                MeasureObject1LineParams.Visibility = Visibility.Collapsed;
+                MeasureObject1CircleParams.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                MeasureObject1LineParams.Visibility = Visibility.Visible;
+                MeasureObject1CircleParams.Visibility = Visibility.Collapsed;
+            }
+            
+            // 测量对象2的UI切换
+            if (t.MeasureObject2ROI.Type == ROIType.Circle)
+            {
+                MeasureObject2LineParams.Visibility = Visibility.Collapsed;
+                MeasureObject2CircleParams.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                MeasureObject2LineParams.Visibility = Visibility.Visible;
+                MeasureObject2CircleParams.Visibility = Visibility.Collapsed;
             }
         }
 
@@ -621,19 +825,17 @@ namespace BusbarCompressionSystem.Model.FaraVision
                     return;
                 }
 
-                // 验证ROI设置
-                if (t.MeasureObject1ROI.Row1 == 0 && t.MeasureObject1ROI.Row2 == 0 &&
-                    t.MeasureObject1ROI.Col1 == 0 && t.MeasureObject1ROI.Col2 == 0)
+                // 验证ROI设置（根据ROI类型检查）
+                if (!IsROIValid(t.MeasureObject1ROI))
                 {
                     NoticeBox.Show("请先选择测量对象1区域", "提示", MessageBoxIcon.Warning, true, 5000);
                     return;
                 }
 
-                // 对于直线到直线测量，需要验证测量对象的ROI
+                // 对于直线到直线测量，需要验证测量对象2的ROI
                 if (t.MeasureType == DimensionMeasureType.直线到直线)
                 {
-                    if (t.MeasureObject2ROI.Row1 == 0 && t.MeasureObject2ROI.Row2 == 0 &&
-                        t.MeasureObject2ROI.Col1 == 0 && t.MeasureObject2ROI.Col2 == 0)
+                    if (!IsROIValid(t.MeasureObject2ROI))
                     {
                         NoticeBox.Show("直线到直线测量需要选择测量对象2区域", "提示", MessageBoxIcon.Warning, true, 5000);
                         return;
@@ -682,15 +884,14 @@ namespace BusbarCompressionSystem.Model.FaraVision
                     return;
                 }
 
-                if (t.MeasureObject1ROI.Row1 == 0 && t.MeasureObject1ROI.Row2 == 0 && 
-                    t.MeasureObject1ROI.Col1 == 0 && t.MeasureObject1ROI.Col2 == 0)
+                // 验证ROI设置（根据ROI类型检查）
+                if (!IsROIValid(t.MeasureObject1ROI))
                 {
                     NoticeBox.Show("请先选择测量对象1区域", "提示", MessageBoxIcon.Warning, true, 5000);
                     return;
                 }
 
-                if (t.MeasureObject2ROI.Row1 == 0 && t.MeasureObject2ROI.Row2 == 0 && 
-                    t.MeasureObject2ROI.Col1 == 0 && t.MeasureObject2ROI.Col2 == 0)
+                if (!IsROIValid(t.MeasureObject2ROI))
                 {
                     NoticeBox.Show("请先选择测量对象2区域", "提示", MessageBoxIcon.Warning, true, 5000);
                     return;
@@ -780,6 +981,83 @@ namespace BusbarCompressionSystem.Model.FaraVision
             transform1.X = distanceX;
             transform1.Y = distanceY;
         }
+
+        #region 圆形ROI绘制辅助方法
+
+        /// <summary>
+        /// 检查ROI是否有效（根据ROI类型检查对应参数）
+        /// </summary>
+        private bool IsROIValid(ROI roi)
+        {
+            if (roi == null) return false;
+            
+            switch (roi.Type)
+            {
+                case ROIType.Circle:
+                    // 圆形ROI：检查半径
+                    return roi.CircleRadius > 0;
+                    
+                case ROIType.Line:
+                    // 线段ROI：检查是否有起点和终点
+                    return !(roi.Row1 == 0 && roi.Row2 == 0 && roi.Col1 == 0 && roi.Col2 == 0);
+                    
+                case ROIType.Rectangle:
+                default:
+                    // 矩形ROI：检查是否有坐标
+                    return !(roi.Row1 == 0 && roi.Row2 == 0 && roi.Col1 == 0 && roi.Col2 == 0);
+            }
+        }
+
+        /// <summary>
+        /// 初始化圆形预览控件
+        /// </summary>
+        private void InitializeCirclePreview()
+        {
+            if (_previewCircle == null)
+            {
+                _previewCircle = new System.Windows.Shapes.Ellipse
+                {
+                    Stroke = System.Windows.Media.Brushes.Cyan,
+                    StrokeThickness = 2,
+                    Fill = System.Windows.Media.Brushes.Transparent
+                };
+                show_image_canvas.Children.Add(_previewCircle);
+            }
+            _previewCircle.Visibility = Visibility.Visible;
+        }
+
+        /// <summary>
+        /// 更新圆形预览
+        /// </summary>
+        /// <param name="center">圆心位置</param>
+        /// <param name="radius">圆半径</param>
+        private void UpdateCirclePreview(System.Windows.Point center, double radius)
+        {
+            if (_previewCircle != null)
+            {
+                _previewCircle.Width = radius * 2;
+                _previewCircle.Height = radius * 2;
+                _previewCircle.Margin = new Thickness(
+                    center.X - radius, 
+                    center.Y - radius, 
+                    0, 0
+                );
+                _previewCircle.Visibility = Visibility.Visible;
+            }
+        }
+
+        /// <summary>
+        /// 移除圆形预览
+        /// </summary>
+        private void RemoveCirclePreview()
+        {
+            if (_previewCircle != null)
+            {
+                _previewCircle.Visibility = Visibility.Collapsed;
+            }
+        }
+
+        #endregion
 
 
 

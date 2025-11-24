@@ -467,20 +467,41 @@ namespace BusbarCompressionSystem.Model.FaraVision.Tool
     public enum ROIType
     {
         Rectangle,  // 矩形ROI
-        Line        // 线段ROI（用于Metrology测量）
+        Line,       // 线段ROI（用于Metrology测量）
+        Circle      // 圆形ROI（用于圆心测量）
     }
 
     public class ROI : ObservableObject
     {
         /// <summary>
-        /// ROI类型（矩形或线段）
+        /// ROI类型（矩形、线段或圆形）
         /// </summary>
         [XmlElement("ROI类型")]
         public ROIType Type { set; get; } = ROIType.Rectangle;
 
+        // 矩形/线段参数
         public int Row1 { set; get; } = 0;
         public int Row2 { set; get; } = 0;
         public int Col1 { set; get; } = 0;
         public int Col2 { set; get; } = 0;
+        
+        // 圆形参数
+        /// <summary>
+        /// 圆心Row坐标（用于Circle类型）
+        /// </summary>
+        [XmlElement("圆心行坐标")]
+        public double CircleCenterRow { set; get; } = 0;
+        
+        /// <summary>
+        /// 圆心Column坐标（用于Circle类型）
+        /// </summary>
+        [XmlElement("圆心列坐标")]
+        public double CircleCenterCol { set; get; } = 0;
+        
+        /// <summary>
+        /// 圆半径（用于Circle类型）
+        /// </summary>
+        [XmlElement("圆半径")]
+        public double CircleRadius { set; get; } = 0;
     }
 }

@@ -1207,22 +1207,46 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
+        /// 验证ROI是否有效（支持矩形、线段和圆形ROI）
+        /// 根据ROI类型使用不同的验证逻辑
+        /// </summary>
+        /// <param name="roi">要验证的ROI对象</param>
+        /// <returns>true表示ROI有效，false表示无效</returns>
+        private bool IsROIValid(ROI roi)
+        {
+            if (roi == null)
+            {
+                return false;
+            }
+
+            // 根据ROI类型选择验证逻辑
+            if (roi.Type == ROIType.Circle)
+            {
+                // 圆形ROI：检查半径是否大于0
+                return roi.CircleRadius > 0;
+            }
+            else
+            {
+                // 矩形/线段ROI：检查坐标是否相同（避免区域太小）
+                return !(roi.Row1 == roi.Row2 && roi.Col1 == roi.Col2);
+            }
+        }
+
+        /// <summary>
         /// 直线到直线距离测量
         /// </summary>
         private double MeasureLineToLine(HObject image, ToolModel tool, HWindow hwindow, bool redraw)
         {
             try
             {
-                // 验证ROI有效性
-                if (tool.MeasureObject1ROI.Row1 == tool.MeasureObject1ROI.Row2 &&
-                    tool.MeasureObject1ROI.Col1 == tool.MeasureObject1ROI.Col2)
+                // 验证ROI有效性（支持矩形、线段和圆形ROI）
+                if (!IsROIValid(tool.MeasureObject1ROI))
                 {
-                    throw new Exception("测量对象1 ROI无效：ROI区域太小");
+                    throw new Exception("测量对象1 ROI无效：ROI区域太小或未正确绘制");
                 }
-                if (tool.MeasureObject2ROI.Row1 == tool.MeasureObject2ROI.Row2 &&
-                    tool.MeasureObject2ROI.Col1 == tool.MeasureObject2ROI.Col2)
+                if (!IsROIValid(tool.MeasureObject2ROI))
                 {
-                    throw new Exception("测量对象2 ROI无效：ROI区域太小");
+                    throw new Exception("测量对象2 ROI无效：ROI区域太小或未正确绘制");
                 }
 
                 // 使用Metrology模型检测第一条直线
@@ -1326,50 +1350,55 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
-        /// 直线到圆心距离测量
+        /// 直线到圆心距离测量（使用统一Metrology框架）
         /// </summary>
+        /// <param name="image">输入图像</param>
+        /// <param name="tool">工具模型</param>
+        /// <param name="hwindow">HALCON窗口</param>
+        /// <param name="redraw">是否重绘</param>
+        /// <returns>测量距离（像素），失败抛出异常</returns>
         private double MeasureLineToCircle(HObject image, ToolModel tool, HWindow hwindow, bool redraw)
         {
             try
             {
-                // 验证ROI有效性
-                if (tool.MeasureObject1ROI.Row1 == tool.MeasureObject1ROI.Row2 &&
-                    tool.MeasureObject1ROI.Col1 == tool.MeasureObject1ROI.Col2)
+                // 验证ROI有效性（支持矩形、线段和圆形ROI）
+                if (!IsROIValid(tool.MeasureObject1ROI))
                 {
-                    throw new Exception("测量对象1 ROI无效：ROI区域太小");
+                    throw new Exception("测量对象1（直线）ROI无效：ROI区域太小或未正确绘制");
                 }
-                if (tool.MeasureObject2ROI.Row1 == tool.MeasureObject2ROI.Row2 &&
-                    tool.MeasureObject2ROI.Col1 == tool.MeasureObject2ROI.Col2)
+                if (!IsROIValid(tool.MeasureObject2ROI))
                 {
-                    throw new Exception("测量对象2 ROI无效：ROI区域太小");
+                    throw new Exception("测量对象2（圆）ROI无效：ROI区域太小或未正确绘制");
                 }
 
-                // 1. 使用 Metrology 检测直线（完整拟合）
+                // 1. 使用Metrology检测直线
                 double lineRowBegin, lineColBegin, lineRowEnd, lineColEnd;
-                HTuple edge1Rows, edge1Cols;
+                HTuple lineEdgeRows, lineEdgeCols;
                 if (!DetectEdgeWithMetrology(image, tool, tool.MeasureObject1ROI,
                     out lineRowBegin, out lineColBegin, out lineRowEnd, out lineColEnd,
-                    out edge1Rows, out edge1Cols))
+                    out lineEdgeRows, out lineEdgeCols))
                 {
-                    throw new Exception("直线边缘检测失败：请检查ROI位置、Metrology参数设置");
+                    throw new Exception("直线检测失败：请检查ROI位置、Metrology参数设置");
                 }
 
-                // 2. 使用 Metrology 检测圆心
-                double circleRow, circleCol, circleRadius;
-                HTuple edge2Rows, edge2Cols;
+                // 2. 使用Metrology检测圆心
+                double centerRow, centerCol, radiusValue;
+                HTuple circleEdgeRows, circleEdgeCols;
                 if (!DetectCircleWithMetrology(image, tool, tool.MeasureObject2ROI,
-                    out circleRow, out circleCol, out circleRadius,
-                    out edge2Rows, out edge2Cols))
+                    out centerRow, out centerCol, out radiusValue,
+                    out circleEdgeRows, out circleEdgeCols))
                 {
                     throw new Exception("圆心检测失败：请检查ROI位置、Metrology参数设置");
                 }
 
-                // 3. 正确计算点到直线的距离
+                // 3. 计算圆心到直线的距离
+                // 使用HALCON的DistancePl算子（点到直线的距离）
                 HTuple distance;
-                HOperatorSet.DistancePl(circleRow, circleCol,
-                                       lineRowBegin, lineColBegin,  // 直线起点
-                                       lineRowEnd, lineColEnd,      // 直线终点
-                                       out distance);
+                HOperatorSet.DistancePl(
+                    centerRow, centerCol,           // 圆心坐标
+                    lineRowBegin, lineColBegin,     // 直线起点
+                    lineRowEnd, lineColEnd,         // 直线终点
+                    out distance);
 
                 // 4. 可视化绘制
                 if (redraw)
@@ -1379,51 +1408,55 @@ namespace BusbarCompressionSystem.ViewModel
                     hwindow.SetColor("cyan");
                     hwindow.DispLine(lineRowBegin, lineColBegin, lineRowEnd, lineColEnd);
 
-                    // 绘制圆（黄色）
-                    hwindow.SetColor("yellow");
-                    hwindow.DispCircle(circleRow, circleCol, circleRadius);
+                    // 绘制拟合圆（青色）
+                    hwindow.DispCircle(centerRow, centerCol, radiusValue);
 
-                    // 绘制最短距离线（红色虚线）
-                    // 计算圆心到直线的投影点
+                    // 计算圆心在直线上的投影点（垂足）
                     HTuple projRow, projCol;
-                    HOperatorSet.ProjectionPl(circleRow, circleCol,
+                    HOperatorSet.ProjectionPl(centerRow, centerCol,
                                              lineRowBegin, lineColBegin,
                                              lineRowEnd, lineColEnd,
                                              out projRow, out projCol);
+
+                    // 绘制测量距离线（红色虚线）- 从圆心到垂足
                     hwindow.SetColor("red");
                     hwindow.SetLineStyle(new HTuple(new int[] { 10, 5 })); // 虚线样式
-                    hwindow.DispLine(circleRow, circleCol, projRow.D, projCol.D);
+                    hwindow.DispLine(centerRow, centerCol, projRow.D, projCol.D);
                     hwindow.SetLineStyle(new HTuple()); // 恢复实线
 
-                    // 如果启用调试信息，绘制边缘点
+                    // 如果启用调试信息，绘制边缘点和标记
                     if (tool.ShowMetrologyDebugInfo)
                     {
                         // 绘制直线边缘点（春绿色十字标记）
                         hwindow.SetColor("spring green");
                         hwindow.SetLineWidth(1);
-                        for (int i = 0; i < edge1Rows.Length; i++)
+                        for (int i = 0; i < lineEdgeRows.Length; i++)
                         {
-                            hwindow.DispCross(edge1Rows[i].D, edge1Cols[i].D, 6, 0);
+                            double row = lineEdgeRows[i].D;
+                            double col = lineEdgeCols[i].D;
+                            hwindow.DispCross(row, col, 6, 0);
                         }
 
                         // 绘制圆边缘点（春绿色十字标记）
-                        for (int i = 0; i < edge2Rows.Length; i++)
+                        for (int i = 0; i < circleEdgeRows.Length; i++)
                         {
-                            hwindow.DispCross(edge2Rows[i].D, edge2Cols[i].D, 6, 0);
+                            double row = circleEdgeRows[i].D;
+                            double col = circleEdgeCols[i].D;
+                            hwindow.DispCross(row, col, 6, 0);
                         }
 
                         // 绘制圆心标记（橙色圆圈）
                         hwindow.SetColor("orange");
                         hwindow.SetLineWidth(2);
-                        hwindow.DispCircle(circleRow, circleCol, 8);
+                        hwindow.DispCircle(centerRow, centerCol, 8);
 
-                        // 绘制投影点标记（橙色圆圈）
+                        // 绘制垂足标记（橙色圆圈）
                         hwindow.DispCircle(projRow.D, projCol.D, 8);
 
-                        // 显示距离信息（白色文字）
+                        // 显示距离数值（白色文字）
                         hwindow.SetColor("white");
                         string debugInfo = $"Distance: {distance.D:F2}px";
-                        hwindow.DispText(debugInfo, "image", (circleRow + projRow.D) / 2 - 30, (circleCol + projCol.D) / 2, "white", "box", "false");
+                        hwindow.DispText(debugInfo, "image", centerRow - 30, centerCol, "white", "box", "false");
                     }
                 }
 
@@ -1438,90 +1471,97 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
-        /// 圆心到圆心距离测量
+        /// 圆心到圆心距离测量（统一Metrology框架）
         /// </summary>
         private double MeasureCircleToCircle(HObject image, ToolModel tool, HWindow hwindow, bool redraw)
         {
             try
             {
-                // 验证ROI有效性
-                if (tool.MeasureObject1ROI.Row1 == tool.MeasureObject1ROI.Row2 &&
-                    tool.MeasureObject1ROI.Col1 == tool.MeasureObject1ROI.Col2)
+                // 验证ROI有效性（支持矩形、线段和圆形ROI）
+                if (!IsROIValid(tool.MeasureObject1ROI))
                 {
-                    throw new Exception("测量对象1 ROI无效：ROI区域太小");
+                    throw new Exception("测量对象1（圆）ROI无效：ROI区域太小或未正确绘制");
                 }
-                if (tool.MeasureObject2ROI.Row1 == tool.MeasureObject2ROI.Row2 &&
-                    tool.MeasureObject2ROI.Col1 == tool.MeasureObject2ROI.Col2)
+                if (!IsROIValid(tool.MeasureObject2ROI))
                 {
-                    throw new Exception("测量对象2 ROI无效：ROI区域太小");
+                    throw new Exception("测量对象2（圆）ROI无效：ROI区域太小或未正确绘制");
                 }
 
-                // 1. 使用 Metrology 检测圆1
-                double circle1Row, circle1Col, circle1Radius;
+                // 1. 使用Metrology检测第一个圆心
+                double center1Row, center1Col, radius1;
                 HTuple edge1Rows, edge1Cols;
                 if (!DetectCircleWithMetrology(image, tool, tool.MeasureObject1ROI,
-                    out circle1Row, out circle1Col, out circle1Radius,
+                    out center1Row, out center1Col, out radius1,
                     out edge1Rows, out edge1Cols))
                 {
-                    throw new Exception("圆1检测失败：请检查ROI位置、Metrology参数设置");
+                    throw new Exception("第一个圆心检测失败：请检查ROI位置、Metrology参数设置");
                 }
 
-                // 2. 使用 Metrology 检测圆2
-                double circle2Row, circle2Col, circle2Radius;
+                // 2. 使用Metrology检测第二个圆心
+                double center2Row, center2Col, radius2;
                 HTuple edge2Rows, edge2Cols;
                 if (!DetectCircleWithMetrology(image, tool, tool.MeasureObject2ROI,
-                    out circle2Row, out circle2Col, out circle2Radius,
+                    out center2Row, out center2Col, out radius2,
                     out edge2Rows, out edge2Cols))
                 {
-                    throw new Exception("圆2检测失败：请检查ROI位置、Metrology参数设置");
+                    throw new Exception("第二个圆心检测失败：请检查ROI位置、Metrology参数设置");
                 }
 
-                // 3. 计算两点间距离
+                // 3. 计算两圆心间距离
                 HTuple distance;
-                HOperatorSet.DistancePp(circle1Row, circle1Col, circle2Row, circle2Col,
-                                       out distance);
+                HOperatorSet.DistancePp(
+                    center1Row, center1Col,
+                    center2Row, center2Col,
+                    out distance);
 
                 // 4. 可视化绘制
                 if (redraw)
                 {
+                    // 绘制两个拟合圆（青色）
                     hwindow.SetLineWidth(2);
+                    hwindow.SetColor("cyan");
+                    hwindow.DispCircle(center1Row, center1Col, radius1);
+                    hwindow.DispCircle(center2Row, center2Col, radius2);
 
-                    // 绘制圆（黄色）
-                    hwindow.SetColor("yellow");
-                    hwindow.DispCircle(circle1Row, circle1Col, circle1Radius);
-                    hwindow.DispCircle(circle2Row, circle2Col, circle2Radius);
-
-                    // 绘制距离连线（红色虚线）
+                    // 绘制圆心连线（红色虚线）
                     hwindow.SetColor("red");
                     hwindow.SetLineStyle(new HTuple(new int[] { 10, 5 })); // 虚线样式
-                    hwindow.DispLine(circle1Row, circle1Col, circle2Row, circle2Col);
+                    hwindow.DispLine(center1Row, center1Col, center2Row, center2Col);
                     hwindow.SetLineStyle(new HTuple()); // 恢复实线
 
-                    // 如果启用调试信息，绘制边缘点和圆心标记
+                    // 如果启用调试信息，绘制边缘点和标记
                     if (tool.ShowMetrologyDebugInfo)
                     {
-                        // 绘制边缘点（春绿色十字标记）
+                        // 绘制第一个圆的边缘点（春绿色十字标记）
                         hwindow.SetColor("spring green");
                         hwindow.SetLineWidth(1);
                         for (int i = 0; i < edge1Rows.Length; i++)
                         {
-                            hwindow.DispCross(edge1Rows[i].D, edge1Cols[i].D, 6, 0);
+                            double row = edge1Rows[i].D;
+                            double col = edge1Cols[i].D;
+                            hwindow.DispCross(row, col, 6, 0);
                         }
+
+                        // 绘制第二个圆的边缘点（春绿色十字标记）
                         for (int i = 0; i < edge2Rows.Length; i++)
                         {
-                            hwindow.DispCross(edge2Rows[i].D, edge2Cols[i].D, 6, 0);
+                            double row = edge2Rows[i].D;
+                            double col = edge2Cols[i].D;
+                            hwindow.DispCross(row, col, 6, 0);
                         }
 
-                        // 绘制圆心标记（橙色圆圈）
+                        // 绘制两个圆心标记（橙色圆圈）
                         hwindow.SetColor("orange");
                         hwindow.SetLineWidth(2);
-                        hwindow.DispCircle(circle1Row, circle1Col, 8);
-                        hwindow.DispCircle(circle2Row, circle2Col, 8);
+                        hwindow.DispCircle(center1Row, center1Col, 8);
+                        hwindow.DispCircle(center2Row, center2Col, 8);
 
-                        // 显示距离信息（白色文字）
+                        // 显示距离数值（白色文字）
                         hwindow.SetColor("white");
-                        string debugInfo = $"Distance: {distance.D:F2}px\nCircle1 R: {circle1Radius:F2}px\nCircle2 R: {circle2Radius:F2}px";
-                        hwindow.DispText(debugInfo, "image", (circle1Row + circle2Row) / 2 - 50, (circle1Col + circle2Col) / 2, "white", "box", "false");
+                        double midRow = (center1Row + center2Row) / 2.0;
+                        double midCol = (center1Col + center2Col) / 2.0;
+                        string distanceInfo = $"距离: {distance.D:F2}px";
+                        hwindow.DispText(distanceInfo, "image", midRow - 20, midCol, "white", "box", "false");
                     }
                 }
 
@@ -2022,15 +2062,39 @@ namespace BusbarCompressionSystem.ViewModel
                 HOperatorSet.CreateMetrologyModel(out metrologyHandle);
                 HOperatorSet.SetMetrologyModelImageSize(metrologyHandle, width, height);
 
-                // 3. 从矩形ROI计算圆的初始参数
-                // 圆心：ROI矩形的中心点
-                double initCenterRow = (roi.Row1 + roi.Row2) / 2.0;
-                double initCenterCol = (roi.Col1 + roi.Col2) / 2.0;
-                // 初始半径：ROI矩形宽高的较小值的一半
-                double initRadius = Math.Min(
-                    Math.Abs(roi.Row2 - roi.Row1),
-                    Math.Abs(roi.Col2 - roi.Col1)
-                ) / 2.0;
+                // 3. 计算圆的初始参数
+                double initCenterRow, initCenterCol, initRadius;
+                
+                if (roi.Type == ROIType.Circle && roi.CircleRadius > 0)
+                {
+                    // 使用圆形ROI参数（新模式：点击圆心 + 拖动半径）
+                    initCenterRow = roi.CircleCenterRow;
+                    initCenterCol = roi.CircleCenterCol;
+                    initRadius = roi.CircleRadius;
+                }
+                else
+                {
+                    // 从矩形ROI自动计算（兼容旧模式）
+                    // 圆心：ROI矩形的中心点
+                    initCenterRow = (roi.Row1 + roi.Row2) / 2.0;
+                    initCenterCol = (roi.Col1 + roi.Col2) / 2.0;
+                    // 初始半径：ROI矩形宽高的较小值的一半
+                    initRadius = Math.Min(
+                        Math.Abs(roi.Row2 - roi.Row1),
+                        Math.Abs(roi.Col2 - roi.Col1)
+                    ) / 2.0;
+                }
+                
+                // 3.1 参数验证：确保半径 > Tolerance，避免搜索范围出现负值
+                if (initRadius <= tool.MetrologyTolerance)
+                {
+                    string errorMsg = $"圆形ROI半径 ({initRadius:F1}px) 必须大于Metrology搜索范围 ({tool.MetrologyTolerance}px)\n" +
+                                     $"建议：\n" +
+                                     $"1. 绘制更大的圆形ROI（半径 > {tool.MetrologyTolerance}px）\n" +
+                                     $"2. 或在设置中减小'Metrology搜索范围'参数（当前{tool.MetrologyTolerance}px）";
+                    System.Diagnostics.Debug.WriteLine($"[圆检测失败] {errorMsg}");
+                    throw new Exception(errorMsg);
+                }
 
                 // 4. 添加圆对象到Metrology模型
                 // 参考官方示例apply_metrology_model.cs第846行
@@ -2138,9 +2202,8 @@ namespace BusbarCompressionSystem.ViewModel
         /// <param name="roi">要预览的ROI区域</param>
         /// <param name="hwindow">HALCON窗口</param>
         /// <param name="color">显示颜色</param>
-        /// <param name="isCircleROI">是否为圆形ROI（用于圆心检测）</param>
         /// <returns>是否预览成功</returns>
-        public bool PreviewEdgesForROI(HObject image, ToolModel tool, ROI roi, HWindow hwindow, string color = "green", bool isCircleROI = false)
+        public bool PreviewEdgesForROI(HObject image, ToolModel tool, ROI roi, HWindow hwindow, string color = "green")
         {
             try
             {
@@ -2150,26 +2213,138 @@ namespace BusbarCompressionSystem.ViewModel
                     return false; // ROI区域太小，跳过预览
                 }
 
-                // 根据ROI类型选择不同的预览方法
-                if (isCircleROI && tool.TestMode == TestModes.尺寸测量)
+                // 判断测量类型，选择合适的预览方法
+                if (tool.TestMode == TestModes.尺寸测量)
                 {
-                    // 使用Metrology模型预览圆形（用于圆心检测）
-                    return PreviewCircleWithMetrology(image, tool, roi, hwindow, color);
+                    // 尺寸测量模式：根据测量类型选择预览方法
+                    if (tool.MeasureType == DimensionMeasureType.直线到直线 ||
+                        tool.MeasureType == DimensionMeasureType.直线到圆心)
+                    {
+                        // 直线相关测量：使用Metrology直线预览
+                        if (roi.Type == ROIType.Line)
+                        {
+                            return PreviewEdgesWithMetrology(image, tool, roi, hwindow, color);
+                        }
+                        else
+                        {
+                            // 圆相关：使用Metrology圆预览
+                            return PreviewCircleEdgesWithMetrology(image, tool, roi, hwindow, color);
+                        }
+                    }
+                    else if (tool.MeasureType == DimensionMeasureType.圆心到圆心)
+                    {
+                        // 圆心到圆心测量：使用Metrology圆预览
+                        return PreviewCircleEdgesWithMetrology(image, tool, roi, hwindow, color);
+                    }
                 }
-                else if (roi.Type == ROIType.Line && tool.TestMode == TestModes.尺寸测量)
-                {
-                    // 使用Metrology模型预览直线（用于直线检测）
-                    return PreviewEdgesWithMetrology(image, tool, roi, hwindow, color);
-                }
-                else
-                {
-                    // 使用传统卡尺工具预览（用于其他模式）
-                    return PreviewEdgesWithCaliper(image, tool, roi, hwindow, color);
-                }
+
+                // 其他模式：使用传统卡尺工具预览
+                return PreviewEdgesWithCaliper(image, tool, roi, hwindow, color);
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"边缘预览失败: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 使用Metrology模型预览圆形边缘（完整调试信息）
+        /// </summary>
+        private bool PreviewCircleEdgesWithMetrology(HObject image, ToolModel tool, ROI roi, HWindow hwindow, string color)
+        {
+            try
+            {
+                // 使用Metrology检测圆
+                double centerRow, centerCol, radiusValue;
+                HTuple edgeRows, edgeCols;
+                if (!DetectCircleWithMetrology(image, tool, roi,
+                    out centerRow, out centerCol, out radiusValue,
+                    out edgeRows, out edgeCols))
+                {
+                    return false;
+                }
+
+                // 1. 绘制拟合圆（青色）
+                hwindow.SetLineWidth(2);
+                hwindow.SetColor("cyan");
+                hwindow.DispCircle(centerRow, centerCol, radiusValue);
+
+                // 2. 绘制圆心十字标记（提高可见性）
+                hwindow.SetColor("cyan");
+                hwindow.SetLineWidth(1);
+                double crossSize = 12; // 十字大小
+                hwindow.DispLine(centerRow - crossSize, centerCol, centerRow + crossSize, centerCol);
+                hwindow.DispLine(centerRow, centerCol - crossSize, centerRow, centerCol + crossSize);
+
+                // 3. 如果是圆形ROI，绘制初始ROI圆（绿色虚线，表示用户绘制的ROI）
+                if (roi.Type == ROIType.Circle && roi.CircleRadius > 0)
+                {
+                    hwindow.SetColor("green");
+                    hwindow.SetLineWidth(1);
+                    HTuple dashStyle = new HTuple(new int[] { 10, 5 }); // 虚线样式：10像素实线，5像素空白
+                    hwindow.SetLineStyle(dashStyle);
+                    hwindow.DispCircle(roi.CircleCenterRow, roi.CircleCenterCol, roi.CircleRadius);
+                    hwindow.SetLineStyle(new HTuple()); // 恢复实线样式
+                    
+                    // 绘制初始圆心标记（绿色小十字）
+                    hwindow.SetColor("green");
+                    double initCrossSize = 8;
+                    hwindow.DispLine(roi.CircleCenterRow - initCrossSize, roi.CircleCenterCol, 
+                                   roi.CircleCenterRow + initCrossSize, roi.CircleCenterCol);
+                    hwindow.DispLine(roi.CircleCenterRow, roi.CircleCenterCol - initCrossSize, 
+                                   roi.CircleCenterRow, roi.CircleCenterCol + initCrossSize);
+                }
+
+                // 4. 绘制边缘点（春绿色十字标记）
+                hwindow.SetColor("spring green");
+                hwindow.SetLineWidth(1);
+                for (int i = 0; i < edgeRows.Length; i++)
+                {
+                    double row = edgeRows[i].D;
+                    double col = edgeCols[i].D;
+                    hwindow.DispCross(row, col, 6, 0);
+                }
+
+                // 5. 如果启用调试信息，绘制卡尺位置和详细信息
+                if (tool.ShowMetrologyDebugInfo)
+                {
+                    // 绘制圆心标记（橙色圆圈）
+                    hwindow.SetColor("orange");
+                    hwindow.SetLineWidth(2);
+                    hwindow.DispCircle(centerRow, centerCol, 8);
+
+                    // 绘制圆心十字
+                    hwindow.SetLineWidth(1);
+                    hwindow.DispLine(centerRow - 15, centerCol, centerRow + 15, centerCol);
+                    hwindow.DispLine(centerRow, centerCol - 15, centerRow, centerCol + 15);
+
+                    // 绘制径向卡尺方向示意（黄色）
+                    // 在圆周上均匀分布的几个位置绘制径向线，表示卡尺位置
+                    hwindow.SetColor("yellow");
+                    hwindow.SetLineWidth(1);
+                    int numIndicators = Math.Min(tool.MetrologyNumMeasures, 8); // 最多显示8个方向
+                    for (int i = 0; i < numIndicators; i++)
+                    {
+                        double angle = (2.0 * Math.PI * i) / numIndicators;
+                        double innerRow = centerRow + (radiusValue - tool.MetrologyMeasureLength1) * Math.Cos(angle);
+                        double innerCol = centerCol + (radiusValue - tool.MetrologyMeasureLength1) * Math.Sin(angle);
+                        double outerRow = centerRow + (radiusValue + tool.MetrologyMeasureLength1) * Math.Cos(angle);
+                        double outerCol = centerCol + (radiusValue + tool.MetrologyMeasureLength1) * Math.Sin(angle);
+                        hwindow.DispLine(innerRow, innerCol, outerRow, outerCol);
+                    }
+
+                    // 显示圆参数信息（白色文字）
+                    hwindow.SetColor("white");
+                    string circleInfo = $"圆心: ({centerRow:F1}, {centerCol:F1})\n半径: {radiusValue:F2}px";
+                    hwindow.DispText(circleInfo, "image", centerRow - radiusValue - 40, centerCol - 50, "white", "box", "false");
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Metrology圆预览失败: {ex.Message}");
                 return false;
             }
         }
@@ -2258,109 +2433,6 @@ namespace BusbarCompressionSystem.ViewModel
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"Metrology预览失败: {ex.Message}");
-                return false;
-            }
-        }
-
-        /// <summary>
-        /// 使用Metrology模型预览圆形边缘（完整调试信息）
-        /// </summary>
-        private bool PreviewCircleWithMetrology(HObject image, ToolModel tool, ROI roi, HWindow hwindow, string color)
-        {
-            try
-            {
-                // 使用Metrology检测圆
-                double centerRow, centerCol, radius;
-                HTuple edgeRows, edgeCols;
-                if (!DetectCircleWithMetrology(image, tool, roi,
-                    out centerRow, out centerCol, out radius,
-                    out edgeRows, out edgeCols))
-                {
-                    return false;
-                }
-
-                // 1. 绘制拟合圆（黄色）
-                hwindow.SetLineWidth(2);
-                hwindow.SetColor("yellow");
-                hwindow.DispCircle(centerRow, centerCol, radius);
-
-                // 2. 绘制边缘点（春绿色十字标记）
-                hwindow.SetColor("spring green");
-                hwindow.SetLineWidth(1);
-                for (int i = 0; i < edgeRows.Length; i++)
-                {
-                    double row = edgeRows[i].D;
-                    double col = edgeCols[i].D;
-                    hwindow.DispCross(row, col, 6, 0);
-                }
-
-                // 3. 如果启用调试信息，绘制圆心标记和卡尺位置
-                if (tool.ShowMetrologyDebugInfo)
-                {
-                    // 绘制圆心标记（橙色圆圈）
-                    hwindow.SetColor("orange");
-                    hwindow.SetLineWidth(2);
-                    hwindow.DispCircle(centerRow, centerCol, 8);
-
-                    // 绘制圆心十字标记
-                    hwindow.SetLineWidth(1);
-                    double crossSize = 15;
-                    hwindow.DispLine(centerRow - crossSize, centerCol, centerRow + crossSize, centerCol);
-                    hwindow.DispLine(centerRow, centerCol - crossSize, centerRow, centerCol + crossSize);
-
-                    // 显示圆参数信息（白色文字）
-                    hwindow.SetColor("white");
-                    string debugInfo = $"Center: ({centerRow:F1}, {centerCol:F1})\nRadius: {radius:F2}px\nEdges: {edgeRows.Length}";
-                    hwindow.DispText(debugInfo, "image", centerRow - radius - 60, centerCol, "white", "box", "false");
-
-                    // 绘制卡尺位置（黄色矩形，径向分布）
-                    hwindow.SetColor("yellow");
-                    hwindow.SetLineWidth(1);
-                    hwindow.SetDraw("margin");
-
-                    for (int i = 0; i < tool.MetrologyNumMeasures; i++)
-                    {
-                        // 计算卡尺角度（沿圆周均匀分布）
-                        double angle = (double)i / tool.MetrologyNumMeasures * 2 * Math.PI;
-
-                        // 计算卡尺中心位置（在圆上）
-                        double caliperCenterRow = centerRow + radius * Math.Cos(angle);
-                        double caliperCenterCol = centerCol + radius * Math.Sin(angle);
-
-                        // 计算径向方向向量（指向圆心）
-                        double dirRow = -Math.Cos(angle);
-                        double dirCol = -Math.Sin(angle);
-
-                        // 计算切向方向向量（垂直于径向）
-                        double perpRow = -dirCol;
-                        double perpCol = dirRow;
-
-                        // 计算卡尺矩形的四个角点
-                        double halfLen1 = tool.MetrologyMeasureLength1;
-                        double halfLen2 = tool.MetrologyMeasureLength2;
-
-                        double row1 = caliperCenterRow - halfLen1 * dirRow - halfLen2 * perpRow;
-                        double col1 = caliperCenterCol - halfLen1 * dirCol - halfLen2 * perpCol;
-                        double row2 = caliperCenterRow + halfLen1 * dirRow - halfLen2 * perpRow;
-                        double col2 = caliperCenterCol + halfLen1 * dirCol - halfLen2 * perpCol;
-                        double row3 = caliperCenterRow + halfLen1 * dirRow + halfLen2 * perpRow;
-                        double col3 = caliperCenterCol + halfLen1 * dirCol + halfLen2 * perpCol;
-                        double row4 = caliperCenterRow - halfLen1 * dirRow + halfLen2 * perpRow;
-                        double col4 = caliperCenterCol - halfLen1 * dirCol + halfLen2 * perpCol;
-
-                        // 绘制矩形
-                        hwindow.DispLine(row1, col1, row2, col2);
-                        hwindow.DispLine(row2, col2, row3, col3);
-                        hwindow.DispLine(row3, col3, row4, col4);
-                        hwindow.DispLine(row4, col4, row1, col1);
-                    }
-                }
-
-                return true;
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"圆形Metrology预览失败: {ex.Message}");
                 return false;
             }
         }
