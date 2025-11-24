@@ -1807,7 +1807,7 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
-        /// 检测圆（用于圆心检测）
+        /// 检测圆（用于圆心检测）- 传统边缘检测方法（已弃用，保留作为备用）
         /// </summary>
         private bool DetectCircle(HObject image, ToolModel tool, ROI roi, out HTuple row, out HTuple col, out HTuple radius)
         {
@@ -1866,6 +1866,144 @@ namespace BusbarCompressionSystem.ViewModel
                 edges?.Dispose();
                 selectedContours?.Dispose();
                 return false;
+            }
+        }
+
+        /// <summary>
+        /// 使用HALCON Metrology模型检测圆心
+        /// </summary>
+        /// <param name="image">输入图像</param>
+        /// <param name="tool">工具模型（包含Metrology参数）</param>
+        /// <param name="roi">圆ROI（矩形框，自动计算圆心和半径）</param>
+        /// <param name="centerRow">输出：拟合圆心Row坐标</param>
+        /// <param name="centerCol">输出：拟合圆心Col坐标</param>
+        /// <param name="radius">输出：拟合圆半径</param>
+        /// <param name="edgeRows">输出：检测到的边缘点Row坐标数组</param>
+        /// <param name="edgeCols">输出：检测到的边缘点Col坐标数组</param>
+        /// <returns>是否检测成功</returns>
+        private bool DetectCircleWithMetrology(
+            HObject image, ToolModel tool, ROI roi,
+            out double centerRow, out double centerCol, out double radius,
+            out HTuple edgeRows, out HTuple edgeCols)
+        {
+            // 初始化输出参数
+            centerRow = centerCol = radius = 0;
+            edgeRows = new HTuple();
+            edgeCols = new HTuple();
+
+            HTuple metrologyHandle = null;
+            HTuple width = null, height = null;
+
+            try
+            {
+                // 1. 获取图像尺寸
+                HOperatorSet.GetImageSize(image, out width, out height);
+
+                // 2. 创建Metrology模型
+                HOperatorSet.CreateMetrologyModel(out metrologyHandle);
+                HOperatorSet.SetMetrologyModelImageSize(metrologyHandle, width, height);
+
+                // 3. 从矩形ROI计算圆的初始参数
+                // 圆心：ROI矩形的中心点
+                double initCenterRow = (roi.Row1 + roi.Row2) / 2.0;
+                double initCenterCol = (roi.Col1 + roi.Col2) / 2.0;
+                // 初始半径：ROI矩形宽高的较小值的一半
+                double initRadius = Math.Min(
+                    Math.Abs(roi.Row2 - roi.Row1),
+                    Math.Abs(roi.Col2 - roi.Col1)
+                ) / 2.0;
+
+                // 4. 添加圆对象到Metrology模型
+                // 参考官方示例apply_metrology_model.cs第846行
+                HTuple circleIndex;
+                HOperatorSet.AddMetrologyObjectCircleMeasure(
+                    metrologyHandle,
+                    initCenterRow,                    // 圆心初始Row坐标
+                    initCenterCol,                    // 圆心初始Column坐标
+                    initRadius,                       // 初始半径
+                    tool.MetrologyTolerance,          // 半径容差（搜索范围）
+                    tool.MetrologyNumMeasures,        // 卡尺数量（沿圆周分布）
+                    tool.MetrologyMeasureLength1,     // 卡尺长度（径向搜索长度）
+                    tool.MetrologyMeasureSigma,       // 高斯平滑参数
+                    new HTuple(),                     // GenParamName（空）
+                    new HTuple(),                     // GenParamValue（空）
+                    out circleIndex                   // 输出圆对象索引
+                );
+
+                // 5. 设置Metrology对象参数
+                // 参考官方示例apply_metrology_model.cs第852-863行
+                HOperatorSet.SetMetrologyObjectParam(
+                    metrologyHandle, circleIndex,
+                    "measure_transition", tool.MetrologyMeasureTransition);  // 边缘极性
+                HOperatorSet.SetMetrologyObjectParam(
+                    metrologyHandle, circleIndex,
+                    "measure_threshold", tool.MetrologyMeasureThreshold);    // 边缘阈值
+                HOperatorSet.SetMetrologyObjectParam(
+                    metrologyHandle, circleIndex,
+                    "min_score", tool.MetrologyMinScore);                    // 最小分数
+                HOperatorSet.SetMetrologyObjectParam(
+                    metrologyHandle, circleIndex,
+                    "num_instances", 1);                                     // 只检测一个圆实例
+
+                // 6. 执行测量
+                // 参考官方示例apply_metrology_model.cs第867行
+                HOperatorSet.ApplyMetrologyModel(image, metrologyHandle);
+
+                // 7. 获取拟合结果（圆参数）
+                // 参考官方示例apply_metrology_model.cs第912行
+                HTuple circleParameter;
+                HOperatorSet.GetMetrologyObjectResult(
+                    metrologyHandle,
+                    circleIndex,     // 圆对象索引
+                    "all",           // 所有实例
+                    "result_type",   // 结果类型
+                    "all_param",     // 所有参数
+                    out circleParameter
+                );
+
+                // 检查是否获取到有效结果
+                if (circleParameter == null || circleParameter.Length < 3)
+                {
+                    return false;
+                }
+
+                // 8. 解析圆参数 [CenterRow, CenterColumn, Radius]
+                // 参考官方示例apply_metrology_model.cs第921-938行
+                centerRow = circleParameter[0].D;
+                centerCol = circleParameter[1].D;
+                radius = circleParameter[2].D;
+
+                // 9. 获取边缘点坐标（用于可视化）
+                HObject contours;
+                HOperatorSet.GetMetrologyObjectMeasures(
+                    out contours,
+                    metrologyHandle,
+                    circleIndex,
+                    "all",           // 所有实例
+                    out edgeRows,
+                    out edgeCols
+                );
+                contours?.Dispose();
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"DetectCircleWithMetrology错误: {ex.Message}");
+                return false;
+            }
+            finally
+            {
+                // 释放Metrology模型资源
+                if (metrologyHandle != null)
+                {
+                    try
+                    {
+                        HOperatorSet.ClearMetrologyObject(metrologyHandle, "all");
+                        HOperatorSet.ClearMetrologyModel(metrologyHandle);
+                    }
+                    catch { }
+                }
             }
         }
 
