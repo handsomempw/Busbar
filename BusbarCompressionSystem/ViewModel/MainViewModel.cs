@@ -227,6 +227,13 @@ namespace BusbarCompressionSystem.ViewModel
         #region 操作
         public string _ScanSN(string snstr)
         {
+            // 点检SN码特殊处理：跳过MES校验，直接返回成功
+            if (snstr == DataModel.Settingmodel.SETTING_DATA.InspectionOKSN ||
+                snstr == DataModel.Settingmodel.SETTING_DATA.InspectionNGSN)
+            {
+                return string.Empty; // 直接返回成功，跳过所有后续处理
+            }
+
             //if (string.IsNullOrEmpty(DataModel.Processmodel.TakePhotoTestModel.Productinfo.SN))
             //{
             string sn = MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.DecodeSN(snstr);
