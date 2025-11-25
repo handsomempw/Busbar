@@ -227,54 +227,54 @@ namespace BusbarCompressionSystem.ViewModel
         #region 操作
         public string _ScanSN(string snstr)
         {
-            // {{ AURA-X: Modify - 添加详细性能诊断日志,记录每个步骤的耗时. Approval: 寸止(ID:20250120). }}
+            // {{ 精简性能诊断日志,只记录最终结果,突出异常耗时. }}
             Stopwatch swTotal = Stopwatch.StartNew(); // 总耗时计时器
-            writePerfLog("SCAN_START", "扫码流程开始", extraInfo: $"Input={snstr}");
 
             //if (string.IsNullOrEmpty(DataModel.Processmodel.TakePhotoTestModel.Productinfo.SN))
             //{
 
             // 步骤1: DecodeSN - 解析产品编号
-            Stopwatch sw1 = Stopwatch.StartNew();
-            writePerfLog("DECODE_START", "DecodeSN开始", extraInfo: $"Input={snstr}");
+            // {{子过程性能计时已注释，保留总过程计时.}}
+            // Stopwatch sw1 = Stopwatch.StartNew();
+            // writePerfLog("DECODE_START", "DecodeSN开始", extraInfo: $"Input={snstr}");
             string sn = MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.DecodeSN(snstr);
-            sw1.Stop();
-            writePerfLog("DECODE_END", "DecodeSN完成", sw1.ElapsedMilliseconds, $"Result={(!string.IsNullOrEmpty(sn) ? sn : "FAILED")}");
+            // sw1.Stop();
+            // writePerfLog("DECODE_END", "DecodeSN完成", sw1.ElapsedMilliseconds, $"Result={(!string.IsNullOrEmpty(sn) ? sn : "FAILED")}");
 
             if (!string.IsNullOrEmpty(sn))
             {
                 // 步骤2: get_WO_CODE - 查询批次号
-                Stopwatch sw2 = Stopwatch.StartNew();
-                writePerfLog("WOCODE_START", "查询批次号开始", extraInfo: $"SN={sn}");
+                // Stopwatch sw2 = Stopwatch.StartNew();
+                // writePerfLog("WOCODE_START", "查询批次号开始", extraInfo: $"SN={sn}");
                 string wocode = MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.get_WO_CODE(sn);
-                sw2.Stop();
-                writePerfLog("WOCODE_END", "查询批次号完成", sw2.ElapsedMilliseconds, $"WOCODE={wocode ?? "NULL"}");
+                // sw2.Stop();
+                // writePerfLog("WOCODE_END", "查询批次号完成", sw2.ElapsedMilliseconds, $"WOCODE={wocode ?? "NULL"}");
 
                 // 步骤3: get_PartNO_ID - 查询规格信息
-                Stopwatch sw3 = Stopwatch.StartNew();
-                writePerfLog("PARTNOID_START", "查询规格信息开始", extraInfo: $"SN={sn}");
+                // Stopwatch sw3 = Stopwatch.StartNew();
+                // writePerfLog("PARTNOID_START", "查询规格信息开始", extraInfo: $"SN={sn}");
                 string partnoid = MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.get_PartNO_ID(sn);
-                sw3.Stop();
-                writePerfLog("PARTNOID_END", "查询规格信息完成", sw3.ElapsedMilliseconds, $"PartNOID={partnoid ?? "NULL"}");
+                // sw3.Stop();
+                // writePerfLog("PARTNOID_END", "查询规格信息完成", sw3.ElapsedMilliseconds, $"PartNOID={partnoid ?? "NULL"}");
 
                 // 业务逻辑验证
                 if (partnoid != DataModel.Processmodel.PartNOID)
                 {
                     swTotal.Stop();
-                    writePerfLog("SCAN_FAILED", "扫码失败-规格不匹配", swTotal.ElapsedMilliseconds, $"Expected={DataModel.Processmodel.PartNOID}, Got={partnoid}");
+                    writePerfLog("SCAN_FAILED", "规格不匹配", swTotal.ElapsedMilliseconds, $"SN={sn}, Expected={DataModel.Processmodel.PartNOID}, Got={partnoid}");
                     return $"不同规格产品禁止混合作业:{partnoid},{DataModel.Processmodel.PartNOID}";
                 }
 
                 if (string.IsNullOrEmpty(wocode))
                 {
                     swTotal.Stop();
-                    writePerfLog("SCAN_FAILED", "扫码失败-批次号为空", swTotal.ElapsedMilliseconds);
+                    writePerfLog("SCAN_FAILED", "批次号为空", swTotal.ElapsedMilliseconds, $"SN={sn}");
                     return "关联批次号读取失败";
                 }
                 if (string.IsNullOrEmpty(partnoid))
                 {
                     swTotal.Stop();
-                    writePerfLog("SCAN_FAILED", "扫码失败-规格信息为空", swTotal.ElapsedMilliseconds);
+                    writePerfLog("SCAN_FAILED", "规格信息为空", swTotal.ElapsedMilliseconds, $"SN={sn}");
                     return "关联规格信息读取失败";
                 }
 
@@ -283,32 +283,31 @@ namespace BusbarCompressionSystem.ViewModel
                 //DataModel.Processmodel.TakePhotoTestModel.Productinfo.PartNOID = partnoid;
 
                 // 步骤4: PLC_Writestring - 写入PLC
-                Stopwatch sw4 = Stopwatch.StartNew();
+                // Stopwatch sw4 = Stopwatch.StartNew();
                 string writeData = $"{sn};{wocode}";
-                writePerfLog("PLC_WRITE_START", "写入PLC开始", extraInfo: $"Address={DataModel.Settingmodel.AddressSN}, Data={writeData}");
+                // writePerfLog("PLC_WRITE_START", "写入PLC开始", extraInfo: $"Address={DataModel.Settingmodel.AddressSN}, Data={writeData}");
                 bool writeSuccess = PLC_Writestring(DataModel.Settingmodel.AddressSN.ToString(), writeData);
-                sw4.Stop();
-                writePerfLog("PLC_WRITE_END", "写入PLC完成", sw4.ElapsedMilliseconds, $"Success={writeSuccess}");
+                // sw4.Stop();
+                // writePerfLog("PLC_WRITE_END", "写入PLC完成", sw4.ElapsedMilliseconds, $"Success={writeSuccess}");
                 writeLog($"扫码->写入PLC: 地址={DataModel.Settingmodel.AddressSN}, 数据=[{writeData}], 结果={writeSuccess}", false);
 
                 // 步骤5: SQLite写入
-                Stopwatch sw5 = Stopwatch.StartNew();
-                writePerfLog("SQLITE_START", "SQLite写入开始", extraInfo: $"SN={sn}, WOCODE={wocode}");
+                // Stopwatch sw5 = Stopwatch.StartNew();
+                // writePerfLog("SQLITE_START", "SQLite写入开始", extraInfo: $"SN={sn}, WOCODE={wocode}");
                 sqlite.CREATENEWLINE(wocode, partnoid, sn, DataModel.Settingmodel.SETTING_DATA.StationCode, DataModel.Settingmodel.SETTING_DATA.MachineID, DateTime.Now);
-                sw5.Stop();
-                writePerfLog("SQLITE_END", "SQLite写入完成", sw5.ElapsedMilliseconds);
+                // sw5.Stop();
+                // writePerfLog("SQLITE_END", "SQLite写入完成", sw5.ElapsedMilliseconds);
 
-                // 扫码成功
+                // 扫码成功 - 只记录最终性能总结
                 swTotal.Stop();
-                writePerfLog("SCAN_SUCCESS", "扫码流程成功完成", swTotal.ElapsedMilliseconds,
-                    $"SN={sn} | 明细: DecodeSN={sw1.ElapsedMilliseconds}ms, WOCODE={sw2.ElapsedMilliseconds}ms, PartNOID={sw3.ElapsedMilliseconds}ms, PLC={sw4.ElapsedMilliseconds}ms, SQLite={sw5.ElapsedMilliseconds}ms");
+                writePerfLog("SCAN_SUCCESS", "扫码完成", swTotal.ElapsedMilliseconds, $"SN={sn}");
                 return string.Empty;
 
             }
             else
             {
                 swTotal.Stop();
-                writePerfLog("SCAN_FAILED", "扫码失败-DecodeSN返回空", swTotal.ElapsedMilliseconds, $"Input={snstr}");
+                writePerfLog("SCAN_FAILED", "DecodeSN失败", swTotal.ElapsedMilliseconds, $"Input={snstr}");
                 return "标签读取失败,请确认该产品编号是否正常";
             }
             //}
@@ -1280,10 +1279,11 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
-        /// {{ AURA-X: Add - 添加性能诊断日志方法,用于记录耗时操作. Approval: 寸止(ID:20250120). }}
+        /// {{ 优化性能诊断日志方法,精简输出并突出异常耗时.  }}
         /// 写入性能诊断日志到独立文件,不影响现有业务日志
+        /// 超过1秒的耗时会用特殊格式突出显示
         /// </summary>
-        /// <param name="tag">日志标签,如SCAN_START、DECODE_END等</param>
+        /// <param name="tag">日志标签,如SCAN_SUCCESS、SCAN_FAILED等</param>
         /// <param name="message">日志消息</param>
         /// <param name="elapsedMs">耗时(毫秒),可选</param>
         /// <param name="extraInfo">额外信息,可选</param>
@@ -1298,17 +1298,32 @@ namespace BusbarCompressionSystem.ViewModel
                 // 获取设备ID(从配置中读取)
                 string deviceId = DataModel.Settingmodel.SETTING_DATA?.MachineID ?? "Unknown";
 
+                // 检测是否为异常耗时（超过1秒）
+                bool isAbnormalTime = elapsedMs.HasValue && elapsedMs.Value > 1000;
+                string perfTag = isAbnormalTime ? "PERF-异常" : "PERF";
+
                 // 构建日志内容
                 StringBuilder logBuilder = new StringBuilder();
                 logBuilder.Append($"[{DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff")}]");
                 logBuilder.Append($"[{threadName}]");
-                logBuilder.Append($"[{tag}]");
-                logBuilder.Append($"[Device-{deviceId}] ");
+                logBuilder.Append($"[{perfTag}]");
+                logBuilder.Append($"[Device-{deviceId}]");
+
+                // 如果是异常耗时，添加特殊标识
+                if (isAbnormalTime)
+                {
+                    logBuilder.Append("[!!!]");
+                }
+
+                logBuilder.Append($"[{tag}] ");
                 logBuilder.Append(message);
 
                 if (elapsedMs.HasValue)
                 {
-                    logBuilder.Append($" | 耗时={elapsedMs.Value}ms");
+                    string timeDisplay = isAbnormalTime ?
+                        $"耗时={elapsedMs.Value}ms[异常!!!]" :
+                        $"耗时={elapsedMs.Value}ms";
+                    logBuilder.Append($" | {timeDisplay}");
                 }
 
                 if (!string.IsNullOrEmpty(extraInfo))
