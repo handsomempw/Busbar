@@ -407,6 +407,34 @@ namespace BusbarCompressionSystem.Model.FaraVision
         }
     }
 
+    /// <summary>
+    /// 尺寸测量模式的Visibility转换器
+    /// </summary>
+    [ValueConversion(typeof(TestModes), typeof(Visibility))]
+    public class TestMode2Visibility_DimensionMeasure : IValueConverter
+    {
+        //源属性传给目标属性时，调用此方法ConvertBack
+        public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            if (value == null)
+            { throw new ArgumentNullException("value can not be null"); }
+            if ((TestModes)value != TestModes.尺寸测量)
+            {
+                return Visibility.Collapsed;
+            }
+            else
+            {
+                return Visibility.Visible;
+            }
+        }
+
+        //目标属性传给源属性时，调用此方法ConvertBack
+        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            return null;
+        }
+    }
+
 
     [ValueConversion(typeof(bool), typeof(bool))]
     public class BoolINV_Converter : IValueConverter
@@ -439,6 +467,17 @@ namespace BusbarCompressionSystem.Model.FaraVision
     {
         面积,
         二维码,
-        模板匹配
+        模板匹配,
+        尺寸测量
+    }
+
+    /// <summary>
+    /// 尺寸测量类型枚举
+    /// </summary>
+    public enum DimensionMeasureType
+    {
+        直线到直线,
+        直线到圆心,
+        圆心到圆心
     }
 }

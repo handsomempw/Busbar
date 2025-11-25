@@ -9,6 +9,7 @@ using System.Windows.Media.Imaging;
 using System.Windows.Media;
 using System.Xml.Serialization;
 using BusbarCompressionSystem.FaraVision;
+using BusbarCompressionSystem.Model.FaraVision;
 
 namespace BusbarCompressionSystem.Model.FaraVision.Tool
 {
@@ -248,6 +249,178 @@ namespace BusbarCompressionSystem.Model.FaraVision.Tool
         public int MaxAreaFilter { set; get; } = int.MaxValue;
         #endregion
 
+        #region 尺寸测量
+        /// <summary>
+        /// 尺寸测量类型
+        /// </summary>
+        [XmlElement("尺寸测量类型")]
+        public DimensionMeasureType MeasureType { set; get; } = DimensionMeasureType.直线到直线;
+
+        /// <summary>
+        /// 测量对象1 ROI（直线或圆）
+        /// </summary>
+        [XmlElement("测量对象1ROI")]
+        public ROI MeasureObject1ROI { set; get; } = new ROI();
+
+        /// <summary>
+        /// 测量对象2 ROI（直线或圆）
+        /// </summary>
+        [XmlElement("测量对象2ROI")]
+        public ROI MeasureObject2ROI { set; get; } = new ROI();
+
+        /// <summary>
+        /// 实际测量值（单位：mm，通过DimensionK参数转换）
+        /// </summary>
+        [XmlElement("实际测量值mm")]
+        public double ActualMeasureValue { set; get; } = 0;
+
+        /// <summary>
+        /// 最小允许值（单位：mm）
+        /// </summary>
+        [XmlElement("最小测量值mm")]
+        public double MinMeasureValue { set; get; } = 0;
+
+        /// <summary>
+        /// 最大允许值（单位：mm）
+        /// </summary>
+        [XmlElement("最大测量值mm")]
+        public double MaxMeasureValue { set; get; } = 1000;
+
+        /// <summary>
+        /// 世界坐标校准：尺寸测量专用比例参数（单位：um/pixel），独立于位置检测的K参数
+        /// </summary>
+        [XmlElement("尺寸测量比例um/pixel")]
+        public double DimensionK { set; get; } = 1000;
+
+        /// <summary>
+        /// 校准真实尺寸（单位：mm）
+        /// </summary>
+        [XmlElement("校准真实尺寸mm")]
+        public double CalibrationRealSize { set; get; } = 0;
+
+        /// <summary>
+        /// 校准像素尺寸（单位：pixel，测量得到）
+        /// </summary>
+        [XmlElement("校准像素尺寸")]
+        public double CalibrationPixelSize { set; get; } = 0;
+
+        // ========== 卡尺工具参数 ==========
+
+        /// <summary>
+        /// 卡尺长度（沿测量方向的长度，单位：pixel）
+        /// </summary>
+        [XmlElement("卡尺长度")]
+        public int CaliperLength { set; get; } = 100;
+
+        /// <summary>
+        /// 卡尺宽度（垂直于测量方向的宽度，单位：pixel）
+        /// </summary>
+        [XmlElement("卡尺宽度")]
+        public int CaliperWidth { set; get; } = 5;
+
+        /// <summary>
+        /// 卡尺角度（测量方向的角度，单位：度）
+        /// </summary>
+        [XmlElement("卡尺角度")]
+        public double CaliperAngle { set; get; } = 0;
+
+        /// <summary>
+        /// 边缘检测阈值（灰度值差异）
+        /// </summary>
+        [XmlElement("边缘检测阈值")]
+        public int EdgeThreshold { set; get; } = 30;
+
+        /// <summary>
+        /// 边缘极性（"positive"从暗到亮, "negative"从亮到暗, "all"全部边缘）
+        /// </summary>
+        [XmlElement("边缘极性")]
+        public string EdgePolarity { set; get; } = "all";
+
+        /// <summary>
+        /// 亚像素精度
+        /// </summary>
+        [XmlElement("亚像素精度")]
+        public bool SubPixelAccuracy { set; get; } = true;
+
+        /// <summary>
+        /// 边缘选择策略（"first"第一个, "last"最后一个, "all"全部, "strongest"最强）
+        /// </summary>
+        [XmlElement("边缘选择策略")]
+        public string EdgeSelection { set; get; } = "first";
+
+        // ========== HALCON Metrology 模型参数 ==========
+
+        /// <summary>
+        /// Metrology搜索范围/容差（Tolerance参数，单位：pixel）
+        /// 定义在线段两侧搜索边缘的范围
+        /// </summary>
+        [XmlElement("Metrology搜索范围")]
+        public int MetrologyTolerance { set; get; } = 200;
+
+        /// <summary>
+        /// 卡尺数量（num_measures参数）
+        /// 沿线段分布的测量点数量，越多精度越高但速度越慢
+        /// </summary>
+        [XmlElement("Metrology卡尺数量")]
+        public int MetrologyNumMeasures { set; get; } = 20;
+
+        /// <summary>
+        /// 高斯平滑系数（measure_sigma参数）
+        /// 用于边缘检测前的图像平滑，减少噪声影响
+        /// </summary>
+        [XmlElement("Metrology高斯平滑")]
+        public double MetrologyMeasureSigma { set; get; } = 2.0;
+
+        /// <summary>
+        /// 边缘检测阈值（measure_threshold参数）
+        /// 灰度梯度阈值，低于此值的边缘将被忽略
+        /// </summary>
+        [XmlElement("Metrology边缘阈值")]
+        public int MetrologyMeasureThreshold { set; get; } = 20;
+
+        /// <summary>
+        /// 边缘过渡类型（measure_transition参数）
+        /// 'positive': 暗到亮, 'negative': 亮到暗, 'uniform': 双向, 'all': 全部
+        /// </summary>
+        [XmlElement("Metrology边缘过渡类型")]
+        public string MetrologyMeasureTransition { set; get; } = "uniform";
+
+        /// <summary>
+        /// 边缘选择模式（measure_select参数）
+        /// 'first': 第一个, 'last': 最后一个, 'all': 全部
+        /// </summary>
+        [XmlElement("Metrology边缘选择")]
+        public string MetrologyMeasureSelect { set; get; } = "all";
+
+        /// <summary>
+        /// 最小拟合分数（min_score参数）
+        /// 拟合质量阈值，低于此值的结果将被拒绝（0.0-1.0）
+        /// </summary>
+        [XmlElement("Metrology最小分数")]
+        public double MetrologyMinScore { set; get; } = 0.4;
+
+        /// <summary>
+        /// 卡尺长度1（measure_length1参数，单位：pixel）
+        /// 卡尺矩形在测量方向上的半长度
+        /// </summary>
+        [XmlElement("Metrology卡尺长度1")]
+        public int MetrologyMeasureLength1 { set; get; } = 10;
+
+        /// <summary>
+        /// 卡尺长度2（measure_length2参数，单位：pixel）
+        /// 卡尺矩形垂直于测量方向的半宽度
+        /// </summary>
+        [XmlElement("Metrology卡尺长度2")]
+        public int MetrologyMeasureLength2 { set; get; } = 5;
+
+        /// <summary>
+        /// 是否显示调试信息（显示卡尺位置、边缘点等）
+        /// </summary>
+        [XmlElement("显示Metrology调试信息")]
+        public bool ShowMetrologyDebugInfo { set; get; } = true;
+
+        #endregion
+
         [XmlIgnore]
         public BitmapSource BitmapSource { get; set; } = null;
         [XmlIgnore]
@@ -288,11 +461,47 @@ namespace BusbarCompressionSystem.Model.FaraVision.Tool
 
 
 
+    /// <summary>
+    /// ROI类型枚举
+    /// </summary>
+    public enum ROIType
+    {
+        Rectangle,  // 矩形ROI
+        Line,       // 线段ROI（用于Metrology测量）
+        Circle      // 圆形ROI（用于圆心测量）
+    }
+
     public class ROI : ObservableObject
     {
+        /// <summary>
+        /// ROI类型（矩形、线段或圆形）
+        /// </summary>
+        [XmlElement("ROI类型")]
+        public ROIType Type { set; get; } = ROIType.Rectangle;
+
+        // 矩形/线段参数
         public int Row1 { set; get; } = 0;
         public int Row2 { set; get; } = 0;
         public int Col1 { set; get; } = 0;
         public int Col2 { set; get; } = 0;
+        
+        // 圆形参数
+        /// <summary>
+        /// 圆心Row坐标（用于Circle类型）
+        /// </summary>
+        [XmlElement("圆心行坐标")]
+        public double CircleCenterRow { set; get; } = 0;
+        
+        /// <summary>
+        /// 圆心Column坐标（用于Circle类型）
+        /// </summary>
+        [XmlElement("圆心列坐标")]
+        public double CircleCenterCol { set; get; } = 0;
+        
+        /// <summary>
+        /// 圆半径（用于Circle类型）
+        /// </summary>
+        [XmlElement("圆半径")]
+        public double CircleRadius { set; get; } = 0;
     }
 }
