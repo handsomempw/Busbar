@@ -2439,5 +2439,84 @@ namespace BusbarCompressionSystem.ViewModel
             HOperatorSet.WriteImage(Image, "jpg", 0, savefilename);
         }
         #endregion
+
+        #region 性能日志
+        /// <summary>
+        /// 统一的性能诊断日志方法
+        /// 写入性能诊断日志到独立文件,不影响现有业务日志
+        /// 超过1秒的耗时会用特殊格式突出显示
+        /// </summary>
+        /// <param name="component">组件标识，如BUSINESS、UI等</param>
+        /// <param name="tag">日志标签,如 SCAN_SUCCESS、PROCESS_COMPLETE等</param>
+        /// <param name="message">日志消息</param>
+        /// <param name="elapsedMs">耗时(毫秒),可选</param>
+        /// <param name="extraInfo">额外信息,可选</param>
+        private void writePerfLog(string component, string tag, string message, long? elapsedMs = null, string extraInfo = null)
+        {
+            try
+            {
+                // 获取线程ID
+                int threadId = Thread.CurrentThread.ManagedThreadId;
+                string threadName = Thread.CurrentThread.Name ?? (threadId == 1 ? "UI-Thread" : $"Thread-{threadId}");
+
+                // 获取设备ID(从配置中读取)
+                string deviceId = DataModel.Settingmodel.SETTING_DATA?.MachineID ?? "Unknown";
+
+                // 检测是否为异常耗时（超过1秒）
+                bool isAbnormalTime = elapsedMs.HasValue && elapsedMs.Value > 1000;
+                string perfLevel = isAbnormalTime ? "PERF-异常" : "PERF";
+
+                // 构建日志内容
+                StringBuilder logBuilder = new StringBuilder();
+                logBuilder.Append($"[{DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff")}]");
+                logBuilder.Append($"[{threadName}]");
+                logBuilder.Append($"[{component}_{tag}]");
+                logBuilder.Append($"[{perfLevel}]");
+                logBuilder.Append($"[Device-{deviceId}] {message}");
+
+                if (elapsedMs.HasValue)
+                {
+                    string timeDisplay = isAbnormalTime ?
+                        $"耗时={elapsedMs.Value}ms[异常!!!]" :
+                        $"耗时={elapsedMs.Value}ms";
+                    logBuilder.Append($" | {timeDisplay}");
+                }
+
+                if (!string.IsNullOrEmpty(extraInfo))
+                {
+                    logBuilder.Append($" | {extraInfo}");
+                }
+
+                string logContent = logBuilder.ToString();
+
+                // 写入独立的性能日志文件
+                string filename = $"{Environment.CurrentDirectory}\\日志\\性能诊断\\{DateTime.Now.ToString("yyyyMMdd")}_performance.log";
+                string dir = Path.GetDirectoryName(filename);
+                if (!Directory.Exists(dir))
+                {
+                    Directory.CreateDirectory(dir);
+                }
+
+                // 使用文件锁确保多线程安全
+                lock (writeLog_Locker)
+                {
+                    using (StreamWriter sw = new StreamWriter(filename, true, Encoding.UTF8))
+                    {
+                        sw.WriteLine(logContent);
+                        sw.Close();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                // 性能日志失败不应影响业务,仅记录到错误日志
+                try
+                {
+                    writeError($"性能日志写入失败: {ex.Message}");
+                }
+                catch { }
+            }
+        }
+        #endregion
     }
 }
