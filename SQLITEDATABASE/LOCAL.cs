@@ -17,6 +17,7 @@ namespace SQLITEDATABASE
     {
         private static object perfLogLocker = new object(); //性能日志文件锁
         private static object errorLogLocker = new object(); //数据库异常日志文件锁
+        private static object dbFileLocker = new object(); //数据库文件操作锁
 
         /// <summary>
         /// SQLite模块专用错误日志
@@ -297,6 +298,7 @@ namespace SQLITEDATABASE
         /// 业务逻辑：按工单号（WOCODE）创建独立的SQLite数据库文件，实现数据隔离
         /// 设计思路：每个工单一个独立db文件，便于归档、迁移和追溯
         /// 自动初始化：如果数据库文件不存在，从default.db模板复制创建
+        /// 线程安全：使用静态锁保护文件复制操作，防止并发复制导致的异常
         /// </summary>
         /// <returns>返回数据库连接字符串，失败返回空字符串</returns>
         public static string CheckDataBase(string WOCODE, string PARTNOID, string SN)
@@ -313,14 +315,25 @@ namespace SQLITEDATABASE
                     Directory.CreateDirectory(dir);
                 }
 
-
-
                 if (!File.Exists(db))
                 {
-                    if (File.Exists(defaultdb))
+                    // 使用锁保护文件复制操作，防止多线程并发复制导致IOException
+                    lock (dbFileLocker)
                     {
-                        File.Copy(defaultdb, db);
-                        return $"Data Source={db};Pooling=true;FailIfMissing=false";
+                        // 双重检查：锁内再次判断文件是否存在，避免重复复制
+                        if (!File.Exists(db))
+                        {
+                            if (File.Exists(defaultdb))
+                            {
+                                File.Copy(defaultdb, db);
+                                return $"Data Source={db};Pooling=true;FailIfMissing=false";
+                            }
+                        }
+                        else
+                        {
+                            // 在等待锁期间，其他线程已经完成了复制
+                            return $"Data Source={db};Pooling=true;FailIfMissing=false";
+                        }
                     }
                 }
                 else
@@ -609,15 +622,16 @@ namespace SQLITEDATABASE
         {
             try
             {
-                SQLiteConnection conn = new SQLiteConnection(connstring);
-                conn.Open();
-                SQLiteDataAdapter oda = new SQLiteDataAdapter(sql, conn);
-                DataTable dt = new DataTable();
-                oda.Fill(dt);
-                conn.Close();
-                conn.Dispose();
-                oda.Dispose();
-                return dt;
+                using (SQLiteConnection conn = new SQLiteConnection(connstring))
+                {
+                    conn.Open();
+                    using (SQLiteDataAdapter oda = new SQLiteDataAdapter(sql, conn))
+                    {
+                        DataTable dt = new DataTable();
+                        oda.Fill(dt);
+                        return dt;
+                    }
+                }
             }
             catch
             {
@@ -628,16 +642,17 @@ namespace SQLITEDATABASE
         {
             try
             {
-                SQLiteConnection conn = new SQLiteConnection(connstring);
-                conn.Open();
-                SQLiteCommand odc = new SQLiteCommand(sql, conn);
-                SQLiteDataReader reader = odc.ExecuteReader();
-                reader.Read();
-                string s = reader.GetValue(0).ToString();
-                conn.Close();
-                conn.Dispose();
-                odc.Dispose();
-                return (s);
+                using (SQLiteConnection conn = new SQLiteConnection(connstring))
+                {
+                    conn.Open();
+                    using (SQLiteCommand odc = new SQLiteCommand(sql, conn))
+                    using (SQLiteDataReader reader = odc.ExecuteReader())
+                    {
+                        reader.Read();
+                        string s = reader.GetValue(0).ToString();
+                        return s;
+                    }
+                }
             }
             catch
             {
@@ -648,14 +663,15 @@ namespace SQLITEDATABASE
         {
             try
             {
-                SQLiteConnection conn = new SQLiteConnection(connstring);
-                conn.Open();
-                SQLiteCommand odc = new SQLiteCommand(sql, conn);
-                int x = odc.ExecuteNonQuery();
-                conn.Close();
-                conn.Dispose();
-                odc.Dispose();
-                return x;
+                using (SQLiteConnection conn = new SQLiteConnection(connstring))
+                {
+                    conn.Open();
+                    using (SQLiteCommand odc = new SQLiteCommand(sql, conn))
+                    {
+                        int x = odc.ExecuteNonQuery();
+                        return x;
+                    }
+                }
             }
             catch { return 0; }
         }
