@@ -227,87 +227,43 @@ namespace BusbarCompressionSystem.ViewModel
         #region 操作
         public string _ScanSN(string snstr)
         {
-            // {{ 精简性能诊断日志,只记录最终结果,突出异常耗时. }}
-            Stopwatch swTotal = Stopwatch.StartNew(); // 总耗时计时器
+            // 点检SN码特殊处理：跳过MES校验，直接返回成功
+            if (snstr == DataModel.Settingmodel.SETTING_DATA.InspectionOKSN ||
+                snstr == DataModel.Settingmodel.SETTING_DATA.InspectionNGSN)
+            {
+                return string.Empty; // 直接返回成功，跳过所有后续处理
+            }
 
             //if (string.IsNullOrEmpty(DataModel.Processmodel.TakePhotoTestModel.Productinfo.SN))
             //{
-
-            // 步骤1: DecodeSN - 解析产品编号
-            // {{子过程性能计时已注释，保留总过程计时.}}
-            // Stopwatch sw1 = Stopwatch.StartNew();
-            // writePerfLog("DECODE_START", "DecodeSN开始", extraInfo: $"Input={snstr}");
             string sn = MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.DecodeSN(snstr);
-            // sw1.Stop();
-            // writePerfLog("DECODE_END", "DecodeSN完成", sw1.ElapsedMilliseconds, $"Result={(!string.IsNullOrEmpty(sn) ? sn : "FAILED")}");
-
             if (!string.IsNullOrEmpty(sn))
             {
-                // 步骤2: get_WO_CODE - 查询批次号
-                // Stopwatch sw2 = Stopwatch.StartNew();
-                // writePerfLog("WOCODE_START", "查询批次号开始", extraInfo: $"SN={sn}");
                 string wocode = MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.get_WO_CODE(sn);
-                // sw2.Stop();
-                // writePerfLog("WOCODE_END", "查询批次号完成", sw2.ElapsedMilliseconds, $"WOCODE={wocode ?? "NULL"}");
-
-                // 步骤3: get_PartNO_ID - 查询规格信息
-                // Stopwatch sw3 = Stopwatch.StartNew();
-                // writePerfLog("PARTNOID_START", "查询规格信息开始", extraInfo: $"SN={sn}");
                 string partnoid = MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.get_PartNO_ID(sn);
-                // sw3.Stop();
-                // writePerfLog("PARTNOID_END", "查询规格信息完成", sw3.ElapsedMilliseconds, $"PartNOID={partnoid ?? "NULL"}");
-
-                // 业务逻辑验证
                 if (partnoid != DataModel.Processmodel.PartNOID)
                 {
-                    swTotal.Stop();
-                    writePerfLog("SCAN_FAILED", "规格不匹配", swTotal.ElapsedMilliseconds, $"SN={sn}, Expected={DataModel.Processmodel.PartNOID}, Got={partnoid}");
                     return $"不同规格产品禁止混合作业:{partnoid},{DataModel.Processmodel.PartNOID}";
                 }
 
                 if (string.IsNullOrEmpty(wocode))
                 {
-                    swTotal.Stop();
-                    writePerfLog("SCAN_FAILED", "批次号为空", swTotal.ElapsedMilliseconds, $"SN={sn}");
                     return "关联批次号读取失败";
                 }
                 if (string.IsNullOrEmpty(partnoid))
                 {
-                    swTotal.Stop();
-                    writePerfLog("SCAN_FAILED", "规格信息为空", swTotal.ElapsedMilliseconds, $"SN={sn}");
                     return "关联规格信息读取失败";
                 }
-
                 //DataModel.Processmodel.TakePhotoTestModel.Productinfo.SN = sn;
                 //DataModel.Processmodel.TakePhotoTestModel.Productinfo.WOCODE = wocode;
                 //DataModel.Processmodel.TakePhotoTestModel.Productinfo.PartNOID = partnoid;
-
-                // 步骤4: PLC_Writestring - 写入PLC
-                // Stopwatch sw4 = Stopwatch.StartNew();
-                string writeData = $"{sn};{wocode}";
-                // writePerfLog("PLC_WRITE_START", "写入PLC开始", extraInfo: $"Address={DataModel.Settingmodel.AddressSN}, Data={writeData}");
-                bool writeSuccess = PLC_Writestring(DataModel.Settingmodel.AddressSN.ToString(), writeData);
-                // sw4.Stop();
-                // writePerfLog("PLC_WRITE_END", "写入PLC完成", sw4.ElapsedMilliseconds, $"Success={writeSuccess}");
-                writeLog($"扫码->写入PLC: 地址={DataModel.Settingmodel.AddressSN}, 数据=[{writeData}], 结果={writeSuccess}", false);
-
-                // 步骤5: SQLite写入
-                // Stopwatch sw5 = Stopwatch.StartNew();
-                // writePerfLog("SQLITE_START", "SQLite写入开始", extraInfo: $"SN={sn}, WOCODE={wocode}");
+                PLC_Writestring(DataModel.Settingmodel.AddressSN.ToString(), $"{sn};{wocode}");
                 sqlite.CREATENEWLINE(wocode, partnoid, sn, DataModel.Settingmodel.SETTING_DATA.StationCode, DataModel.Settingmodel.SETTING_DATA.MachineID, DateTime.Now);
-                // sw5.Stop();
-                // writePerfLog("SQLITE_END", "SQLite写入完成", sw5.ElapsedMilliseconds);
-
-                // 扫码成功 - 只记录最终性能总结
-                swTotal.Stop();
-                writePerfLog("SCAN_SUCCESS", "扫码完成", swTotal.ElapsedMilliseconds, $"SN={sn}");
                 return string.Empty;
 
             }
             else
             {
-                swTotal.Stop();
-                writePerfLog("SCAN_FAILED", "DecodeSN失败", swTotal.ElapsedMilliseconds, $"Input={snstr}");
                 return "标签读取失败,请确认该产品编号是否正常";
             }
             //}
@@ -648,8 +604,9 @@ namespace BusbarCompressionSystem.ViewModel
             }
             else
             {
-                // 详细诊断信息
-                writeLog($"拍照留底产品编号读取错误->地址:{DataModel.Settingmodel.AddressSN}, 原始数据:[{s}], 长度:{s.Length}, 分段数:{ss.Length}, 内容:{string.Join("|", ss)}");
+
+                writeLog($"拍照留底产品编号读取错误:{s}");
+
             }
 
 
@@ -1278,90 +1235,6 @@ namespace BusbarCompressionSystem.ViewModel
             //}
         }
 
-        /// <summary>
-        /// {{ 优化性能诊断日志方法,精简输出并突出异常耗时.  }}
-        /// 写入性能诊断日志到独立文件,不影响现有业务日志
-        /// 超过1秒的耗时会用特殊格式突出显示
-        /// </summary>
-        /// <param name="tag">日志标签,如SCAN_SUCCESS、SCAN_FAILED等</param>
-        /// <param name="message">日志消息</param>
-        /// <param name="elapsedMs">耗时(毫秒),可选</param>
-        /// <param name="extraInfo">额外信息,可选</param>
-        private void writePerfLog(string tag, string message, long? elapsedMs = null, string extraInfo = null)
-        {
-            try
-            {
-                // 获取线程ID
-                int threadId = Thread.CurrentThread.ManagedThreadId;
-                string threadName = Thread.CurrentThread.Name ?? (threadId == 1 ? "UI-Thread" : $"Thread-{threadId}");
-
-                // 获取设备ID(从配置中读取)
-                string deviceId = DataModel.Settingmodel.SETTING_DATA?.MachineID ?? "Unknown";
-
-                // 检测是否为异常耗时（超过1秒）
-                bool isAbnormalTime = elapsedMs.HasValue && elapsedMs.Value > 1000;
-                string perfTag = isAbnormalTime ? "PERF-异常" : "PERF";
-
-                // 构建日志内容
-                StringBuilder logBuilder = new StringBuilder();
-                logBuilder.Append($"[{DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff")}]");
-                logBuilder.Append($"[{threadName}]");
-                logBuilder.Append($"[{perfTag}]");
-                logBuilder.Append($"[Device-{deviceId}]");
-
-                // 如果是异常耗时，添加特殊标识
-                if (isAbnormalTime)
-                {
-                    logBuilder.Append("[!!!]");
-                }
-
-                logBuilder.Append($"[{tag}] ");
-                logBuilder.Append(message);
-
-                if (elapsedMs.HasValue)
-                {
-                    string timeDisplay = isAbnormalTime ?
-                        $"耗时={elapsedMs.Value}ms[异常!!!]" :
-                        $"耗时={elapsedMs.Value}ms";
-                    logBuilder.Append($" | {timeDisplay}");
-                }
-
-                if (!string.IsNullOrEmpty(extraInfo))
-                {
-                    logBuilder.Append($" | {extraInfo}");
-                }
-
-                string logContent = logBuilder.ToString();
-
-                // 写入独立的性能日志文件
-                string filename = $"{Environment.CurrentDirectory}\\日志\\性能诊断\\{DateTime.Now.ToString("yyyyMMdd")}_performance.log";
-                string dir = Path.GetDirectoryName(filename);
-                if (!Directory.Exists(dir))
-                {
-                    Directory.CreateDirectory(dir);
-                }
-
-                // 使用文件锁确保多线程安全
-                lock (writeLog_Locker)
-                {
-                    using (StreamWriter sw = new StreamWriter(filename, true, Encoding.UTF8))
-                    {
-                        sw.WriteLine(logContent);
-                        sw.Close();
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                // 性能日志失败不应影响业务,仅记录到错误日志
-                try
-                {
-                    writeError($"性能日志写入失败: {ex.Message}");
-                }
-                catch { }
-            }
-        }
-
         internal void writeError(string Content)
         {
 
@@ -1894,6 +1767,37 @@ namespace BusbarCompressionSystem.ViewModel
                                 GC.Collect();
                                 #endregion
                             }
+                            else if (tool.TestMode == TestModes.尺寸测量)
+                            {
+                                #region 尺寸测量
+
+                                try
+                                {
+                                    double measureValue = MeasureDimension(Image, tool, hwindow, false);
+                                    tool.ActualMeasureValue = measureValue;
+
+                                    if (measureValue >= 0 && measureValue >= tool.MinMeasureValue && measureValue <= tool.MaxMeasureValue)
+                                    {
+                                        tool.ToolStatus = ToolStatus.OK;
+                                    }
+                                    else if (measureValue < 0)
+                                    {
+                                        tool.ToolStatus = ToolStatus.NG2; // 测量失败
+                                    }
+                                    else
+                                    {
+                                        tool.ToolStatus = ToolStatus.NG; // 测量值超出范围
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    tool.ToolStatus = ToolStatus.NG2;
+                                    writeLog($"尺寸测量失败: {ex.Message}", false);
+                                }
+
+                                GC.Collect();
+                                #endregion
+                            }
                         }
                         catch {; }
 
@@ -2297,7 +2201,7 @@ namespace BusbarCompressionSystem.ViewModel
                     }
                     else
                     {
-                        writeLog($"视觉检测产品编号读取错误->地址:{DataModel.Settingmodel.AddressSN + 100}, 原始数据:[{s}], 长度:{s.Length}, 分段数:{ss.Length}");
+                        writeLog($"视觉检测产品编号读取错误:{s}");
                     }
 
                     #endregion
@@ -2533,6 +2437,85 @@ namespace BusbarCompressionSystem.ViewModel
             if (!Directory.Exists(dir))
             { Directory.CreateDirectory(dir); }
             HOperatorSet.WriteImage(Image, "jpg", 0, savefilename);
+        }
+        #endregion
+
+        #region 性能日志
+        /// <summary>
+        /// 统一的性能诊断日志方法
+        /// 写入性能诊断日志到独立文件,不影响现有业务日志
+        /// 超过1秒的耗时会用特殊格式突出显示
+        /// </summary>
+        /// <param name="component">组件标识，如BUSINESS、UI等</param>
+        /// <param name="tag">日志标签,如 SCAN_SUCCESS、PROCESS_COMPLETE等</param>
+        /// <param name="message">日志消息</param>
+        /// <param name="elapsedMs">耗时(毫秒),可选</param>
+        /// <param name="extraInfo">额外信息,可选</param>
+        private void writePerfLog(string component, string tag, string message, long? elapsedMs = null, string extraInfo = null)
+        {
+            try
+            {
+                // 获取线程ID
+                int threadId = Thread.CurrentThread.ManagedThreadId;
+                string threadName = Thread.CurrentThread.Name ?? (threadId == 1 ? "UI-Thread" : $"Thread-{threadId}");
+
+                // 获取设备ID(从配置中读取)
+                string deviceId = DataModel.Settingmodel.SETTING_DATA?.MachineID ?? "Unknown";
+
+                // 检测是否为异常耗时（超过1秒）
+                bool isAbnormalTime = elapsedMs.HasValue && elapsedMs.Value > 1000;
+                string perfLevel = isAbnormalTime ? "PERF-异常" : "PERF";
+
+                // 构建日志内容
+                StringBuilder logBuilder = new StringBuilder();
+                logBuilder.Append($"[{DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff")}]");
+                logBuilder.Append($"[{threadName}]");
+                logBuilder.Append($"[{component}_{tag}]");
+                logBuilder.Append($"[{perfLevel}]");
+                logBuilder.Append($"[Device-{deviceId}] {message}");
+
+                if (elapsedMs.HasValue)
+                {
+                    string timeDisplay = isAbnormalTime ?
+                        $"耗时={elapsedMs.Value}ms[异常!!!]" :
+                        $"耗时={elapsedMs.Value}ms";
+                    logBuilder.Append($" | {timeDisplay}");
+                }
+
+                if (!string.IsNullOrEmpty(extraInfo))
+                {
+                    logBuilder.Append($" | {extraInfo}");
+                }
+
+                string logContent = logBuilder.ToString();
+
+                // 写入独立的性能日志文件
+                string filename = $"{Environment.CurrentDirectory}\\日志\\性能诊断\\{DateTime.Now.ToString("yyyyMMdd")}_performance.log";
+                string dir = Path.GetDirectoryName(filename);
+                if (!Directory.Exists(dir))
+                {
+                    Directory.CreateDirectory(dir);
+                }
+
+                // 使用文件锁确保多线程安全
+                lock (writeLog_Locker)
+                {
+                    using (StreamWriter sw = new StreamWriter(filename, true, Encoding.UTF8))
+                    {
+                        sw.WriteLine(logContent);
+                        sw.Close();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                // 性能日志失败不应影响业务,仅记录到错误日志
+                try
+                {
+                    writeError($"性能日志写入失败: {ex.Message}");
+                }
+                catch { }
+            }
         }
         #endregion
     }

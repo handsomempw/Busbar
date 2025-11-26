@@ -46,16 +46,23 @@ namespace MES_ORACLE_DATABASE
                 int threadId = Thread.CurrentThread.ManagedThreadId;
                 string threadName = Thread.CurrentThread.Name ?? $"Thread-{threadId}";
 
+                // 检测是否为异常耗时（超过1秒）
+                bool isAbnormalTime = elapsedMs.HasValue && elapsedMs.Value > 1000;
+                string perfLevel = isAbnormalTime ? "PERF-异常" : "PERF";
+
                 StringBuilder logBuilder = new StringBuilder();
                 logBuilder.Append($"[{DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff")}]");
                 logBuilder.Append($"[{threadName}]");
                 logBuilder.Append($"[MES_DB_{tag}]");
-                logBuilder.Append($"[MES_ORACLE_DATABASE] ");
-                logBuilder.Append(message);
+                logBuilder.Append($"[{perfLevel}]");
+                logBuilder.Append($"[MES_ORACLE_DATABASE] {message}");
 
                 if (elapsedMs.HasValue)
                 {
-                    logBuilder.Append($" | 耗时={elapsedMs.Value}ms");
+                    string timeDisplay = isAbnormalTime ?
+                        $"耗时={elapsedMs.Value}ms[异常!!!]" :
+                        $"耗时={elapsedMs.Value}ms";
+                    logBuilder.Append($" | {timeDisplay}");
                 }
 
                 if (!string.IsNullOrEmpty(extraInfo))
