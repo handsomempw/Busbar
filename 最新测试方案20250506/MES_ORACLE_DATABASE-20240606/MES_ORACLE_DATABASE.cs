@@ -16,7 +16,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Xml.Linq;
-using System.Threading; // {{ AURA-X: Add - 添加Thread命名空间用于获取线程ID. Approval: 寸止(ID:20250120). }}
+using System.Threading; //添加Thread命名空间用于获取线程ID
 
 namespace MES_ORACLE_DATABASE
 {
@@ -33,10 +33,10 @@ namespace MES_ORACLE_DATABASE
         private static AutoLineClient client = AutoLineClient.Create("http://mes-equip.efara.cn");
         private static Dictionary<string, string> dicStandardGroup = new Dictionary<string, string>();//工序码、工序名称对应清单
         private static IProductBarcodeResolver _productBarcodeResolver;//= new ProductBarcodeResolverFactory().RemoteRuleSetBased();
-        private static object perfLogLocker = new object(); // {{ AURA-X: Add - 性能日志文件锁. Approval: 寸止(ID:20250120). }}
+        private static object perfLogLocker = new object(); // 性能日志文件锁
 
         /// <summary>
-        /// {{ AURA-X: Add - 添加MES数据库操作性能诊断日志方法. Approval: 寸止(ID:20250120). }}
+        /// 添加MES数据库操作性能诊断日志方法
         /// 写入性能诊断日志到独立文件
         /// </summary>
         private static void WritePerfLog(string tag, string message, long? elapsedMs = null, string extraInfo = null)
@@ -738,7 +738,7 @@ namespace MES_ORACLE_DATABASE
 
         public static bool GetProductInfo(string SN)
         {
-            // {{ AURA-X: Modify - 添加性能诊断日志. Approval: 寸止(ID:20250120). }}
+            // 添加性能诊断日志
             Stopwatch sw = Stopwatch.StartNew();
             WritePerfLog("GETPRODUCTINFO_START", "GetProductInfo开始(MES API调用)", extraInfo: $"SN={SN}");
 
@@ -868,7 +868,7 @@ namespace MES_ORACLE_DATABASE
 
         public static string get_WO_CODE(string SN)
         {
-            // {{ AURA-X: Modify - 添加性能诊断日志. Approval: 寸止(ID:20250120). }}
+            //添加性能诊断日志
             Stopwatch sw = Stopwatch.StartNew();
             WritePerfLog("GET_WOCODE_START", "get_WO_CODE开始", extraInfo: $"SN={SN}");
 
@@ -913,7 +913,7 @@ namespace MES_ORACLE_DATABASE
 
         public static string get_PartNO_ID(string SN)
         {
-            // {{ AURA-X: Modify - 添加性能诊断日志. Approval: 寸止(ID:20250120). }}
+            // 添加性能诊断日志
             Stopwatch sw = Stopwatch.StartNew();
             WritePerfLog("GET_PARTNOID_START", "get_PartNO_ID开始", extraInfo: $"SN={SN}");
 
@@ -964,7 +964,7 @@ namespace MES_ORACLE_DATABASE
 
         public static string DecodeSN(string CODEstr)
         {
-            // {{ AURA-X: Modify - 添加详细性能诊断日志. Approval: 寸止(ID:20250120). }}
+            // 添加详细性能诊断日志
             Stopwatch swTotal = Stopwatch.StartNew();
             WritePerfLog("DECODE_START", "DecodeSN开始", extraInfo: $"Input={CODEstr}");
 

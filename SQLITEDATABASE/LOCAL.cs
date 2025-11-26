@@ -8,17 +8,17 @@ using System.Data.SQLite;
 using System.Security.Policy;
 using System.IO;
 using System.Reflection.Emit;
-using System.Diagnostics; // {{ AURA-X: Add - 添加Stopwatch用于性能计时. Approval: 寸止(ID:20250120). }}
-using System.Threading; // {{ AURA-X: Add - 添加Thread用于获取线程ID. Approval: 寸止(ID:20250120). }}
+using System.Diagnostics; // 添加Stopwatch用于性能计时
+using System.Threading; // 添加Thread用于获取线程ID
 
 namespace SQLITEDATABASE
 {
     public partial class sqlite
     {
-        private static object perfLogLocker = new object(); // {{ AURA-X: Add - 性能日志文件锁. Approval: 寸止(ID:20250120). }}
+        private static object perfLogLocker = new object(); //性能日志文件锁
 
         /// <summary>
-        /// {{ AURA-X: Add - 添加SQLite操作性能诊断日志方法. Approval: 寸止(ID:20250120). }}
+        /// 添加SQLite操作性能诊断日志方法
         /// 写入性能诊断日志到独立文件
         /// </summary>
         private static void WritePerfLog(string tag, string message, long? elapsedMs = null, string extraInfo = null)
@@ -78,10 +78,7 @@ namespace SQLITEDATABASE
 
         public static bool CREATENEWLINE(string WOCODE, string PARTNOID, string SN, String STATIONCODE, string EQUIPMENTID, DateTime dt)
         {
-            // {{ AURA-X: Modify - 添加性能诊断日志. Approval: 寸止(ID:20250120). }}
-            Stopwatch swTotal = Stopwatch.StartNew();
-            WritePerfLog("CREATENEWLINE_START", "SQLite写入开始", extraInfo: $"SN={SN}, WOCODE={WOCODE}");
-
+            Stopwatch swTotal = Stopwatch.StartNew(); // 总执行时间计时器
             try
             {
                 Stopwatch sw1 = Stopwatch.StartNew();

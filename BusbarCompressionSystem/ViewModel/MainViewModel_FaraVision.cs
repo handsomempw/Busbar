@@ -2653,7 +2653,7 @@ namespace BusbarCompressionSystem.ViewModel
 
         /// <summary>
         /// 预览尺寸测量（用于参数调整时的实时反馈）
-        /// {{ AURA-X: Add - 为Metrology参数变更提供实时预览. Approval: 寸止(Q10: Option B). }}
+        /// 为Metrology参数变更提供实时预览
         /// </summary>
         public void PreviewDimensionMeasurement(HObject image, ToolModel tool, HWindow hwindow)
         {

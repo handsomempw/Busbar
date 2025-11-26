@@ -935,7 +935,7 @@ namespace BusbarCompressionSystem.Model.FaraVision
 
         /// <summary>
         /// Metrology参数变更事件处理器（300ms防抖）
-        /// {{ AURA-X: Add - 实现参数变更时的防抖预览刷新. Approval: 寸止(Q10: Option B). }}
+        /// 实现参数变更时的防抖预览刷新
         /// </summary>
         private void MetrologyParameter_Changed(object sender, RoutedEventArgs e)
         {
