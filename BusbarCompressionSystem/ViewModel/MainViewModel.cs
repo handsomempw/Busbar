@@ -2117,6 +2117,32 @@ namespace BusbarCompressionSystem.ViewModel
             }
         }
 
+        /// <summary>
+        /// 机器人TCP服务端消息接收处理方法
+        /// 业务流程：机器人作为客户端连接本视觉系统，通过指令驱动各工位的检测流程
+        /// 
+        /// 指令类型说明：
+        /// 1. "A"开头指令 - 拍照触发指令（如A1、A2等）
+        ///    - 根据指令匹配视觉工具配置中的Command字段
+        ///    - 自动切换对应相机的曝光时间
+        ///    - 触发相机拍照并启动视觉检测流程
+        /// 
+        /// 2. "CHECK1" - 第一次数据校验（外观检测前）
+        ///    - 从PLC读取当前产品编号（SN）
+        ///    - 从PLC读取压力测试数据（平均值、最大值、最小值）
+        ///    - 调用sqlite.Check1校验拍照留底、耐压测试、阻值测试
+        ///    - 根据校验结果返回OK/NG1/NG2/NG3给机器人
+        ///    - 保存过程数据到MES服务器并报工
+        /// 
+        /// 3. "CHECK2" - 第二次数据校验（最终出站前）
+        ///    - 调用sqlite.Check2校验所有工序（包括外观检测）
+        ///    - 根据校验结果返回OK/NG1~NG4给机器人
+        ///    - 保存过程数据到MES服务器并报工（第二工站）
+        /// 
+        /// - 机器人控制产品流转节奏，视觉系统被动响应
+        /// - 通过两次CHECK实现分段校验：CHECK1拦截前工序不良品，CHECK2最终全检
+        /// - 所有结果通过TCP即时反馈给机器人，实现自动分拣
+        /// </summary>
         private void RobotTcpServer_MessageReceived(TCPServerH sender, object e)
         {
             try
@@ -2186,6 +2212,8 @@ namespace BusbarCompressionSystem.ViewModel
                 else if (cmd == "CHECK1")
                 {
                     #region 读取产品编号
+                    // 从PLC的第5个SN地址读取产品信息（AddressSN + 25*4）
+                    // PLC中存储格式："产品序列号;工单号"，通过分号分隔
                     string s = PLC_Readstring(DataModel.Settingmodel.AddressSN + 25 * 4);
                     string[] ss = s.Split(';');
                     if (ss.Length == 2)
@@ -2208,10 +2236,13 @@ namespace BusbarCompressionSystem.ViewModel
 
 
                     #region 读取压力数据
+                    // 从PLC读取压接过程中的压力监控数据
+                    // AddressPressure: 平均压力, +2: 最大压力, +4: 最小压力
                     UInt16 AveragePressure = PLC_ReadUint16(DataModel.Settingmodel.AddressPressure);
                     UInt16 MaxPressure = PLC_ReadUint16(DataModel.Settingmodel.AddressPressure + 2);
                     UInt16 MinPressure = PLC_ReadUint16(DataModel.Settingmodel.AddressPressure + 4);
 
+                    // 压力判定逻辑：最大值不超标 且 最小值达标（确保压接到位且不过压）
                     bool PressureResult = MaxPressure <= DataModel.Processmodel.PressureParamter.Max_Pressure && MinPressure >= DataModel.Processmodel.PressureParamter.Min_Pressure;
 
                     sqlite.UpdatePressure(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE,
@@ -2223,9 +2254,15 @@ namespace BusbarCompressionSystem.ViewModel
                     #endregion
 
 
+                    // 调用Check1进行第一次综合校验（拍照留底、耐压测试、阻值测试）
                     var r = sqlite.Check1(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN);
                     string MSG = "NG1";
+                    // 初始化resultstr为"拍照留底不良"作为默认值（兜底）
+                    // 实际会根据Check1返回值在switch中被覆盖
                     string resultstr = "拍照留底不良";
+                    // 根据Check1返回的错误代码，映射为机器人可识别的消息和中文结果描述
+                    // Check1返回值：0=全部合格, 1=拍照不良, 2=耐压不良, 3=阻值不良
+                    // 注意：case 4(AOI不良)在Check1中不会出现，仅在Check2中才有
                     switch (r)
                     {
                         case 0:
