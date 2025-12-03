@@ -27,6 +27,7 @@ using System.Drawing;
 using System.Linq;
 using Honeywell;
 using System.Runtime.InteropServices; // 用于GDI句柄管理
+using BusbarCompressionSystem.Utils;
 
 namespace BusbarCompressionSystem.ViewModel
 {
@@ -174,13 +175,16 @@ namespace BusbarCompressionSystem.ViewModel
                 {
                     DataModel.Settingmodel = new SettingModel();
                 }
+                EnsureTvStatusMappings();
+                TvStatusTranslator.Reload(DataModel.Settingmodel.TvStatusMappings);
             }
             catch (Exception ex)
             {
                 DataModel.Settingmodel = new SettingModel();
 
                 MessageBox.Show($"配置数据.xml加载失败,软件已重置配置，请进入配置文件按需求修改,再重新打开软件:\r\n{ex.Message}");
-
+                EnsureTvStatusMappings();
+                TvStatusTranslator.Reload(DataModel.Settingmodel.TvStatusMappings);
             }
         }
         #endregion
@@ -221,6 +225,41 @@ namespace BusbarCompressionSystem.ViewModel
 
             }
         }
+
+        private void EnsureTvStatusMappings()
+        {
+            if (DataModel?.Settingmodel == null)
+            {
+                return;
+            }
+
+            if (DataModel.Settingmodel.TvStatusMappings == null)
+            {
+                DataModel.Settingmodel.TvStatusMappings = new List<TvStatusMapping>();
+            }
+
+            foreach (var kv in TvStatusTranslator.Defaults)
+            {
+                bool exists = DataModel.Settingmodel.TvStatusMappings.Any(m =>
+                    m != null &&
+                    !string.IsNullOrWhiteSpace(m.Code) &&
+                    string.Equals(m.Code.Trim(), kv.Key, StringComparison.OrdinalIgnoreCase));
+
+                if (!exists)
+                {
+                    DataModel.Settingmodel.TvStatusMappings.Add(new TvStatusMapping
+                    {
+                        Code = kv.Key,
+                        Display = kv.Value
+                    });
+                }
+            }
+        }
+
+        private string GetLocalizedTvStatus(string status)
+        {
+            return TvStatusTranslator.Translate(status);
+        }
         #endregion
 
         #endregion
@@ -231,7 +270,11 @@ namespace BusbarCompressionSystem.ViewModel
             if (snstr == DataModel.Settingmodel.SETTING_DATA.InspectionOKSN ||
                 snstr == DataModel.Settingmodel.SETTING_DATA.InspectionNGSN)
             {
-                return string.Empty; // 直接返回成功，跳过所有后续处理
+                string wocode = MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.get_WO_CODE(snstr);
+                string partnoid = MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.get_PartNO_ID(snstr);
+                PLC_Writestring(DataModel.Settingmodel.AddressSN.ToString(), $"{snstr};{wocode}");
+                sqlite.CREATENEWLINE(wocode, partnoid, snstr, DataModel.Settingmodel.SETTING_DATA.StationCode, DataModel.Settingmodel.SETTING_DATA.MachineID, DateTime.Now);
+                return string.Empty;
             }
 
             //if (string.IsNullOrEmpty(DataModel.Processmodel.TakePhotoTestModel.Productinfo.SN))
@@ -715,6 +758,8 @@ namespace BusbarCompressionSystem.ViewModel
 
 
             var r = DataModel.Settingmodel.AT9620_1.Start();
+            var localizedTvInfo1 = GetLocalizedTvStatus(DataModel.Processmodel.TVTestTestModel1.TVInfo);
+            DataModel.Processmodel.TVTestTestModel1.TVInfo = localizedTvInfo1;
 
             sqlite.UpdateTV(DataModel.Processmodel.TVTestTestModel1.Productinfo.WOCODE,
                 DataModel.Processmodel.TVTestTestModel1.Productinfo.PartNOID,
@@ -723,7 +768,7 @@ namespace BusbarCompressionSystem.ViewModel
                 DataModel.Processmodel.TVTestTestModel1.TVMaxVoltage,
                 r.Success,
                 DataModel.Processmodel.TVTestTestModel1.TVMaxCurrent,
-                DataModel.Processmodel.TVTestTestModel1.TVInfo,
+                localizedTvInfo1,
                 DataModel.Settingmodel.SETTING_DATA.TVMeterID1
                 );
 
@@ -732,18 +777,19 @@ namespace BusbarCompressionSystem.ViewModel
                 DataModel.Processmodel.TVTestTestModel1.TVMaxVoltage,
                 r.Success,
                 DataModel.Processmodel.TVTestTestModel1.TVMaxCurrent,
-                DataModel.Processmodel.TVTestTestModel1.TVInfo,
+                localizedTvInfo1,
                 DataModel.Settingmodel.SETTING_DATA.TVMeterID1
                 );
 
             //if (r.Success)
             if (!r.Success)
             {
+                var failureStatus1 = GetLocalizedTvStatus(DataModel.Processmodel.TVTestTestModel1.Status);
                 DataModel.Settingmodel.Sqlserver.Save_TVProcessData(
                     DataModel.Processmodel.TVTestTestModel1.Productinfo.WOCODE,
                     DataModel.Processmodel.TVTestTestModel1.Productinfo.SN,
                     DataModel.Settingmodel.SETTING_DATA.ProcedureName,
-                    DataModel.Processmodel.TVTestTestModel1.Status,
+                    failureStatus1,
                     DataModel.Settingmodel.SETTING_DATA.WorkerID,
                     DateTime.Now,
                     DataModel.Settingmodel.SETTING_DATA.TVMeterID1,
@@ -773,8 +819,8 @@ namespace BusbarCompressionSystem.ViewModel
             DataModel.Processmodel.TVTestTestModel2.TVMaxVoltage = 0;
             DataModel.Processmodel.TVTestTestModel2.TVMaxCurrent = 0;
             var r = DataModel.Settingmodel.AT9620_2.Start();
-
-
+            var localizedTvInfo2 = GetLocalizedTvStatus(DataModel.Processmodel.TVTestTestModel2.TVInfo);
+            DataModel.Processmodel.TVTestTestModel2.TVInfo = localizedTvInfo2;
 
             sqlite.UpdateTV(DataModel.Processmodel.TVTestTestModel2.Productinfo.WOCODE,
                DataModel.Processmodel.TVTestTestModel2.Productinfo.PartNOID,
@@ -782,19 +828,34 @@ namespace BusbarCompressionSystem.ViewModel
                res,
                DataModel.Processmodel.TVTestTestModel2.TVMaxVoltage,
                r.Success,
-                 DataModel.Processmodel.TVTestTestModel2.TVMaxCurrent,
-                DataModel.Processmodel.TVTestTestModel2.TVInfo,
-                DataModel.Settingmodel.SETTING_DATA.TVMeterID2
+               DataModel.Processmodel.TVTestTestModel2.TVMaxCurrent,
+               localizedTvInfo2,
+               DataModel.Settingmodel.SETTING_DATA.TVMeterID2
                );
 
             updatetv(DataModel.Processmodel.TVTestTestModel2.Productinfo.SN,
                 res, DataModel.Processmodel.TVTestTestModel2.TVMaxVoltage,
                 r.Success,
                 DataModel.Processmodel.TVTestTestModel2.TVMaxCurrent,
-                DataModel.Processmodel.TVTestTestModel2.TVInfo,
+                localizedTvInfo2,
                 DataModel.Settingmodel.SETTING_DATA.TVMeterID2
 
                 );
+
+            if (!r.Success)
+            {
+                var failureStatus2 = GetLocalizedTvStatus(DataModel.Processmodel.TVTestTestModel2.Status);
+                DataModel.Settingmodel.Sqlserver.Save_TVProcessData(
+                    DataModel.Processmodel.TVTestTestModel2.Productinfo.WOCODE,
+                    DataModel.Processmodel.TVTestTestModel2.Productinfo.SN,
+                    DataModel.Settingmodel.SETTING_DATA.ProcedureName,
+                    failureStatus2,
+                    DataModel.Settingmodel.SETTING_DATA.WorkerID,
+                    DateTime.Now,
+                    DataModel.Settingmodel.SETTING_DATA.TVMeterID2,
+                    r.Recordstr
+                    );
+            }
 
             PLC_write((DataModel.Settingmodel.AddressStart + 9).ToString(), 1);
 
@@ -820,7 +881,8 @@ namespace BusbarCompressionSystem.ViewModel
             DataModel.Processmodel.TVTestTestModel3.TVMaxCurrent = 0;
 
             var r = DataModel.Settingmodel.AT9620_3.Start();
-
+            var localizedTvInfo3 = GetLocalizedTvStatus(DataModel.Processmodel.TVTestTestModel3.TVInfo);
+            DataModel.Processmodel.TVTestTestModel3.TVInfo = localizedTvInfo3;
 
             sqlite.UpdateTV(DataModel.Processmodel.TVTestTestModel3.Productinfo.WOCODE,
                DataModel.Processmodel.TVTestTestModel3.Productinfo.PartNOID,
@@ -828,9 +890,9 @@ namespace BusbarCompressionSystem.ViewModel
                res,
                DataModel.Processmodel.TVTestTestModel2.TVMaxVoltage,
                r.Success,
-                DataModel.Processmodel.TVTestTestModel3.TVMaxCurrent,
-                DataModel.Processmodel.TVTestTestModel3.TVInfo,
-                DataModel.Settingmodel.SETTING_DATA.TVMeterID3
+               DataModel.Processmodel.TVTestTestModel3.TVMaxCurrent,
+               localizedTvInfo3,
+               DataModel.Settingmodel.SETTING_DATA.TVMeterID3
                );
 
             updatetv(DataModel.Processmodel.TVTestTestModel3.Productinfo.SN,
@@ -838,9 +900,24 @@ namespace BusbarCompressionSystem.ViewModel
                 DataModel.Processmodel.TVTestTestModel3.TVMaxVoltage
                 , r.Success,
                 DataModel.Processmodel.TVTestTestModel3.TVMaxCurrent,
-                DataModel.Processmodel.TVTestTestModel3.TVInfo,
+                localizedTvInfo3,
                 DataModel.Settingmodel.SETTING_DATA.TVMeterID3
                 );
+
+            if (!r.Success)
+            {
+                var failureStatus3 = GetLocalizedTvStatus(DataModel.Processmodel.TVTestTestModel3.Status);
+                DataModel.Settingmodel.Sqlserver.Save_TVProcessData(
+                    DataModel.Processmodel.TVTestTestModel3.Productinfo.WOCODE,
+                    DataModel.Processmodel.TVTestTestModel3.Productinfo.SN,
+                    DataModel.Settingmodel.SETTING_DATA.ProcedureName,
+                    failureStatus3,
+                    DataModel.Settingmodel.SETTING_DATA.WorkerID,
+                    DateTime.Now,
+                    DataModel.Settingmodel.SETTING_DATA.TVMeterID3,
+                    r.Recordstr
+                    );
+            }
             PLC_write((DataModel.Settingmodel.AddressStart + 11).ToString(), 1);
 
         }
@@ -2306,9 +2383,10 @@ namespace BusbarCompressionSystem.ViewModel
                     {
                         if (DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN == pi.Productinfo.SN)
                         {
+                            var persistedTvInfo = GetLocalizedTvStatus(pi.TVInfo);
                             MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.SaveBusBarData(
                                DataModel.Settingmodel.SETTING_DATA.StationCode, DataModel.Settingmodel.SETTING_DATA.MachineID, pi.Productinfo.PartNOID, pi.Productinfo.WOCODE, pi.Productinfo.SN,
-                                pi.TakePhoto1, pi.Res, pi.TVMaxVoltage, pi.TVMaxCurrent, pi.TVMeterID, pi.TVInfo, pi.TVResult,
+                                pi.TakePhoto1, pi.Res, pi.TVMaxVoltage, pi.TVMaxCurrent, pi.TVMeterID, persistedTvInfo, pi.TVResult,
                                 pi.Pressure_Max, pi.Pressure_Average, pi.Pressure_Min, pi.Pressure_Result, pi.AppearanceInspection, resultstr);
                             break;
                         }
@@ -2374,9 +2452,10 @@ namespace BusbarCompressionSystem.ViewModel
                     {
                         if (DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN == pi.Productinfo.SN)
                         {
+                            var persistedTvInfo = GetLocalizedTvStatus(pi.TVInfo);
                             MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.SaveBusBarData(
                             DataModel.Settingmodel.SETTING_DATA.StationCode, DataModel.Settingmodel.SETTING_DATA.MachineID, pi.Productinfo.PartNOID, pi.Productinfo.WOCODE, pi.Productinfo.SN,
-                            pi.TakePhoto1, pi.Res, pi.TVMaxVoltage, pi.TVMaxCurrent, pi.TVMeterID, pi.TVInfo, pi.TVResult,
+                            pi.TakePhoto1, pi.Res, pi.TVMaxVoltage, pi.TVMaxCurrent, pi.TVMeterID, persistedTvInfo, pi.TVResult,
                             pi.Pressure_Max, pi.Pressure_Average, pi.Pressure_Min, pi.Pressure_Result, pi.AppearanceInspection, resultstr);
                             break;
                         }

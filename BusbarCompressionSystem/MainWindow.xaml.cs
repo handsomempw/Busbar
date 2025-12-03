@@ -1,5 +1,6 @@
 ﻿using BusbarCompressionSystem.Model;
 using BusbarCompressionSystem.Model.FaraVision;
+using BusbarCompressionSystem.Utils;
 using BusbarCompressionSystem.ViewModel;
 using HalconDotNet;
 using Microsoft.Win32;
@@ -339,9 +340,10 @@ namespace BusbarCompressionSystem
             {
                 if ("MT03956957" == pi.Productinfo.SN)
                 {
+                    var persistedTvInfo = TvStatusTranslator.Translate(pi.TVInfo);
                     MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.SaveBusBarData(
                 vml.Main.DataModel.Settingmodel.SETTING_DATA.StationCode, vml.Main.DataModel.Settingmodel.SETTING_DATA.MachineID, pi.Productinfo.PartNOID, pi.Productinfo.WOCODE, pi.Productinfo.SN,
-                        pi.TakePhoto1, pi.Res, pi.TVMaxVoltage, pi.TVMaxCurrent, pi.TVMeterID, pi.TVInfo, pi.TVResult,
+                        pi.TakePhoto1, pi.Res, pi.TVMaxVoltage, pi.TVMaxCurrent, pi.TVMeterID, persistedTvInfo, pi.TVResult,
                         pi.Pressure_Max, pi.Pressure_Average, pi.Pressure_Min, pi.Pressure_Result, pi.AppearanceInspection, "OK");
                     break;
                 }

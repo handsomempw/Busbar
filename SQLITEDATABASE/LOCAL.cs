@@ -221,7 +221,7 @@ namespace SQLITEDATABASE
 
         /// <summary>
         /// 更新产品的压力测试数据
-        /// 业务逻辑：记录铜排压接过程中的压力监控数据（平均值、最大值、最小值）
+        /// 业务逻辑：记录铜排电测过程中的压力监控数据（平均值、最大值、最小值）
         /// 判定标准：最大值≤设定上限 且 最小值≥设定下限
         /// </summary>
         /// <param name="PressureResult">压力测试是否合格</param>
@@ -273,7 +273,7 @@ namespace SQLITEDATABASE
         /// <summary>
         /// 更新产品的第二次拍照（外观检测/AOI）结果
         /// 业务逻辑：在外观检测工位完成后，记录AOI视觉检测是否合格
-        /// 区别于TakePhoto1：这个是对产品缺陷进行AI识别判断，而不仅仅是留底
+        /// 区别于TakePhoto1：这个是对产品缺陷进行AOI识别判断，而不仅仅是留底
         /// </summary>
         /// <param name="TakePhoto2">AOI外观检测是否合格</param>
         public static bool UpdateTakePhoto2(string WOCODE, string PARTNOID, string SN, bool TakePhoto2)
