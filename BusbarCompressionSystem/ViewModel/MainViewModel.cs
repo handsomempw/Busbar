@@ -267,8 +267,11 @@ namespace BusbarCompressionSystem.ViewModel
         public string _ScanSN(string snstr)
         {
             // 点检SN码特殊处理：跳过MES校验，直接返回成功
-            if (snstr == DataModel.Settingmodel.SETTING_DATA.InspectionOKSN ||
-                snstr == DataModel.Settingmodel.SETTING_DATA.InspectionNGSN)
+            // 扩展为四个点检 SN：耐压点检 OK/NG + AOI 点检 OK/NG
+            if (snstr == DataModel.Settingmodel.SETTING_DATA.InspectionTVOKSN ||
+                snstr == DataModel.Settingmodel.SETTING_DATA.InspectionTVNGSN ||
+                snstr == DataModel.Settingmodel.SETTING_DATA.InspectionAOIOKSN ||
+                snstr == DataModel.Settingmodel.SETTING_DATA.InspectionAOINGSN)
             {
                 string wocode = MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.get_WO_CODE(snstr);
                 string partnoid = MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.get_PartNO_ID(snstr);
