@@ -175,16 +175,18 @@ namespace BusbarCompressionSystem.ViewModel
                 {
                     DataModel.Settingmodel = new SettingModel();
                 }
-                EnsureTvStatusMappings();
-                TvStatusTranslator.Reload(DataModel.Settingmodel.TvStatusMappings);
+                
+                // 加载独立的耐压状态映射配置文件
+                LoadTvStatusMappings();
             }
             catch (Exception ex)
             {
                 DataModel.Settingmodel = new SettingModel();
 
                 MessageBox.Show($"配置数据.xml加载失败,软件已重置配置，请进入配置文件按需求修改,再重新打开软件:\r\n{ex.Message}");
-                EnsureTvStatusMappings();
-                TvStatusTranslator.Reload(DataModel.Settingmodel.TvStatusMappings);
+                
+                // 加载独立的耐压状态映射配置文件
+                LoadTvStatusMappings();
             }
         }
         #endregion
@@ -226,33 +228,45 @@ namespace BusbarCompressionSystem.ViewModel
             }
         }
 
-        private void EnsureTvStatusMappings()
+        /// <summary>
+        /// 加载耐压状态映射配置文件
+        /// 文件路径：配置/耐压状态映射.xml
+        /// 格式：&lt;StatusMappings&gt;&lt;Map Code="状态代码" Display="中文描述" /&gt;&lt;/StatusMappings&gt;
+        /// </summary>
+        private void LoadTvStatusMappings()
         {
-            if (DataModel?.Settingmodel == null)
+            try
             {
-                return;
-            }
+                string xmlPath = Path.Combine(Environment.CurrentDirectory, "配置", "耐压状态映射.xml");
 
-            if (DataModel.Settingmodel.TvStatusMappings == null)
-            {
-                DataModel.Settingmodel.TvStatusMappings = new List<TvStatusMapping>();
-            }
-
-            foreach (var kv in TvStatusTranslator.Defaults)
-            {
-                bool exists = DataModel.Settingmodel.TvStatusMappings.Any(m =>
-                    m != null &&
-                    !string.IsNullOrWhiteSpace(m.Code) &&
-                    string.Equals(m.Code.Trim(), kv.Key, StringComparison.OrdinalIgnoreCase));
-
-                if (!exists)
+                if (!File.Exists(xmlPath))
                 {
-                    DataModel.Settingmodel.TvStatusMappings.Add(new TvStatusMapping
+                    // 首次运行：生成默认配置文件
+                    if (TvStatusTranslator.SaveDefaultXml(xmlPath, out string saveError))
                     {
-                        Code = kv.Key,
-                        Display = kv.Value
-                    });
+                        writeLog($"已生成默认耐压状态映射配置文件: {xmlPath}");
+                    }
+                    else
+                    {
+                        writeLog($"生成默认耐压状态映射配置文件失败: {saveError}");
+                    }
                 }
+                else
+                {
+                    // 加载现有配置文件
+                    if (TvStatusTranslator.LoadFromXml(xmlPath, out string loadError))
+                    {
+                        writeLog($"已加载耐压状态映射配置: {xmlPath}");
+                    }
+                    else
+                    {
+                        writeLog($"耐压状态映射配置加载失败，使用默认配置: {loadError}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                writeLog($"耐压状态映射配置处理异常: {ex.Message}");
             }
         }
 

@@ -130,11 +130,6 @@ namespace BusbarCompressionSystem.Model
         public SETTING_DATA SETTING_DATA { set; get; } = new SETTING_DATA();
         #endregion
 
-        [XmlArray("耐压状态映射")]
-        [XmlArrayItem("映射")]
-        public List<TvStatusMapping> TvStatusMappings { get; set; } = new List<TvStatusMapping>();
-
-
         [XmlIgnore]
         public F7DataBase.Sqlserver Sqlserver { set; get; } = new F7DataBase.Sqlserver();
 
