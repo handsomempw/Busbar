@@ -713,6 +713,14 @@ namespace BusbarCompressionSystem.ViewModel
             }
         }
 
+        /// <summary>
+        /// 创建一条新的产品过程数据记录并加入到 DataModel.Recordmodel.ProductInfoRecords 集合中。
+        /// 业务含义：
+        /// - 在拍照留底完成后调用，将当前产品的基础信息、拍照结果缓存在内存集合里；
+        /// - 后续耐压、压力、AOI 等过程都会通过 SN 在该集合中找到对应记录并补充数据，
+        ///   最终在 CHECK1 / CHECK2 中做综合判定和保存到 MES。
+        /// </summary>
+        /// <param name="takephoto1">拍照留底是否成功</param>
         private void newline(bool takephoto1)
         {
             try
@@ -922,6 +930,13 @@ namespace BusbarCompressionSystem.ViewModel
 
         }
 
+        /// <summary>
+        /// 根据产品 SN 更新 DataModel.Recordmodel.ProductInfoRecords 中对应记录的耐压/阻值相关数据。
+        /// 业务含义：
+        /// - 在各 TV 测试工位完成后调用，将阻值、电压、电流、结果等写入内存记录；
+        /// - CHECK1 / CHECK2 以及点检 SN 的综合判定会直接使用这里更新过的数据。
+        /// </summary>
+        /// <param name="SN">产品序列号，用于在集合中定位记录</param>
         private void updatetv(string SN, float res, float maxvoltage, bool result, float maxcurrent, string tvinfo, string tvmeterid)
         {
             try
@@ -946,6 +961,13 @@ namespace BusbarCompressionSystem.ViewModel
             }
             catch (Exception ex) { }
         }
+        /// <summary>
+        /// 根据产品 SN 更新 DataModel.Recordmodel.ProductInfoRecords 中对应记录的压力测试数据。
+        /// 业务含义：
+        /// - 在电测压力监控完成后调用，将平均值、最大值、最小值及判定结果写入内存记录；
+        /// - 这些压力数据会一并在 SaveBusBarData 报存到 MES，方便后续追溯。
+        /// </summary>
+        /// <param name="SN">产品序列号，用于在集合中定位记录</param>
         private void updatepressure(string SN, UInt16 Pressure_Average, UInt16 Pressure_Max, UInt16 Pressure_Min, bool Pressure_Result)
         {
             try
@@ -986,6 +1008,13 @@ namespace BusbarCompressionSystem.ViewModel
 
 
 
+        /// <summary>
+        /// 根据产品 SN 更新 DataModel.Recordmodel.ProductInfoRecords 中对应记录的 AOI 外观检测结果。
+        /// 业务含义：
+        /// - AOI 工具完成判定后调用，将外观 OK/NG 结果及时间写入内存记录；
+        /// - CHECK2 以及点检 SN 的最终综合判定，会把 AppearanceInspection 作为外观工序的依据。
+        /// </summary>
+        /// <param name="SN">产品序列号，用于在集合中定位记录</param>
         private void updatetakephoto2(string SN, bool result, DateTime dt)
         {
             try
@@ -2311,160 +2340,352 @@ namespace BusbarCompressionSystem.ViewModel
 
                     #endregion
 
+                    // 点检SN码特殊处理：跳过校验和报工，但保留其他流程
+                    // 这里的点检 SN 包含「耐压点检」和「AOI 点检」两类 SN 码
+                    bool isInspectionSN = ss.Length == 2 &&
+                        (ss[0] == DataModel.Settingmodel.SETTING_DATA.InspectionTVOKSN ||
+                         ss[0] == DataModel.Settingmodel.SETTING_DATA.InspectionTVNGSN ||
+                         ss[0] == DataModel.Settingmodel.SETTING_DATA.InspectionAOIOKSN ||
+                         ss[0] == DataModel.Settingmodel.SETTING_DATA.InspectionAOINGSN);
 
-                    #region 读取压力数据
-                    // 从PLC读取压接过程中的压力监控数据
-                    // AddressPressure: 平均压力, +2: 最大压力, +4: 最小压力
-                    UInt16 AveragePressure = PLC_ReadUint16(DataModel.Settingmodel.AddressPressure);
-                    UInt16 MaxPressure = PLC_ReadUint16(DataModel.Settingmodel.AddressPressure + 2);
-                    UInt16 MinPressure = PLC_ReadUint16(DataModel.Settingmodel.AddressPressure + 4);
+                    // AOI 点检 SN：在 CHECK1 中无论实际测试结果如何，都强制返回 OK
+                    bool isAoiInspectionSN = ss.Length == 2 &&
+                        (ss[0] == DataModel.Settingmodel.SETTING_DATA.InspectionAOIOKSN ||
+                         ss[0] == DataModel.Settingmodel.SETTING_DATA.InspectionAOINGSN);
 
-                    // 压力判定逻辑：最大值不超标 且 最小值达标（确保压接到位且不过压）
-                    bool PressureResult = MaxPressure <= DataModel.Processmodel.PressureParamter.Max_Pressure && MinPressure >= DataModel.Processmodel.PressureParamter.Min_Pressure;
-
-                    sqlite.UpdatePressure(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE,
-                        DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID,
-                        DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN,
-                       AveragePressure, MaxPressure, MinPressure, PressureResult);
-                    updatepressure(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, AveragePressure, MaxPressure, MinPressure, PressureResult);
-
-                    #endregion
-
-
-                    // 调用Check1进行第一次综合校验（拍照留底、耐压测试、阻值测试）
-                    var r = sqlite.Check1(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN);
-                    string MSG = "NG1";
-                    // 初始化resultstr为"拍照留底不良"作为默认值（兜底）
-                    // 实际会根据Check1返回值在switch中被覆盖
-                    string resultstr = "拍照留底不良";
-                    // 根据Check1返回的错误代码，映射为机器人可识别的消息和中文结果描述
-                    // Check1返回值：0=全部合格, 1=拍照不良, 2=耐压不良, 3=阻值不良
-                    // 注意：case 4(AOI不良)在Check1中不会出现，仅在Check2中才有
-                    switch (r)
+                    if (isInspectionSN)
                     {
-                        case 0:
+                        // 从 ProductInfoRecords 取数并做综合判断的整体思路：
+                        // 1. 先用 SN 在集合中找到对应的 ProductInfoRecord；
+                        // 2. 使用记录中的拍照、耐压、阻值、压力等字段进行一次「内存级」综合判定；
+                        // 3. 不再调用 sqlite.Check1，避免重复访问数据库；
+                        // 4. 仅将最终判定结果连同过程数据一起 SaveBusBarData 到 MES，不做报工。
+                        // 点检SN码：和正常流程一样读取压力数据，但跳过数据库校验和报工
+                        #region 读取压力数据
+                        // 从PLC读取电测过程中的压力监控数据
+                        // AddressPressure: 平均压力, +2: 最大压力, +4: 最小压力
+                        UInt16 AveragePressure = PLC_ReadUint16(DataModel.Settingmodel.AddressPressure);
+                        UInt16 MaxPressure = PLC_ReadUint16(DataModel.Settingmodel.AddressPressure + 2);
+                        UInt16 MinPressure = PLC_ReadUint16(DataModel.Settingmodel.AddressPressure + 4);
+
+                        // 压力判定逻辑：最大值不超标 且 最小值达标（确保压接到位且不过压）
+                        bool PressureResult = MaxPressure <= DataModel.Processmodel.PressureParamter.Max_Pressure && MinPressure >= DataModel.Processmodel.PressureParamter.Min_Pressure;
+
+                        sqlite.UpdatePressure(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE,
+                            DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID,
+                            DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN,
+                           AveragePressure, MaxPressure, MinPressure, PressureResult);
+                        updatepressure(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, AveragePressure, MaxPressure, MinPressure, PressureResult);
+
+                        #endregion
+
+                        // 点检SN码：根据实际测试数据进行综合判断（不调用数据库校验）
+                        string MSG = "NG1";
+                        string resultstr = "拍照留底不良";
+                        
+                        // 从 ProductInfoRecords 中获取实际测试数据（拍照留底、耐压、阻值、压力等）
+                        ProductInfoRecord pi = null;
+                        foreach (var p in DataModel.Recordmodel.ProductInfoRecords)
+                        {
+                            if (DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN == p.Productinfo.SN)
                             {
+                                pi = p;
+                                break;
+                            }
+                        }
+
+                        if (pi != null)
+                        {
+                            if (isAoiInspectionSN)
+                            {
+                                // AOI 点检 SN：CHECK1 场景下直接视为 OK（不考虑耐压/阻值等结果）
                                 MSG = "OK";
                                 resultstr = "合格";
-                                break;
                             }
-                        case 1:
+                            else
                             {
-                                MSG = "NG1";
-                                resultstr = "拍照留底不良";
-                                break;
+                                // 非 AOI 点检 SN：根据实际测试数据综合判断（逻辑同 Check1）
+                                if (!pi.TakePhoto1)
+                                {
+                                    MSG = "NG1";
+                                    resultstr = "拍照留底不良";
+                                }
+                                else if (pi.TVMaxVoltage == 0 || pi.TVMaxVoltage == -1 || !pi.TVResult)
+                                {
+                                    MSG = "NG2";
+                                    resultstr = "耐压测试不合格";
+                                }
+                                else if (pi.Res == 0)
+                                {
+                                    MSG = "NG3";
+                                    resultstr = "阻值测试不合格";
+                                }
+                                else
+                                {
+                                    MSG = "OK";
+                                    resultstr = "合格";
+                                }
                             }
-                        case 2:
-                            {
-                                MSG = "NG2";
-                                resultstr = "耐压测试不合格";
-                                break;
-                            }
-                        case 3:
-                            {
-                                MSG = "NG3";
-                                resultstr = "阻值测试不合格";
-                                break;
-                            }
-                        case 4:
-                            {
-                                MSG = "NG4";
-                                resultstr = "AOI测试不合格";
-                                break;
-                            }
-                    }
+                        }
 
-                    //if (MSG != "OK")
-                    //{
-
-                    #region 保存过程数据到服务器
-
-                    foreach (var pi in DataModel.Recordmodel.ProductInfoRecords)
-                    {
-                        if (DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN == pi.Productinfo.SN)
+                        #region 保存过程数据到服务器
+                        // 这里仍然把 ProductInfoRecords 中汇总的过程数据保存到 MES，
+                        // 但不会触发报工，仅用于过程追溯和点检记录留档。
+                        if (pi != null)
                         {
                             var persistedTvInfo = GetLocalizedTvStatus(pi.TVInfo);
                             MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.SaveBusBarData(
                                DataModel.Settingmodel.SETTING_DATA.StationCode, DataModel.Settingmodel.SETTING_DATA.MachineID, pi.Productinfo.PartNOID, pi.Productinfo.WOCODE, pi.Productinfo.SN,
                                 pi.TakePhoto1, pi.Res, pi.TVMaxVoltage, pi.TVMaxCurrent, pi.TVMeterID, persistedTvInfo, pi.TVResult,
                                 pi.Pressure_Max, pi.Pressure_Average, pi.Pressure_Min, pi.Pressure_Result, pi.AppearanceInspection, resultstr);
-                            break;
                         }
+                        #endregion
+                        // 点检SN码不进行报工，跳过 report 调用
+
+                        writeLog($"数据校验1->点检SN码->结果:{resultstr}");
+                        SendMsgRobot(MSG);
                     }
-                    #endregion
-                    #region 汇报结果数据
-                    report(ss[1], ss[0], resultstr);
-                    #endregion
+                    else
+                    {
+                        // 正常产品流程
+                        #region 读取压力数据
+                        // 从PLC读取电测过程中的压力监控数据
+                        // AddressPressure: 平均压力, +2: 最大压力, +4: 最小压力
+                        UInt16 AveragePressure = PLC_ReadUint16(DataModel.Settingmodel.AddressPressure);
+                        UInt16 MaxPressure = PLC_ReadUint16(DataModel.Settingmodel.AddressPressure + 2);
+                        UInt16 MinPressure = PLC_ReadUint16(DataModel.Settingmodel.AddressPressure + 4);
 
-                    //}
+                        // 压力判定逻辑：最大值不超标 且 最小值达标（确保压接到位且不过压）
+                        bool PressureResult = MaxPressure <= DataModel.Processmodel.PressureParamter.Max_Pressure && MinPressure >= DataModel.Processmodel.PressureParamter.Min_Pressure;
 
-                    writeLog($"数据校验1->结果:{resultstr}");
-                    SendMsgRobot(MSG);
+                        sqlite.UpdatePressure(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE,
+                            DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID,
+                            DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN,
+                           AveragePressure, MaxPressure, MinPressure, PressureResult);
+                        updatepressure(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, AveragePressure, MaxPressure, MinPressure, PressureResult);
+
+                        #endregion
+
+
+                        // 调用Check1进行第一次综合校验（拍照留底、耐压测试、阻值测试）
+                        var r = sqlite.Check1(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN);
+                        string MSG = "NG1";
+                        // 初始化resultstr为"拍照留底不良"作为默认值（兜底）
+                        // 实际会根据Check1返回值在switch中被覆盖
+                        string resultstr = "拍照留底不良";
+                        // 根据Check1返回的错误代码，映射为机器人可识别的消息和中文结果描述
+                        // Check1返回值：0=全部合格, 1=拍照不良, 2=耐压不良, 3=阻值不良
+                        // 注意：case 4(AOI不良)在Check1中不会出现，仅在Check2中才有
+                        switch (r)
+                        {
+                            case 0:
+                                {
+                                    MSG = "OK";
+                                    resultstr = "合格";
+                                    break;
+                                }
+                            case 1:
+                                {
+                                    MSG = "NG1";
+                                    resultstr = "拍照留底不良";
+                                    break;
+                                }
+                            case 2:
+                                {
+                                    MSG = "NG2";
+                                    resultstr = "耐压测试不合格";
+                                    break;
+                                }
+                            case 3:
+                                {
+                                    MSG = "NG3";
+                                    resultstr = "阻值测试不合格";
+                                    break;
+                                }
+                            case 4:
+                                {
+                                    MSG = "NG4";
+                                    resultstr = "AOI测试不合格";
+                                    break;
+                                }
+                        }
+
+                        //if (MSG != "OK")
+                        //{
+
+                        #region 保存过程数据到服务器
+
+                        // CHECK1 正常流程下，同样通过 SN 在 ProductInfoRecords 中找到对应记录，
+                        // 再将其中汇总好的过程数据一次性写入 MES。
+                        foreach (var pi in DataModel.Recordmodel.ProductInfoRecords)
+                        {
+                            if (DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN == pi.Productinfo.SN)
+                            {
+                                var persistedTvInfo = GetLocalizedTvStatus(pi.TVInfo);
+                                MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.SaveBusBarData(
+                                   DataModel.Settingmodel.SETTING_DATA.StationCode, DataModel.Settingmodel.SETTING_DATA.MachineID, pi.Productinfo.PartNOID, pi.Productinfo.WOCODE, pi.Productinfo.SN,
+                                    pi.TakePhoto1, pi.Res, pi.TVMaxVoltage, pi.TVMaxCurrent, pi.TVMeterID, persistedTvInfo, pi.TVResult,
+                                    pi.Pressure_Max, pi.Pressure_Average, pi.Pressure_Min, pi.Pressure_Result, pi.AppearanceInspection, resultstr);
+                                break;
+                            }
+                        }
+                        #endregion
+                        #region 汇报结果数据
+                        report(ss[1], ss[0], resultstr);
+                        #endregion
+
+                        //}
+
+                        writeLog($"数据校验1->结果:{resultstr}");
+                        SendMsgRobot(MSG);
+                    }
 
                 }
                 else if (cmd == "CHECK2")
                 {
                     // SendMsgRobot("OK");
 
-                    var r = sqlite.Check2(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN);
-                    string MSG = "NG1";
-                    string resultstr = "拍照留底不良";
-                    switch (r)
+                    // 点检SN码特殊处理：跳过校验和报工，但保留其他流程
+                    // 这里的点检 SN 同样包含「耐压点检」和「AOI 点检」两类 SN 码
+                    string currentSN = DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN;
+                    bool isInspectionSN = !string.IsNullOrEmpty(currentSN) &&
+                        (currentSN == DataModel.Settingmodel.SETTING_DATA.InspectionTVOKSN ||
+                         currentSN == DataModel.Settingmodel.SETTING_DATA.InspectionTVNGSN ||
+                         currentSN == DataModel.Settingmodel.SETTING_DATA.InspectionAOIOKSN ||
+                         currentSN == DataModel.Settingmodel.SETTING_DATA.InspectionAOINGSN);
+
+                    if (isInspectionSN)
                     {
-                        case 0:
+                        // 从 ProductInfoRecords 取数并做综合判断的整体思路：
+                        // 1. 先用 SN 在集合中找到对应的 ProductInfoRecord；
+                        // 2. 使用记录中的拍照、耐压、阻值、AOI、压力等字段进行一次「内存级」综合判定；
+                        // 3. 不再调用 sqlite.Check2，避免重复访问数据库；
+                        // 4. 仅将最终判定结果连同过程数据一起 SaveBusBarData 到 MES，不做报工。
+                        // 点检SN码：根据实际测试数据（包括AOI结果）进行综合判断，跳过数据库校验和报工
+                        string MSG = "NG1";
+                        string resultstr = "拍照留底不良";
+                        
+                        // 从 ProductInfoRecords 中获取实际测试数据（拍照留底、耐压、阻值、AOI、压力等）
+                        ProductInfoRecord pi = null;
+                        foreach (var p in DataModel.Recordmodel.ProductInfoRecords)
+                        {
+                            if (DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN == p.Productinfo.SN)
                             {
-                                MSG = "OK";
-                                resultstr = "合格";
+                                pi = p;
                                 break;
                             }
-                        case 1:
+                        }
+
+                        if (pi != null)
+                        {
+                            // 根据实际测试数据综合判断（逻辑同Check2，包括AOI结果）
+                            if (!pi.TakePhoto1)
                             {
                                 MSG = "NG1";
                                 resultstr = "拍照留底不良";
-                                break;
                             }
-                        case 2:
+                            else if (pi.TVMaxVoltage == 0 || pi.TVMaxVoltage == -1 || !pi.TVResult)
                             {
                                 MSG = "NG2";
                                 resultstr = "耐压测试不合格";
-                                break;
                             }
-                        case 3:
+                            else if (pi.Res == 0)
                             {
                                 MSG = "NG3";
                                 resultstr = "阻值测试不合格";
-                                break;
                             }
-                        case 4:
+                            else if (!pi.AppearanceInspection)
                             {
                                 MSG = "NG4";
                                 resultstr = "AOI测试不合格";
-                                break;
                             }
-                    }
+                            else
+                            {
+                                MSG = "OK";
+                                resultstr = "合格";
+                            }
+                        }
 
-                    writeLog($"数据校验2->结果:{resultstr}");
-                    SendMsgRobot(MSG);
-
-                    #region 保存过程数据到服务器
-
-                    foreach (var pi in DataModel.Recordmodel.ProductInfoRecords)
-                    {
-                        if (DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN == pi.Productinfo.SN)
+                        #region 保存过程数据到服务器
+                        // 点检场景下，同样把综合判定后的一条完整过程数据写入 MES，
+                        // 便于区分「正式生产」与「点检」记录，且不触发报工。
+                        if (pi != null)
                         {
                             var persistedTvInfo = GetLocalizedTvStatus(pi.TVInfo);
                             MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.SaveBusBarData(
-                            DataModel.Settingmodel.SETTING_DATA.StationCode, DataModel.Settingmodel.SETTING_DATA.MachineID, pi.Productinfo.PartNOID, pi.Productinfo.WOCODE, pi.Productinfo.SN,
+                            DataModel.Settingmodel.SETTING_DATA.StationCode2, DataModel.Settingmodel.SETTING_DATA.MachineID, pi.Productinfo.PartNOID, pi.Productinfo.WOCODE, pi.Productinfo.SN,
                             pi.TakePhoto1, pi.Res, pi.TVMaxVoltage, pi.TVMaxCurrent, pi.TVMeterID, persistedTvInfo, pi.TVResult,
                             pi.Pressure_Max, pi.Pressure_Average, pi.Pressure_Min, pi.Pressure_Result, pi.AppearanceInspection, resultstr);
-                            break;
                         }
-                    }
+                        #endregion
+                        // 点检SN码不进行报工，跳过 report2 调用
 
-                    #endregion
-                    #region 汇报结果数据                    
-                    report2(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, resultstr);
-                    #endregion
+                        writeLog($"数据校验2->点检SN码->结果:{resultstr}");
+                        SendMsgRobot(MSG);
+                    }
+                    else
+                    {
+                        // 正常产品流程
+                        var r = sqlite.Check2(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN);
+                        string MSG = "NG1";
+                        string resultstr = "拍照留底不良";
+                        switch (r)
+                        {
+                            case 0:
+                                {
+                                    MSG = "OK";
+                                    resultstr = "合格";
+                                    break;
+                                }
+                            case 1:
+                                {
+                                    MSG = "NG1";
+                                    resultstr = "拍照留底不良";
+                                    break;
+                                }
+                            case 2:
+                                {
+                                    MSG = "NG2";
+                                    resultstr = "耐压测试不合格";
+                                    break;
+                                }
+                            case 3:
+                                {
+                                    MSG = "NG3";
+                                    resultstr = "阻值测试不合格";
+                                    break;
+                                }
+                            case 4:
+                                {
+                                    MSG = "NG4";
+                                    resultstr = "AOI测试不合格";
+                                    break;
+                                }
+                        }
+
+                        writeLog($"数据校验2->结果:{resultstr}");
+                        SendMsgRobot(MSG);
+
+                        #region 保存过程数据到服务器
+
+                        foreach (var pi in DataModel.Recordmodel.ProductInfoRecords)
+                        {
+                            if (DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN == pi.Productinfo.SN)
+                            {
+                                var persistedTvInfo = GetLocalizedTvStatus(pi.TVInfo);
+                                MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.SaveBusBarData(
+                                DataModel.Settingmodel.SETTING_DATA.StationCode2, DataModel.Settingmodel.SETTING_DATA.MachineID, pi.Productinfo.PartNOID, pi.Productinfo.WOCODE, pi.Productinfo.SN,
+                                pi.TakePhoto1, pi.Res, pi.TVMaxVoltage, pi.TVMaxCurrent, pi.TVMeterID, persistedTvInfo, pi.TVResult,
+                                pi.Pressure_Max, pi.Pressure_Average, pi.Pressure_Min, pi.Pressure_Result, pi.AppearanceInspection, resultstr);
+                                break;
+                            }
+                        }
+
+                        #endregion
+                        #region 汇报结果数据                    
+                        report2(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, resultstr);
+                        #endregion
+                    }
 
                 }
 

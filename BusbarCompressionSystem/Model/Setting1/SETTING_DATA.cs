@@ -62,11 +62,19 @@ namespace BusbarCompressionSystem.Model.Setting1
         [XmlElement("仪器类型3")]
         public TVMeterType TVMeterType3 { set; get; } = TVMeterType.AT9620;
 
-        [XmlElement("点检OK_SN码")]
-        public string InspectionOKSN { set; get; } = "INSPECTION_OK";
+        // 耐压工位点检 OK / NG SN 码
+        [XmlElement("耐压点检OK_SN码")]
+        public string InspectionTVOKSN { set; get; } = "INSPECTION_TV_OK";
 
-        [XmlElement("点检NG_SN码")]
-        public string InspectionNGSN { set; get; } = "INSPECTION_NG";
+        [XmlElement("耐压点检NG_SN码")]
+        public string InspectionTVNGSN { set; get; } = "INSPECTION_TV_NG";
+
+        // AOI 工位点检 OK / NG SN 码
+        [XmlElement("AOI点检OK_SN码")]
+        public string InspectionAOIOKSN { set; get; } = "INSPECTION_AOI_OK";
+
+        [XmlElement("AOI点检NG_SN码")]
+        public string InspectionAOINGSN { set; get; } = "INSPECTION_AOI_NG";
 
     }
 }
