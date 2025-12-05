@@ -2571,6 +2571,11 @@ namespace BusbarCompressionSystem.ViewModel
                          currentSN == DataModel.Settingmodel.SETTING_DATA.InspectionAOIOKSN ||
                          currentSN == DataModel.Settingmodel.SETTING_DATA.InspectionAOINGSN);
 
+                    // 判断是否是 AOI 点检 SN（在 CHECK2 中只需检查 AOI 结果，不检查耐压、阻值）
+                    bool isAoiInspectionSN = !string.IsNullOrEmpty(currentSN) &&
+                        (currentSN == DataModel.Settingmodel.SETTING_DATA.InspectionAOIOKSN ||
+                         currentSN == DataModel.Settingmodel.SETTING_DATA.InspectionAOINGSN);
+
                     if (isInspectionSN)
                     {
                         // 从 ProductInfoRecords 取数并做综合判断的整体思路：
@@ -2595,31 +2600,49 @@ namespace BusbarCompressionSystem.ViewModel
 
                         if (pi != null)
                         {
-                            // 根据实际测试数据综合判断（逻辑同Check2，包括AOI结果）
-                            if (!pi.TakePhoto1)
+                            // 区分 AOI 点检和耐压点检的判断逻辑
+                            if (isAoiInspectionSN)
                             {
-                                MSG = "NG1";
-                                resultstr = "拍照留底不良";
-                            }
-                            else if (pi.TVMaxVoltage == 0 || pi.TVMaxVoltage == -1 || !pi.TVResult)
-                            {
-                                MSG = "NG2";
-                                resultstr = "耐压测试不合格";
-                            }
-                            else if (pi.Res == 0)
-                            {
-                                MSG = "NG3";
-                                resultstr = "阻值测试不合格";
-                            }
-                            else if (!pi.AppearanceInspection)
-                            {
-                                MSG = "NG4";
-                                resultstr = "AOI测试不合格";
+                                // AOI 点检 SN：只判断 AOI 结果，跳过拍照、耐压、阻值检查
+                                if (!pi.AppearanceInspection)
+                                {
+                                    MSG = "NG4";
+                                    resultstr = "AOI测试不合格";
+                                }
+                                else
+                                {
+                                    MSG = "OK";
+                                    resultstr = "合格";
+                                }
                             }
                             else
                             {
-                                MSG = "OK";
-                                resultstr = "合格";
+                                // 耐压点检 SN：完整判断拍照、耐压、阻值、AOI
+                                if (!pi.TakePhoto1)
+                                {
+                                    MSG = "NG1";
+                                    resultstr = "拍照留底不良";
+                                }
+                                else if (pi.TVMaxVoltage == 0 || pi.TVMaxVoltage == -1 || !pi.TVResult)
+                                {
+                                    MSG = "NG2";
+                                    resultstr = "耐压测试不合格";
+                                }
+                                else if (pi.Res == 0)
+                                {
+                                    MSG = "NG3";
+                                    resultstr = "阻值测试不合格";
+                                }
+                                else if (!pi.AppearanceInspection)
+                                {
+                                    MSG = "NG4";
+                                    resultstr = "AOI测试不合格";
+                                }
+                                else
+                                {
+                                    MSG = "OK";
+                                    resultstr = "合格";
+                                }
                             }
                         }
 
