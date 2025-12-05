@@ -435,6 +435,11 @@ namespace SQLITEDATABASE
                         {
                             return 1;
                         }
+                        // 先判断阻值，再判断耐压，阻值大于14为不合格
+                        if (_res > 14)
+                        {
+                            return 3;
+                        }
                         if (_tvmaxvoltage == 0 || _tvmaxvoltage == -1)
                         {
                             return 2;
@@ -442,10 +447,6 @@ namespace SQLITEDATABASE
                         if (!_tvresult)
                         {
                             return 2;
-                        }
-                        if (_res == 0)
-                        {
-                            return 3;
                         }
 
 
@@ -558,6 +559,11 @@ namespace SQLITEDATABASE
                         {
                             return 1;
                         }
+                        // 先判断阻值，再判断耐压，阻值大于14为不合格
+                        if (_res > 14)
+                        {
+                            return 3;
+                        }
                         if (_tvmaxvoltage == 0 || _tvmaxvoltage == -1)
                         {
                             return 2;
@@ -565,10 +571,6 @@ namespace SQLITEDATABASE
                         if (!_tvresult)
                         {
                             return 2;
-                        }
-                        if (_res == 0)
-                        {
-                            return 3;
                         }
 
                         if (!_takephoto2)

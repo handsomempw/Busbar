@@ -545,6 +545,45 @@ namespace BusbarCompressionSystem.ViewModel
                             catch {; }
                             #endregion
 
+                            #region 阻值触发
+                            // 读取阻值触发信号（M地址，Bool类型）
+                            var res1TrigResult = modbusTcp.ReadCoil(DataModel.Settingmodel.Res1TrigAddress.ToString(), 1);
+                            var res2TrigResult = modbusTcp.ReadCoil(DataModel.Settingmodel.Res2TrigAddress.ToString(), 1);
+                            var res3TrigResult = modbusTcp.ReadCoil(DataModel.Settingmodel.Res3TrigAddress.ToString(), 1);
+                            int Res1Trig = res1TrigResult.IsSuccess && res1TrigResult.Content[0] ? 1 : 0;
+                            int Res2Trig = res2TrigResult.IsSuccess && res2TrigResult.Content[0] ? 1 : 0;
+                            int Res3Trig = res3TrigResult.IsSuccess && res3TrigResult.Content[0] ? 1 : 0;
+
+                            // 阻值1触发
+                            try
+                            {
+                                if (Res1Trig == 1 & DataModel.Processmodel.Res1_Trig_IO.IOstatus == 0)
+                                {
+                                    new Thread(() => { Res1Process(); }).Start();
+                                }
+                            }
+                            catch {; }
+
+                            // 阻值2触发
+                            try
+                            {
+                                if (Res2Trig == 1 & DataModel.Processmodel.Res2_Trig_IO.IOstatus == 0)
+                                {
+                                    new Thread(() => { Res2Process(); }).Start();
+                                }
+                            }
+                            catch {; }
+
+                            // 阻值3触发
+                            try
+                            {
+                                if (Res3Trig == 1 & DataModel.Processmodel.Res3_Trig_IO.IOstatus == 0)
+                                {
+                                    new Thread(() => { Res3Process(); }).Start();
+                                }
+                            }
+                            catch {; }
+                            #endregion
 
                             #region 数据复制刷新
                             DataModel.Processmodel.Scan_Trig_IO.IOstatus = ScanTrig;
@@ -552,8 +591,9 @@ namespace BusbarCompressionSystem.ViewModel
                             DataModel.Processmodel.TV1_Trig_IO.IOstatus = TV1Trig;
                             DataModel.Processmodel.TV2_Trig_IO.IOstatus = TV2Trig;
                             DataModel.Processmodel.TV3_Trig_IO.IOstatus = TV3Trig;
-
-
+                            DataModel.Processmodel.Res1_Trig_IO.IOstatus = Res1Trig;
+                            DataModel.Processmodel.Res2_Trig_IO.IOstatus = Res2Trig;
+                            DataModel.Processmodel.Res3_Trig_IO.IOstatus = Res3Trig;
 
                             #endregion
                         }
@@ -569,6 +609,9 @@ namespace BusbarCompressionSystem.ViewModel
                         DataModel.Processmodel.TV1_Trig_IO.IOstatus = -1;
                         DataModel.Processmodel.TV2_Trig_IO.IOstatus = -1;
                         DataModel.Processmodel.TV3_Trig_IO.IOstatus = -1;
+                        DataModel.Processmodel.Res1_Trig_IO.IOstatus = -1;
+                        DataModel.Processmodel.Res2_Trig_IO.IOstatus = -1;
+                        DataModel.Processmodel.Res3_Trig_IO.IOstatus = -1;
 
                         #endregion
                     }
@@ -775,8 +818,8 @@ namespace BusbarCompressionSystem.ViewModel
                 writeLog($"耐压1产品编号读取错误:{s}");
             }
 
-            float res = PLC_ReadFloat(DataModel.Settingmodel.AddressRes);
-            DataModel.Processmodel.TVTestTestModel1.Res = res;
+            // 阻值已由Res1Process独立读取，这里直接使用内存中的值
+            float res = DataModel.Processmodel.TVTestTestModel1.Res;
 
             DataModel.Processmodel.TVTestTestModel1.TVMaxVoltage = 0;
             DataModel.Processmodel.TVTestTestModel1.TVMaxCurrent = 0;
@@ -839,8 +882,8 @@ namespace BusbarCompressionSystem.ViewModel
             {
                 writeLog($"耐压2产品编号读取错误:{s}");
             }
-            float res = PLC_ReadFloat(DataModel.Settingmodel.AddressRes + 1 * 2);
-            DataModel.Processmodel.TVTestTestModel2.Res = res;
+            // 阻值已由Res2Process独立读取，这里直接使用内存中的值
+            float res = DataModel.Processmodel.TVTestTestModel2.Res;
             DataModel.Processmodel.TVTestTestModel2.TVMaxVoltage = 0;
             DataModel.Processmodel.TVTestTestModel2.TVMaxCurrent = 0;
             var r = DataModel.Settingmodel.AT9620_2.Start();
@@ -899,9 +942,8 @@ namespace BusbarCompressionSystem.ViewModel
             {
                 writeLog($"耐压3产品编号读取错误:{s}");
             }
-            //DataModel.Processmodel.TVTestTestModel3.Productinfo.SN = s;
-            float res = PLC_ReadFloat(DataModel.Settingmodel.AddressRes + 2 * 2);
-            DataModel.Processmodel.TVTestTestModel3.Res = res;
+            // 阻值已由Res3Process独立读取，这里直接使用内存中的值
+            float res = DataModel.Processmodel.TVTestTestModel3.Res;
             DataModel.Processmodel.TVTestTestModel3.TVMaxVoltage = 0;
             DataModel.Processmodel.TVTestTestModel3.TVMaxCurrent = 0;
 
@@ -945,6 +987,39 @@ namespace BusbarCompressionSystem.ViewModel
             }
             PLC_write((DataModel.Settingmodel.AddressStart + 11).ToString(), 1);
 
+        }
+
+        /// <summary>
+        /// 阻值1读取处理：从PLC读取阻值并保存到内存
+        /// 触发地址：M3035，读取地址：D1200
+        /// </summary>
+        public void Res1Process()
+        {
+            float res = PLC_ReadFloat(DataModel.Settingmodel.AddressRes);
+            DataModel.Processmodel.TVTestTestModel1.Res = res;
+            writeLog($"阻值1读取完成: {res}");
+        }
+
+        /// <summary>
+        /// 阻值2读取处理：从PLC读取阻值并保存到内存
+        /// 触发地址：M3036，读取地址：D1202
+        /// </summary>
+        public void Res2Process()
+        {
+            float res = PLC_ReadFloat(DataModel.Settingmodel.AddressRes + 1 * 2);
+            DataModel.Processmodel.TVTestTestModel2.Res = res;
+            writeLog($"阻值2读取完成: {res}");
+        }
+
+        /// <summary>
+        /// 阻值3读取处理：从PLC读取阻值并保存到内存
+        /// 触发地址：M3037，读取地址：D1204
+        /// </summary>
+        public void Res3Process()
+        {
+            float res = PLC_ReadFloat(DataModel.Settingmodel.AddressRes + 2 * 2);
+            DataModel.Processmodel.TVTestTestModel3.Res = res;
+            writeLog($"阻值3读取完成: {res}");
         }
 
         /// <summary>
@@ -2427,15 +2502,16 @@ namespace BusbarCompressionSystem.ViewModel
                                     MSG = "NG1";
                                     resultstr = "拍照留底不良";
                                 }
+                                // 先判断阻值，再判断耐压，阻值大于14为不合格
+                                else if (pi.Res > 14)
+                                {
+                                    MSG = "NG3";
+                                    resultstr = "阻值测试不合格";
+                                }
                                 else if (pi.TVMaxVoltage == 0 || pi.TVMaxVoltage == -1 || !pi.TVResult)
                                 {
                                     MSG = "NG2";
                                     resultstr = "耐压测试不合格";
-                                }
-                                else if (pi.Res == 0)
-                                {
-                                    MSG = "NG3";
-                                    resultstr = "阻值测试不合格";
                                 }
                                 else
                                 {
@@ -2623,15 +2699,16 @@ namespace BusbarCompressionSystem.ViewModel
                                     MSG = "NG1";
                                     resultstr = "拍照留底不良";
                                 }
+                                // 先判断阻值，再判断耐压，阻值大于14为不合格
+                                else if (pi.Res > 14)
+                                {
+                                    MSG = "NG3";
+                                    resultstr = "阻值测试不合格";
+                                }
                                 else if (pi.TVMaxVoltage == 0 || pi.TVMaxVoltage == -1 || !pi.TVResult)
                                 {
                                     MSG = "NG2";
                                     resultstr = "耐压测试不合格";
-                                }
-                                else if (pi.Res == 0)
-                                {
-                                    MSG = "NG3";
-                                    resultstr = "阻值测试不合格";
                                 }
                                 else if (!pi.AppearanceInspection)
                                 {

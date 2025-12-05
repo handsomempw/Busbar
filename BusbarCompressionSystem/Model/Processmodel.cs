@@ -62,7 +62,15 @@ namespace BusbarCompressionSystem.Model
         [XmlElement("耐压3触发")]
         public IO TV3_Trig_IO { get; set; } = new IO();
 
-
+        [XmlIgnore]
+        [XmlElement("阻值1触发")]
+        public IO Res1_Trig_IO { get; set; } = new IO();
+        [XmlIgnore]
+        [XmlElement("阻值2触发")]
+        public IO Res2_Trig_IO { get; set; } = new IO();
+        [XmlIgnore]
+        [XmlElement("阻值3触发")]
+        public IO Res3_Trig_IO { get; set; } = new IO();
 
         #endregion
 
