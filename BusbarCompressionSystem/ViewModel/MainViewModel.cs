@@ -548,17 +548,46 @@ namespace BusbarCompressionSystem.ViewModel
                             #region 阻值触发
                             // 读取阻值触发信号（M地址，Bool类型）
                             var res1TrigResult = modbusTcp.ReadCoil(DataModel.Settingmodel.Res1TrigAddress.ToString(), 1);
+                            if (!res1TrigResult.IsSuccess)
+                            {
+                                writeLog($"阻值1触发信号读取失败 M{DataModel.Settingmodel.Res1TrigAddress}, Err:{res1TrigResult.Message}");
+                            }
                             var res2TrigResult = modbusTcp.ReadCoil(DataModel.Settingmodel.Res2TrigAddress.ToString(), 1);
+                            if (!res2TrigResult.IsSuccess)
+                            {
+                                writeLog($"阻值2触发信号读取失败 M{DataModel.Settingmodel.Res2TrigAddress}, Err:{res2TrigResult.Message}");
+                            }
                             var res3TrigResult = modbusTcp.ReadCoil(DataModel.Settingmodel.Res3TrigAddress.ToString(), 1);
+                            if (!res3TrigResult.IsSuccess)
+                            {
+                                writeLog($"阻值3触发信号读取失败 M{DataModel.Settingmodel.Res3TrigAddress}, Err:{res3TrigResult.Message}");
+                            }
+                            
+                            // 判断读取阻值1触发信号（M地址，Bool类型）的结果，若通信成功且内容为true，则Res1Trig为1，否则为0
                             int Res1Trig = res1TrigResult.IsSuccess && res1TrigResult.Content[0] ? 1 : 0;
                             int Res2Trig = res2TrigResult.IsSuccess && res2TrigResult.Content[0] ? 1 : 0;
                             int Res3Trig = res3TrigResult.IsSuccess && res3TrigResult.Content[0] ? 1 : 0;
+
+                            // 触发状态变更日志（避免刷屏，仅在状态变化时记录）
+                            if (Res1Trig != DataModel.Processmodel.Res1_Trig_IO.IOstatus)
+                            {
+                                writeLog($"阻值1触发状态 M{DataModel.Settingmodel.Res1TrigAddress} 变更为 {Res1Trig}");
+                            }
+                            if (Res2Trig != DataModel.Processmodel.Res2_Trig_IO.IOstatus)
+                            {
+                                writeLog($"阻值2触发状态 M{DataModel.Settingmodel.Res2TrigAddress} 变更为 {Res2Trig}");
+                            }
+                            if (Res3Trig != DataModel.Processmodel.Res3_Trig_IO.IOstatus)
+                            {
+                                writeLog($"阻值3触发状态 M{DataModel.Settingmodel.Res3TrigAddress} 变更为 {Res3Trig}");
+                            }
 
                             // 阻值1触发
                             try
                             {
                                 if (Res1Trig == 1 & DataModel.Processmodel.Res1_Trig_IO.IOstatus == 0)
                                 {
+                                    writeLog($"阻值1触发=1(M{DataModel.Settingmodel.Res1TrigAddress}), 准备读取阻值地址D{DataModel.Settingmodel.AddressRes}");
                                     new Thread(() => { Res1Process(); }).Start();
                                 }
                             }
@@ -569,6 +598,7 @@ namespace BusbarCompressionSystem.ViewModel
                             {
                                 if (Res2Trig == 1 & DataModel.Processmodel.Res2_Trig_IO.IOstatus == 0)
                                 {
+                                    writeLog($"阻值2触发=1(M{DataModel.Settingmodel.Res2TrigAddress}), 准备读取阻值地址D{DataModel.Settingmodel.AddressRes + 2}");
                                     new Thread(() => { Res2Process(); }).Start();
                                 }
                             }
@@ -579,6 +609,7 @@ namespace BusbarCompressionSystem.ViewModel
                             {
                                 if (Res3Trig == 1 & DataModel.Processmodel.Res3_Trig_IO.IOstatus == 0)
                                 {
+                                    writeLog($"阻值3触发=1(M{DataModel.Settingmodel.Res3TrigAddress}), 准备读取阻值地址D{DataModel.Settingmodel.AddressRes + 4}");
                                     new Thread(() => { Res3Process(); }).Start();
                                 }
                             }
@@ -818,8 +849,8 @@ namespace BusbarCompressionSystem.ViewModel
                 writeLog($"耐压1产品编号读取错误:{s}");
             }
 
-            // 阻值已由Res1Process独立读取，这里直接使用内存中的值
-            float res = DataModel.Processmodel.TVTestTestModel1.Res;
+            float res = PLC_ReadFloat(DataModel.Settingmodel.AddressRes);
+            DataModel.Processmodel.TVTestTestModel1.Res = res;
 
             DataModel.Processmodel.TVTestTestModel1.TVMaxVoltage = 0;
             DataModel.Processmodel.TVTestTestModel1.TVMaxCurrent = 0;
@@ -882,8 +913,10 @@ namespace BusbarCompressionSystem.ViewModel
             {
                 writeLog($"耐压2产品编号读取错误:{s}");
             }
-            // 阻值已由Res2Process独立读取，这里直接使用内存中的值
-            float res = DataModel.Processmodel.TVTestTestModel2.Res;
+
+            float res = PLC_ReadFloat(DataModel.Settingmodel.AddressRes + 1 * 2);
+            DataModel.Processmodel.TVTestTestModel1.Res = res;
+
             DataModel.Processmodel.TVTestTestModel2.TVMaxVoltage = 0;
             DataModel.Processmodel.TVTestTestModel2.TVMaxCurrent = 0;
             var r = DataModel.Settingmodel.AT9620_2.Start();
@@ -942,8 +975,10 @@ namespace BusbarCompressionSystem.ViewModel
             {
                 writeLog($"耐压3产品编号读取错误:{s}");
             }
-            // 阻值已由Res3Process独立读取，这里直接使用内存中的值
-            float res = DataModel.Processmodel.TVTestTestModel3.Res;
+
+            float res = PLC_ReadFloat(DataModel.Settingmodel.AddressRes + 2 * 2);
+            DataModel.Processmodel.TVTestTestModel1.Res = res;
+
             DataModel.Processmodel.TVTestTestModel3.TVMaxVoltage = 0;
             DataModel.Processmodel.TVTestTestModel3.TVMaxCurrent = 0;
 
@@ -995,9 +1030,16 @@ namespace BusbarCompressionSystem.ViewModel
         /// </summary>
         public void Res1Process()
         {
-            float res = PLC_ReadFloat(DataModel.Settingmodel.AddressRes);
-            DataModel.Processmodel.TVTestTestModel1.Res = res;
-            writeLog($"阻值1读取完成: {res}");
+            try
+            {
+                float res = PLC_ReadFloat(DataModel.Settingmodel.AddressRes);
+                DataModel.Processmodel.TVTestTestModel1.Res = res;
+                writeLog($"阻值1读取完成 D{DataModel.Settingmodel.AddressRes}={res}");
+            }
+            catch (Exception ex)
+            {
+                writeLog($"[ERROR] 阻值1读取异常 M{DataModel.Settingmodel.Res1TrigAddress}/D{DataModel.Settingmodel.AddressRes}: {ex.Message}");
+            }
         }
 
         /// <summary>
@@ -1006,9 +1048,16 @@ namespace BusbarCompressionSystem.ViewModel
         /// </summary>
         public void Res2Process()
         {
-            float res = PLC_ReadFloat(DataModel.Settingmodel.AddressRes + 1 * 2);
-            DataModel.Processmodel.TVTestTestModel2.Res = res;
-            writeLog($"阻值2读取完成: {res}");
+            try
+            {
+                float res = PLC_ReadFloat(DataModel.Settingmodel.AddressRes + 1 * 2);
+                DataModel.Processmodel.TVTestTestModel2.Res = res;
+                writeLog($"阻值2读取完成 D{DataModel.Settingmodel.AddressRes + 2}={res}");
+            }
+            catch (Exception ex)
+            {
+                writeLog($"[ERROR] 阻值2读取异常 M{DataModel.Settingmodel.Res2TrigAddress}/D{DataModel.Settingmodel.AddressRes + 2}: {ex.Message}");
+            }
         }
 
         /// <summary>
@@ -1017,9 +1066,16 @@ namespace BusbarCompressionSystem.ViewModel
         /// </summary>
         public void Res3Process()
         {
-            float res = PLC_ReadFloat(DataModel.Settingmodel.AddressRes + 2 * 2);
-            DataModel.Processmodel.TVTestTestModel3.Res = res;
-            writeLog($"阻值3读取完成: {res}");
+            try
+            {
+                float res = PLC_ReadFloat(DataModel.Settingmodel.AddressRes + 2 * 2);
+                DataModel.Processmodel.TVTestTestModel3.Res = res;
+                writeLog($"阻值3读取完成 D{DataModel.Settingmodel.AddressRes + 4}={res}");
+            }
+            catch (Exception ex)
+            {
+                writeLog($"[ERROR] 阻值3读取异常 M{DataModel.Settingmodel.Res3TrigAddress}/D{DataModel.Settingmodel.AddressRes + 4}: {ex.Message}");
+            }
         }
 
         /// <summary>

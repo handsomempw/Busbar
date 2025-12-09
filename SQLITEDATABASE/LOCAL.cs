@@ -392,6 +392,7 @@ namespace SQLITEDATABASE
                     
                     if (dt != null && dt.Rows.Count > 0)
                     {
+                        // 1. 先解析拍照留底（必须字段）
                         bool _takephoto1 = false;
                         if (!bool.TryParse(dt.Rows[0]["TAKEPHOTO1"].ToString(), out _takephoto1))
                         {
@@ -401,6 +402,28 @@ namespace SQLITEDATABASE
                             return 1;
                         }
 
+                        if (!_takephoto1)
+                        {
+                            return 1;
+                        }
+
+                        // 2. 解析阻值（必须字段）
+                        float _res = -1;
+                        if (!float.TryParse(dt.Rows[0]["RES"].ToString(), out _res))
+                        {
+                            WriteErrorLog("[数据异常]CHECK1-字段解析错误-RES",
+                                $"RES字段解析失败，原始值=[{dt.Rows[0]["RES"]}]，返回值:3",
+                                SN, WOCODE);
+                            return 3;
+                        }
+
+                        // 3. 优先判断阻值，阻值不良时无需检查耐压（PLC可能未执行耐压测试）
+                        if (_res > 14)
+                        {
+                            return 3;
+                        }
+
+                        // 4. 阻值合格，继续解析耐压字段
                         float _tvmaxvoltage = -1;
                         if (!float.TryParse(dt.Rows[0]["TVMAXVOLTAGE"].ToString(), out _tvmaxvoltage))
                         {
@@ -418,28 +441,7 @@ namespace SQLITEDATABASE
                             return 2;
                         }
 
-
-                        float _res = -1;
-                        if (!float.TryParse(dt.Rows[0]["RES"].ToString(), out _res))
-                        {
-                            WriteErrorLog("[数据异常]CHECK1-字段解析错误-RES",
-                                $"RES字段解析失败，原始值=[{dt.Rows[0]["RES"]}]，返回值:3",
-                                SN, WOCODE);
-                            return 3;
-                        }
-
-
-
-
-                        if (!_takephoto1)
-                        {
-                            return 1;
-                        }
-                        // 先判断阻值，再判断耐压，阻值大于14为不合格
-                        if (_res > 14)
-                        {
-                            return 3;
-                        }
+                        // 5. 判断耐压测试结果
                         if (_tvmaxvoltage == 0 || _tvmaxvoltage == -1)
                         {
                             return 2;
@@ -448,7 +450,6 @@ namespace SQLITEDATABASE
                         {
                             return 2;
                         }
-
 
                         return 0;
                     }
@@ -511,6 +512,7 @@ namespace SQLITEDATABASE
                     
                     if (dt != null && dt.Rows.Count > 0)
                     {
+                        // 1. 先解析拍照留底（必须字段）
                         bool _takephoto1 = false;
                         if (!bool.TryParse(dt.Rows[0]["TAKEPHOTO1"].ToString(), out _takephoto1))
                         {
@@ -520,6 +522,28 @@ namespace SQLITEDATABASE
                             return 1;
                         }
 
+                        if (!_takephoto1)
+                        {
+                            return 1;
+                        }
+
+                        // 2. 解析阻值（必须字段）
+                        float _res = -1;
+                        if (!float.TryParse(dt.Rows[0]["RES"].ToString(), out _res))
+                        {
+                            WriteErrorLog("[数据异常]CHECK2-字段解析错误-RES",
+                                $"RES字段解析失败，原始值=[{dt.Rows[0]["RES"]}]，返回值:3",
+                                SN, WOCODE);
+                            return 3;
+                        }
+
+                        // 3. 优先判断阻值，阻值不良时无需检查耐压（PLC可能未执行耐压测试）
+                        if (_res > 14)
+                        {
+                            return 3;
+                        }
+
+                        // 4. 阻值合格，继续解析耐压字段
                         float _tvmaxvoltage = -1;
                         if (!float.TryParse(dt.Rows[0]["TVMAXVOLTAGE"].ToString(), out _tvmaxvoltage))
                         {
@@ -537,33 +561,7 @@ namespace SQLITEDATABASE
                             return 2;
                         }
 
-                        float _res = -1;
-                        if (!float.TryParse(dt.Rows[0]["RES"].ToString(), out _res))
-                        {
-                            WriteErrorLog("[数据异常]CHECK2-字段解析错误-RES",
-                                $"RES字段解析失败，原始值=[{dt.Rows[0]["RES"]}]，返回值:3",
-                                SN, WOCODE);
-                            return 3;
-                        }
-
-                        bool _takephoto2 = false;
-                        if (!bool.TryParse(dt.Rows[0]["TAKEPHOTO2"].ToString(), out _takephoto2))
-                        {
-                            WriteErrorLog("[数据异常]CHECK2-字段解析错误-TAKEPHOTO2",
-                                $"TAKEPHOTO2字段解析失败，原始值=[{dt.Rows[0]["TAKEPHOTO2"]}]，返回值:4",
-                                SN, WOCODE);
-                            return 4;
-                        }
-
-                        if (!_takephoto1)
-                        {
-                            return 1;
-                        }
-                        // 先判断阻值，再判断耐压，阻值大于14为不合格
-                        if (_res > 14)
-                        {
-                            return 3;
-                        }
+                        // 5. 判断耐压测试结果
                         if (_tvmaxvoltage == 0 || _tvmaxvoltage == -1)
                         {
                             return 2;
@@ -571,6 +569,16 @@ namespace SQLITEDATABASE
                         if (!_tvresult)
                         {
                             return 2;
+                        }
+
+                        // 6. 解析AOI外观检测
+                        bool _takephoto2 = false;
+                        if (!bool.TryParse(dt.Rows[0]["TAKEPHOTO2"].ToString(), out _takephoto2))
+                        {
+                            WriteErrorLog("[数据异常]CHECK2-字段解析错误-TAKEPHOTO2",
+                                $"TAKEPHOTO2字段解析失败，原始值=[{dt.Rows[0]["TAKEPHOTO2"]}]，返回值:4",
+                                SN, WOCODE);
+                            return 4;
                         }
 
                         if (!_takephoto2)
