@@ -278,6 +278,16 @@ namespace BusbarCompressionSystem.ViewModel
 
         #endregion
         #region 操作
+        /// <summary>
+        /// 解析并校验产品编号（ScanSN的核心实现）
+        /// </summary>
+        /// <param name="snstr">扫码器读取的原始字符串</param>
+        /// <returns>空字符串表示成功；非空字符串表示失败原因</returns>
+        /// <remarks>
+        /// 业务逻辑：
+        /// 1. 点检SN码（INSPECTION_TV_OK/NG, INSPECTION_AOI_OK/NG）：跳过MES校验，直接创建本地记录
+        /// 2. 普通SN码：调用MES解析获取产品信息，校验规格一致性后创建本地记录
+        /// </remarks>
         public string _ScanSN(string snstr)
         {
             // 点检SN码特殊处理：跳过MES校验，直接返回成功
@@ -333,6 +343,14 @@ namespace BusbarCompressionSystem.ViewModel
             //}
         }
 
+        /// <summary>
+        /// 扫描产品编号并进行MES校验
+        /// </summary>
+        /// <remarks>
+        /// 触发方式：手动扫码（Enter键/按钮）或 自动扫码（PLC触发）
+        /// 点检SN码会跳过MES校验，普通SN进行完整校验
+        /// </remarks>
+        /// <returns>true: 扫码成功; false: 扫码失败</returns>
         public bool ScanSN()
         {
             string s = _ScanSN(DataModel.Processmodel.sninputstr);
@@ -690,7 +708,9 @@ namespace BusbarCompressionSystem.ViewModel
                         string s = r.value.Replace("\r", "").Replace("\n", "").Trim();
                         DataModel.Processmodel.sninputstr = s;
                         //SQLITEDATABASE.sqlite.CREATENEWLINE("1", "1", s);
-                        PLC_write((DataModel.Settingmodel.AddressStart + 1).ToString(), (UInt16)1);
+                        //PLC_write((DataModel.Settingmodel.AddressStart + 1).ToString(), (UInt16)1);
+                        var R = ScanSN();
+                        PLC_write((DataModel.Settingmodel.AddressStart + 1).ToString(), (UInt16)(R ? 1 : 2));
                     }
                     else
                     {
