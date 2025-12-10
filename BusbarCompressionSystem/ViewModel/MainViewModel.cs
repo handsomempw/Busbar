@@ -935,7 +935,7 @@ namespace BusbarCompressionSystem.ViewModel
             }
 
             float res = PLC_ReadFloat(DataModel.Settingmodel.AddressRes + 1 * 2);
-            DataModel.Processmodel.TVTestTestModel1.Res = res;
+            DataModel.Processmodel.TVTestTestModel2.Res = res;
 
             DataModel.Processmodel.TVTestTestModel2.TVMaxVoltage = 0;
             DataModel.Processmodel.TVTestTestModel2.TVMaxCurrent = 0;
@@ -997,7 +997,7 @@ namespace BusbarCompressionSystem.ViewModel
             }
 
             float res = PLC_ReadFloat(DataModel.Settingmodel.AddressRes + 2 * 2);
-            DataModel.Processmodel.TVTestTestModel1.Res = res;
+            DataModel.Processmodel.TVTestTestModel3.Res = res;
 
             DataModel.Processmodel.TVTestTestModel3.TVMaxVoltage = 0;
             DataModel.Processmodel.TVTestTestModel3.TVMaxCurrent = 0;
