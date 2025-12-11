@@ -213,8 +213,10 @@ namespace SQLITEDATABASE
                     return c > 0;
                 }
             }
-            catch
-            {; }
+            catch (Exception ex)
+            {
+               WriteErrorLog("UPDATE_TAKEPHOTO1_ERROR", $"更新拍照1结果失败: {ex.Message}", SN, WOCODE);
+            }
             return false;
         }
 
@@ -238,7 +240,10 @@ namespace SQLITEDATABASE
                     return c > 0;
                 }
             }
-            catch {; }
+            catch (Exception ex)
+            {
+                WriteErrorLog("UPDATE_PRESSURE_ERROR", $"更新压力结果失败: {ex.Message}", SN, WOCODE);
+            }
             return false;
         }
         /// <summary>
@@ -266,8 +271,10 @@ namespace SQLITEDATABASE
                     return c > 0;
                 }
             }
-            catch
-            {; }
+            catch (Exception ex)
+            {
+                WriteErrorLog("UPDATE_TV_ERROR", $"更新耐压结果失败: {ex.Message}", SN, WOCODE);
+            }
             return false;
         }
         /// <summary>
@@ -289,8 +296,10 @@ namespace SQLITEDATABASE
                     return c > 0;
                 }
             }
-            catch
-            {; }
+            catch (Exception ex)
+            {
+                WriteErrorLog("UPDATE_TAKEPHOTO2_ERROR", $"更新拍照2结果失败: {ex.Message}", SN, WOCODE);
+            }
             return false;
         }
         /// <summary>
@@ -394,10 +403,21 @@ namespace SQLITEDATABASE
                     {
                         // 1. 先解析拍照留底（必须字段）
                         bool _takephoto1 = false;
-                        if (!bool.TryParse(dt.Rows[0]["TAKEPHOTO1"].ToString(), out _takephoto1))
+                        string s_takephoto1 = dt.Rows[0]["TAKEPHOTO1"]?.ToString();
+                        
+                        // 增加空值检查，区分“数据缺失”和“解析失败”
+                        if (string.IsNullOrWhiteSpace(s_takephoto1))
+                        {
+                             WriteErrorLog("[数据缺失]CHECK1-字段为空-TAKEPHOTO1",
+                                $"TAKEPHOTO1字段为空，可能是UpdateTakePhoto1执行失败，返回值:1",
+                                SN, WOCODE);
+                            return 1;
+                        }
+
+                        if (!bool.TryParse(s_takephoto1, out _takephoto1))
                         {
                             WriteErrorLog("[数据异常]CHECK1-字段解析错误-TAKEPHOTO1",
-                                $"TAKEPHOTO1字段解析失败，原始值=[{dt.Rows[0]["TAKEPHOTO1"]}]，返回值:1",
+                                $"TAKEPHOTO1字段解析失败，原始值=[{s_takephoto1}]，返回值:1",
                                 SN, WOCODE);
                             return 1;
                         }
@@ -409,10 +429,20 @@ namespace SQLITEDATABASE
 
                         // 2. 解析阻值（必须字段）
                         float _res = -1;
-                        if (!float.TryParse(dt.Rows[0]["RES"].ToString(), out _res))
+                        string s_res = dt.Rows[0]["RES"]?.ToString();
+                        
+                        if (string.IsNullOrWhiteSpace(s_res))
+                        {
+                             WriteErrorLog("[数据缺失]CHECK1-字段为空-RES",
+                                "RES字段为空，可能是UpdateTV执行失败，返回值:3",
+                                SN, WOCODE);
+                            return 3;
+                        }
+
+                        if (!float.TryParse(s_res, out _res))
                         {
                             WriteErrorLog("[数据异常]CHECK1-字段解析错误-RES",
-                                $"RES字段解析失败，原始值=[{dt.Rows[0]["RES"]}]，返回值:3",
+                                $"RES字段解析失败，原始值=[{s_res}]，返回值:3",
                                 SN, WOCODE);
                             return 3;
                         }
@@ -425,18 +455,39 @@ namespace SQLITEDATABASE
 
                         // 4. 阻值合格，继续解析耐压字段
                         float _tvmaxvoltage = -1;
-                        if (!float.TryParse(dt.Rows[0]["TVMAXVOLTAGE"].ToString(), out _tvmaxvoltage))
+                        string s_tvmaxvoltage = dt.Rows[0]["TVMAXVOLTAGE"]?.ToString();
+                        
+                        if (string.IsNullOrWhiteSpace(s_tvmaxvoltage))
+                        {
+                             WriteErrorLog("[数据缺失]CHECK1-字段为空-TVMAXVOLTAGE",
+                                "TVMAXVOLTAGE字段为空，可能是UpdateTV执行失败，返回值:2",
+                                SN, WOCODE);
+                            return 2;
+                        }
+
+                        if (!float.TryParse(s_tvmaxvoltage, out _tvmaxvoltage))
                         {
                             WriteErrorLog("[数据异常]CHECK1-字段解析错误-TVMAXVOLTAGE",
-                                $"TVMAXVOLTAGE字段解析失败，原始值=[{dt.Rows[0]["TVMAXVOLTAGE"]}]，返回值:2",
+                                $"TVMAXVOLTAGE字段解析失败，原始值=[{s_tvmaxvoltage}]，返回值:2",
                                 SN, WOCODE);
                             return 2;
                         }
                         bool _tvresult = false;
-                        if (!bool.TryParse(dt.Rows[0]["TVRESULT"].ToString(), out _tvresult))
+                        string s_tvresult = dt.Rows[0]["TVRESULT"]?.ToString();
+                        
+                        if (string.IsNullOrWhiteSpace(s_tvresult))
+                        {
+                            // TVRESULT为空也视为耐压数据缺失
+                             WriteErrorLog("[数据缺失]CHECK1-字段为空-TVRESULT",
+                                "TVRESULT字段为空，可能是UpdateTV执行失败，返回值:2",
+                                SN, WOCODE);
+                            return 2;
+                        }
+
+                        if (!bool.TryParse(s_tvresult, out _tvresult))
                         {
                             WriteErrorLog("[数据异常]CHECK1-字段解析错误-TVRESULT",
-                                $"TVRESULT字段解析失败，原始值=[{dt.Rows[0]["TVRESULT"]}]，返回值:2",
+                                $"TVRESULT字段解析失败，原始值=[{s_tvresult}]，返回值:2",
                                 SN, WOCODE);
                             return 2;
                         }
@@ -514,10 +565,21 @@ namespace SQLITEDATABASE
                     {
                         // 1. 先解析拍照留底（必须字段）
                         bool _takephoto1 = false;
-                        if (!bool.TryParse(dt.Rows[0]["TAKEPHOTO1"].ToString(), out _takephoto1))
+                        string s_takephoto1 = dt.Rows[0]["TAKEPHOTO1"]?.ToString();
+                        
+                        // 增加空值检查
+                        if (string.IsNullOrWhiteSpace(s_takephoto1))
+                        {
+                            WriteErrorLog("[数据缺失]CHECK2-字段为空-TAKEPHOTO1",
+                                $"TAKEPHOTO1字段为空，可能是UpdateTakePhoto1执行失败，返回值:1",
+                                SN, WOCODE);
+                            return 1;
+                        }
+
+                        if (!bool.TryParse(s_takephoto1, out _takephoto1))
                         {
                             WriteErrorLog("[数据异常]CHECK2-字段解析错误-TAKEPHOTO1",
-                                $"TAKEPHOTO1字段解析失败，原始值=[{dt.Rows[0]["TAKEPHOTO1"]}]，返回值:1",
+                                $"TAKEPHOTO1字段解析失败，原始值=[{s_takephoto1}]，返回值:1",
                                 SN, WOCODE);
                             return 1;
                         }
@@ -529,10 +591,20 @@ namespace SQLITEDATABASE
 
                         // 2. 解析阻值（必须字段）
                         float _res = -1;
-                        if (!float.TryParse(dt.Rows[0]["RES"].ToString(), out _res))
+                        string s_res = dt.Rows[0]["RES"]?.ToString();
+                        
+                        if (string.IsNullOrWhiteSpace(s_res))
+                        {
+                            WriteErrorLog("[数据缺失]CHECK2-字段为空-RES",
+                                "RES字段为空，可能是UpdateTV执行失败，返回值:3",
+                                SN, WOCODE);
+                            return 3;
+                        }
+
+                        if (!float.TryParse(s_res, out _res))
                         {
                             WriteErrorLog("[数据异常]CHECK2-字段解析错误-RES",
-                                $"RES字段解析失败，原始值=[{dt.Rows[0]["RES"]}]，返回值:3",
+                                $"RES字段解析失败，原始值=[{s_res}]，返回值:3",
                                 SN, WOCODE);
                             return 3;
                         }
@@ -545,18 +617,38 @@ namespace SQLITEDATABASE
 
                         // 4. 阻值合格，继续解析耐压字段
                         float _tvmaxvoltage = -1;
-                        if (!float.TryParse(dt.Rows[0]["TVMAXVOLTAGE"].ToString(), out _tvmaxvoltage))
+                        string s_tvmaxvoltage = dt.Rows[0]["TVMAXVOLTAGE"]?.ToString();
+                        
+                        if (string.IsNullOrWhiteSpace(s_tvmaxvoltage))
+                        {
+                            WriteErrorLog("[数据缺失]CHECK2-字段为空-TVMAXVOLTAGE",
+                                "TVMAXVOLTAGE字段为空，可能是UpdateTV执行失败，返回值:2",
+                                SN, WOCODE);
+                            return 2;
+                        }
+
+                        if (!float.TryParse(s_tvmaxvoltage, out _tvmaxvoltage))
                         {
                             WriteErrorLog("[数据异常]CHECK2-字段解析错误-TVMAXVOLTAGE",
-                                $"TVMAXVOLTAGE字段解析失败，原始值=[{dt.Rows[0]["TVMAXVOLTAGE"]}]，返回值:2",
+                                $"TVMAXVOLTAGE字段解析失败，原始值=[{s_tvmaxvoltage}]，返回值:2",
                                 SN, WOCODE);
                             return 2;
                         }
                         bool _tvresult = false;
-                        if (!bool.TryParse(dt.Rows[0]["TVRESULT"].ToString(), out _tvresult))
+                        string s_tvresult = dt.Rows[0]["TVRESULT"]?.ToString();
+                        
+                        if (string.IsNullOrWhiteSpace(s_tvresult))
+                        {
+                            WriteErrorLog("[数据缺失]CHECK2-字段为空-TVRESULT",
+                                "TVRESULT字段为空，可能是UpdateTV执行失败，返回值:2",
+                                SN, WOCODE);
+                            return 2;
+                        }
+
+                        if (!bool.TryParse(s_tvresult, out _tvresult))
                         {
                             WriteErrorLog("[数据异常]CHECK2-字段解析错误-TVRESULT",
-                                $"TVRESULT字段解析失败，原始值=[{dt.Rows[0]["TVRESULT"]}]，返回值:2",
+                                $"TVRESULT字段解析失败，原始值=[{s_tvresult}]，返回值:2",
                                 SN, WOCODE);
                             return 2;
                         }
@@ -573,10 +665,20 @@ namespace SQLITEDATABASE
 
                         // 6. 解析AOI外观检测
                         bool _takephoto2 = false;
-                        if (!bool.TryParse(dt.Rows[0]["TAKEPHOTO2"].ToString(), out _takephoto2))
+                        string s_takephoto2 = dt.Rows[0]["TAKEPHOTO2"]?.ToString();
+                        
+                        if (string.IsNullOrWhiteSpace(s_takephoto2))
+                        {
+                            WriteErrorLog("[数据缺失]CHECK2-字段为空-TAKEPHOTO2",
+                                "TAKEPHOTO2字段为空，可能是UpdateTakePhoto2执行失败，返回值:4",
+                                SN, WOCODE);
+                            return 4;
+                        }
+
+                        if (!bool.TryParse(s_takephoto2, out _takephoto2))
                         {
                             WriteErrorLog("[数据异常]CHECK2-字段解析错误-TAKEPHOTO2",
-                                $"TAKEPHOTO2字段解析失败，原始值=[{dt.Rows[0]["TAKEPHOTO2"]}]，返回值:4",
+                                $"TAKEPHOTO2字段解析失败，原始值=[{s_takephoto2}]，返回值:4",
                                 SN, WOCODE);
                             return 4;
                         }
@@ -611,14 +713,32 @@ namespace SQLITEDATABASE
         public static string connstr = @"Data Source=database\record.db;Pooling=true;FailIfMissing=false";
 
         #region 读取数据按内部链接来
+        /// <summary>
+        /// 使用默认本地SQLite连接读取数据
+        /// 典型场景：业务层只需执行查询，不关心具体数据库路径
+        /// </summary>
+        /// <param name="sql">要执行的查询SQL</param>
+        /// <returns>查询结果DataTable；异常时返回null</returns>
         public static DataTable Read(string sql)
         {
             return Read(sql, connstr);
         }
+        /// <summary>
+        /// 使用默认本地SQLite连接读取单个字符串结果
+        /// 适用于只需返回首行首列值的轻量查询
+        /// </summary>
+        /// <param name="sql">要执行的查询SQL</param>
+        /// <returns>首行首列字符串；异常时返回null</returns>
         public static string ReadString(String sql)
         {
             return ReadString(sql, connstr);
         }
+        /// <summary>
+        /// 使用默认本地SQLite连接执行非查询SQL
+        /// 典型用途：INSERT/UPDATE/DELETE 操作
+        /// </summary>
+        /// <param name="sql">要执行的SQL语句</param>
+        /// <returns>受影响的行数；失败返回0</returns>
         public static int excute_sql(string sql)
         {
             return excute_sql(sql, connstr);
@@ -627,7 +747,13 @@ namespace SQLITEDATABASE
 
 
         #region 读取数据按外部链接来
-
+        /// <summary>
+        /// 指定连接字符串读取数据
+        /// 业务场景：跨工单/多库查询时由上层传入连接
+        /// </summary>
+        /// <param name="sql">查询SQL</param>
+        /// <param name="connstring">SQLite连接字符串</param>
+        /// <returns>查询结果DataTable；异常时返回null</returns>
         public static DataTable Read(string sql, string connstring)
         {
             try
@@ -648,6 +774,13 @@ namespace SQLITEDATABASE
                 return null;
             }
         }
+        /// <summary>
+        /// 指定连接字符串读取首行首列的字符串结果
+        /// 适用于快速读取单值配置或状态位
+        /// </summary>
+        /// <param name="sql">查询SQL</param>
+        /// <param name="connstring">SQLite连接字符串</param>
+        /// <returns>首行首列字符串；异常时返回null</returns>
         public static string ReadString(String sql, string connstring)
         {
             try
@@ -669,21 +802,51 @@ namespace SQLITEDATABASE
                 return null;
             }
         }
+        /// <summary>
+        /// 指定连接字符串执行非查询SQL，并带重试机制
+        /// 重试策略：异常时最多重试3次，每次间隔100ms，主要应对SQLite锁冲突
+        /// </summary>
+        /// <param name="sql">要执行的SQL语句</param>
+        /// <param name="connstring">SQLite连接字符串</param>
+        /// <returns>受影响的行数；超出重试或异常返回0</returns>
         public static int excute_sql(string sql, string connstring)
         {
-            try
+            int retryCount = 0;
+            int maxRetries = 3;
+            
+            while (retryCount <= maxRetries)
             {
-                using (SQLiteConnection conn = new SQLiteConnection(connstring))
+                try
                 {
-                    conn.Open();
-                    using (SQLiteCommand odc = new SQLiteCommand(sql, conn))
+                    using (SQLiteConnection conn = new SQLiteConnection(connstring))
                     {
-                        int x = odc.ExecuteNonQuery();
-                        return x;
+                        conn.Open();
+                        using (SQLiteCommand odc = new SQLiteCommand(sql, conn))
+                        {
+                            int x = odc.ExecuteNonQuery();
+                            return x;
+                        }
                     }
                 }
+                catch (Exception ex)
+                {
+                    retryCount++;
+                    // 如果是最后一次尝试，或者异常不是数据库锁定（通常锁定也是Exception，但为了保险起见对所有异常重试），记录日志
+                    // 实际生产中SQLite Busy/Locked是主要重试目标
+                    
+                    if (retryCount > maxRetries)
+                    {
+                        WriteErrorLog("SQL_EXECUTE_ERROR", 
+                            $"SQL执行失败，已重试{maxRetries}次。SQL=[{sql}] Error=[{ex.Message}]", 
+                            "", "");
+                        return 0;
+                    }
+                    
+                    // 等待一段时间后重试
+                    Thread.Sleep(100);
+                }
             }
-            catch { return 0; }
+            return 0;
         }
 
         #endregion
