@@ -2047,7 +2047,10 @@ namespace BusbarCompressionSystem.ViewModel
 
                                 try
                                 {
-                                    double measureValue = MeasureDimension(Image, tool, hwindow, false);
+                                    // 测量同时重绘，便于返回主界面直接看到叠加预览
+                                    double measureValue = MeasureDimension(Image, tool, hwindow, true);
+                                    // 追加一次预览，确保HALCON结果同步到WPF显示
+                                    PreviewDimensionMeasurement(Image, tool, hwindow);
                                     tool.ActualMeasureValue = measureValue;
 
                                     if (measureValue >= 0 && measureValue >= tool.MinMeasureValue && measureValue <= tool.MaxMeasureValue)

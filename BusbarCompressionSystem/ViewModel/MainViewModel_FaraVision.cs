@@ -1,4 +1,4 @@
-﻿// ==========================================
+// ==========================================
 // 文件: MainViewModel_FaraVision.cs
 // 描述: FaraVision 相关视图模型，负责工程管理、工具增删改、
 //       图像/模型读写以及基于 HALCON 的面积计算等核心逻辑。
@@ -2207,10 +2207,10 @@ namespace BusbarCompressionSystem.ViewModel
         {
             try
             {
-                // 验证ROI有效性
-                if (roi.Row1 == roi.Row2 && roi.Col1 == roi.Col2)
+                // 验证ROI有效性（支持圆形、线段、矩形）
+                if (!IsROIValid(roi))
                 {
-                    return false; // ROI区域太小，跳过预览
+                    return false; // ROI无效，跳过预览
                 }
 
                 // 判断测量类型，选择合适的预览方法
@@ -2550,24 +2550,36 @@ namespace BusbarCompressionSystem.ViewModel
                 hwindow.SetDraw("margin");
 
                 // 绘制测量对象1的ROI（绿色）
-                if (tool.MeasureObject1ROI.Row1 != tool.MeasureObject1ROI.Row2 ||
-                    tool.MeasureObject1ROI.Col1 != tool.MeasureObject1ROI.Col2)
+                if (IsROIValid(tool.MeasureObject1ROI))
                 {
                     hwindow.SetColor("green");
-                    hwindow.DispRectangle1((double)tool.MeasureObject1ROI.Row1, (double)tool.MeasureObject1ROI.Col1,
-                                         (double)tool.MeasureObject1ROI.Row2, (double)tool.MeasureObject1ROI.Col2);
+                    if (tool.MeasureObject1ROI.Type == ROIType.Circle && tool.MeasureObject1ROI.CircleRadius > 0)
+                    {
+                        hwindow.DispCircle(tool.MeasureObject1ROI.CircleCenterRow, tool.MeasureObject1ROI.CircleCenterCol, tool.MeasureObject1ROI.CircleRadius);
+                    }
+                    else
+                    {
+                        hwindow.DispRectangle1((double)tool.MeasureObject1ROI.Row1, (double)tool.MeasureObject1ROI.Col1,
+                                             (double)tool.MeasureObject1ROI.Row2, (double)tool.MeasureObject1ROI.Col2);
+                    }
 
                     // 预览测量对象1的边缘
                     PreviewEdgesForROI(image, tool, tool.MeasureObject1ROI, hwindow, "lime");
                 }
 
                 // 绘制测量对象2的ROI（黄色）
-                if (tool.MeasureObject2ROI.Row1 != tool.MeasureObject2ROI.Row2 ||
-                    tool.MeasureObject2ROI.Col1 != tool.MeasureObject2ROI.Col2)
+                if (IsROIValid(tool.MeasureObject2ROI))
                 {
                     hwindow.SetColor("yellow");
-                    hwindow.DispRectangle1((double)tool.MeasureObject2ROI.Row1, (double)tool.MeasureObject2ROI.Col1,
-                                         (double)tool.MeasureObject2ROI.Row2, (double)tool.MeasureObject2ROI.Col2);
+                    if (tool.MeasureObject2ROI.Type == ROIType.Circle && tool.MeasureObject2ROI.CircleRadius > 0)
+                    {
+                        hwindow.DispCircle(tool.MeasureObject2ROI.CircleCenterRow, tool.MeasureObject2ROI.CircleCenterCol, tool.MeasureObject2ROI.CircleRadius);
+                    }
+                    else
+                    {
+                        hwindow.DispRectangle1((double)tool.MeasureObject2ROI.Row1, (double)tool.MeasureObject2ROI.Col1,
+                                             (double)tool.MeasureObject2ROI.Row2, (double)tool.MeasureObject2ROI.Col2);
+                    }
 
                     // 预览测量对象2的边缘
                     PreviewEdgesForROI(image, tool, tool.MeasureObject2ROI, hwindow, "yellow");

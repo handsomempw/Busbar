@@ -1,4 +1,4 @@
-﻿<p:WindowX x:Class="BusbarCompressionSystem.Model.FaraVision.SettingForm"
+<p:WindowX x:Class="BusbarCompressionSystem.Model.FaraVision.SettingForm"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
@@ -79,6 +79,12 @@
                           StrokeThickness="3" Stroke="Lime" X1="10" Y1="10" X2="100" Y2="100"/>
                     <Line x:Name="LineMeasureObject2" Visibility="{Binding TestMode,Converter={StaticResource TestMode2Visibility_DimensionMeasure}}"
                           StrokeThickness="3" Stroke="Cyan" X1="10" Y1="10" X2="100" Y2="100"/>
+
+                    <!-- 尺寸测量工具的两个测量对象ROI（圆形，新版） -->
+                    <Ellipse x:Name="CircleMeasureObject1" Visibility="{Binding TestMode,Converter={StaticResource TestMode2Visibility_DimensionMeasure}}"
+                             StrokeThickness="3" Stroke="Lime" Fill="Transparent" Width="50" Height="50" />
+                    <Ellipse x:Name="CircleMeasureObject2" Visibility="{Binding TestMode,Converter={StaticResource TestMode2Visibility_DimensionMeasure}}"
+                             StrokeThickness="3" Stroke="Cyan" Fill="Transparent" Width="50" Height="50" />
 
                 </Canvas>
 

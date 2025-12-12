@@ -1,4 +1,4 @@
-﻿using BusbarCompressionSystem.Model.FaraVision.Tool;
+using BusbarCompressionSystem.Model.FaraVision.Tool;
 using BusbarCompressionSystem.ViewModel;
 using HalconDotNet;
 using Microsoft.Win32;
@@ -65,6 +65,24 @@ namespace BusbarCompressionSystem.Model.FaraVision
             t = (ToolModel)DataContext;
         }
 
+        /// <summary>
+        /// 选择图片按钮点击事件（参数配置界面）
+        /// 
+        /// 业务场景：
+        /// - 用户在配置工具参数时，需要选择标准样本图片用于ROI绘制、参数调试、校准等操作
+        /// - 选中的图片会保存到项目目录，后续生产流程会加载该图片进行模板匹配
+        /// 
+        /// 核心逻辑：
+        /// 1. 弹出文件选择对话框，限定.jpg格式
+        /// 2. 调用LoadAndConvertImage加载图片并转换为HALCON和WPF格式
+        /// 3. 保存图片副本到项目目录（{Prjdir}\{Name}\Tool{Index}.jpg）
+        /// 4. 缩放图片适应窗口大小（zoom_all）
+        /// 
+        /// 与其他模块关联：
+        /// - LoadAndConvertImage：统一图片加载逻辑，避免重复读取
+        /// - refreshrectangle：刷新矩形/线段/圆形ROI的WPF显示控件
+        /// - ResetDrawingStates：重置所有选择标志和绘制状态，确保交互流程正确
+        /// </summary>
         private void Button_Click(object sender, RoutedEventArgs e)
         {
             try
@@ -75,84 +93,29 @@ namespace BusbarCompressionSystem.Model.FaraVision
                 {
                     string filename = ofd.FileName;
 
-                    #region 加载模型图片
-                    t.Image?.Dispose();
-                    HOperatorSet.GenEmptyObj(out t.Image);
-                    HOperatorSet.ReadImage(out t.Image, filename);
-                    #endregion
-
-
-
-                    Bitmap bmp;
-                    Bitmap src;
-                    HObject Image;
-                    HOperatorSet.GenEmptyObj(out Image);
-
-                    try
+                    // 1. 加载并转换图片
+                    if (!LoadAndConvertImage(filename))
                     {
-                        HOperatorSet.ReadImage(out Image, filename);
-                        var dst = vml.Main.GetReducedImage(vml.Main.DataModel.FaraVisionDataModel.Settingmodel.ImageSize, vml.Main.DataModel.FaraVisionDataModel.Settingmodel.ImageSize, Image);
-                        Hobject2Bitmap.HobjectToBitmap24(Image, out src);
-                        Hobject2Bitmap.HobjectToBitmap24(dst, out bmp);
-
-                        // 修复GDI句柄泄漏：第一个BitmapSource
-                        IntPtr hBitmap1 = bmp.GetHbitmap();
-                        try
-                        {
-                            vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool.CurrentBitmapSource = null;
-                            vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool.CurrentBitmapSource = Imaging.CreateBitmapSourceFromHBitmap(hBitmap1, IntPtr.Zero, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
-                        }
-                        finally
-                        {
-                            DeleteObject(hBitmap1); // 释放GDI句柄
-                        }
-
-                        // 修复GDI句柄泄漏：第二个BitmapSource
-                        IntPtr hBitmap2 = src.GetHbitmap();
-                        try
-                        {
-                            vml.Main.DataModel.FaraVisionDataModel.Processmodel.ShowBitmapSource = null;
-                            vml.Main.DataModel.FaraVisionDataModel.Processmodel.ShowBitmapSource = Imaging.CreateBitmapSourceFromHBitmap(hBitmap2, IntPtr.Zero, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
-                        }
-                        finally
-                        {
-                            DeleteObject(hBitmap2); // 释放GDI句柄
-                        }
-
-                        bmp?.Dispose();
-                        dst?.Dispose();
-                        src?.Dispose();
-
+                        return; // 加载失败，LoadAndConvertImage已显示错误提示
                     }
-                    catch (Exception ex)
-                    {; }
 
-
-
-                    //using (Bitmap bmp = (Bitmap)Bitmap.FromFile(filename))
-                    //{
-                    //    using (Bitmap bmp1 = vml.Main.GetReducedImage(vml.Main.DataModel.FaraVisionDataModel.Settingmodel.ImageSize, vml.Main.DataModel.FaraVisionDataModel.Settingmodel.ImageSize, bmp))
-                    //    {
-                    //        //t.BitmapSource = Imaging.CreateBitmapSourceFromHBitmap(bmp1.GetHbitmap(), IntPtr.Zero, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
-                    //        vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool.BitmapSource = null;
-                    //        vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool.BitmapSource = Imaging.CreateBitmapSourceFromHBitmap(bmp1.GetHbitmap(), IntPtr.Zero, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
-
-                    //    }
-                    //    vml.Main.DataModel.FaraVisionDataModel.Processmodel.ShowBitmapSource = null;
-                    //    vml.Main.DataModel.FaraVisionDataModel.Processmodel.ShowBitmapSource = Imaging.CreateBitmapSourceFromHBitmap(bmp.GetHbitmap(), IntPtr.Zero, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
-                    //}
-
+                    // 2. 保存图片到项目目录
                     string newfilename = $"{vml.Main.DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{vml.Main.DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{t.Index}.jpg";
                     string dir = System.IO.Path.GetDirectoryName(newfilename);
                     if (!Directory.Exists(dir))
                     {
                         Directory.CreateDirectory(dir);
                     }
-
                     File.Copy(filename, newfilename, true);
 
-
+                    // 3. 缩放图片以适应窗口
                     zoom_all();
+                    
+                    // 4. 刷新已保存的ROI显示（修复切换图片后ROI不显示的问题）
+                    refreshrectangle();
+                    
+                    // 5. 重置绘制状态（修复无法重新绘制ROI的问题）
+                    ResetDrawingStates();
                 }
             }
             catch (Exception ex)
@@ -160,8 +123,6 @@ namespace BusbarCompressionSystem.Model.FaraVision
                 NoticeBox.Show(ex.Message, "错误", MessageBoxIcon.Error, true, 10000);
             }
             GC.Collect();
-
-
         }
 
         #region 画矩形
@@ -345,6 +306,9 @@ namespace BusbarCompressionSystem.Model.FaraVision
                 RemoveCirclePreview();
                 _circleDrawingInProgress = false;
                 _isFirstCircleClick = true;  // 重置状态，准备下次绘制
+
+                // 刷新UI上保存的ROI显示（包含新增的圆形ROI持久化显示）
+                refreshrectangle();
                 
                 // 更新UI参数显示
                 UpdateROIParamsUIVisibility();
@@ -473,16 +437,52 @@ namespace BusbarCompressionSystem.Model.FaraVision
                 RectangleDimension.Width = t.DimensionROI.Col2 - t.DimensionROI.Col1;
                 RectangleDimension.Height = t.DimensionROI.Row2 - t.DimensionROI.Row1;
 
-                // 刷新线段ROI（Row=Y, Col=X）
-                LineMeasureObject1.X1 = t.MeasureObject1ROI.Col1;
-                LineMeasureObject1.Y1 = t.MeasureObject1ROI.Row1;
-                LineMeasureObject1.X2 = t.MeasureObject1ROI.Col2;
-                LineMeasureObject1.Y2 = t.MeasureObject1ROI.Row2;
+                // 刷新测量对象1 ROI
+                if (t.MeasureObject1ROI.Type == ROIType.Circle && t.MeasureObject1ROI.CircleRadius > 0)
+                {
+                    LineMeasureObject1.Visibility = Visibility.Collapsed;
+                    CircleMeasureObject1.Visibility = Visibility.Visible;
+                    double r = t.MeasureObject1ROI.CircleRadius;
+                    CircleMeasureObject1.Width = r * 2;
+                    CircleMeasureObject1.Height = r * 2;
+                    CircleMeasureObject1.Margin = new Thickness(
+                        t.MeasureObject1ROI.CircleCenterCol - r,
+                        t.MeasureObject1ROI.CircleCenterRow - r,
+                        0, 0);
+                }
+                else
+                {
+                    // 线段/矩形模式：显示线段
+                    LineMeasureObject1.Visibility = Visibility.Visible;
+                    CircleMeasureObject1.Visibility = Visibility.Collapsed;
+                    LineMeasureObject1.X1 = t.MeasureObject1ROI.Col1;
+                    LineMeasureObject1.Y1 = t.MeasureObject1ROI.Row1;
+                    LineMeasureObject1.X2 = t.MeasureObject1ROI.Col2;
+                    LineMeasureObject1.Y2 = t.MeasureObject1ROI.Row2;
+                }
 
-                LineMeasureObject2.X1 = t.MeasureObject2ROI.Col1;
-                LineMeasureObject2.Y1 = t.MeasureObject2ROI.Row1;
-                LineMeasureObject2.X2 = t.MeasureObject2ROI.Col2;
-                LineMeasureObject2.Y2 = t.MeasureObject2ROI.Row2;
+                // 刷新测量对象2 ROI
+                if (t.MeasureObject2ROI.Type == ROIType.Circle && t.MeasureObject2ROI.CircleRadius > 0)
+                {
+                    LineMeasureObject2.Visibility = Visibility.Collapsed;
+                    CircleMeasureObject2.Visibility = Visibility.Visible;
+                    double r = t.MeasureObject2ROI.CircleRadius;
+                    CircleMeasureObject2.Width = r * 2;
+                    CircleMeasureObject2.Height = r * 2;
+                    CircleMeasureObject2.Margin = new Thickness(
+                        t.MeasureObject2ROI.CircleCenterCol - r,
+                        t.MeasureObject2ROI.CircleCenterRow - r,
+                        0, 0);
+                }
+                else
+                {
+                    LineMeasureObject2.Visibility = Visibility.Visible;
+                    CircleMeasureObject2.Visibility = Visibility.Collapsed;
+                    LineMeasureObject2.X1 = t.MeasureObject2ROI.Col1;
+                    LineMeasureObject2.Y1 = t.MeasureObject2ROI.Row1;
+                    LineMeasureObject2.X2 = t.MeasureObject2ROI.Col2;
+                    LineMeasureObject2.Y2 = t.MeasureObject2ROI.Row2;
+                }
             }
             catch (Exception ex) { }
 
@@ -674,22 +674,52 @@ namespace BusbarCompressionSystem.Model.FaraVision
             NoticeBox.Show($"识别面积大小:{area}", "提示", MessageBoxIcon.Info, true, 10000);
         }
 
+        /// <summary>
+        /// 面积测试按钮点击事件（从文件选择图片进行测试）
+        /// 
+        /// 业务场景：
+        /// - 用户在调试面积测量参数时，使用测试图片快速验证阈值、面积过滤等参数是否合理
+        /// - 与DimensionApply_Click的区别：该方法临时加载图片测试，不影响工具配置的图片（t.Image）
+        /// 
+        /// 核心逻辑：
+        /// 1. 弹出文件选择对话框，限定.jpg格式
+        /// 2. 临时加载图片到HObject（不更新t.Image，避免覆盖配置图片）
+        /// 3. 调用CoculateDimension计算面积，并在HALCON窗口绘制结果
+        /// 4. 弹框显示面积数值，供用户判断参数是否合理
+        /// 5. 释放临时图像资源，避免内存泄漏
+        /// 
+        /// - 旧版本：连续调用两次GenEmptyObj，造成资源浪费
+        /// - 新版本：只调用一次GenEmptyObj，并在完成后显式释放资源
+        /// 
+        /// 与其他模块关联：
+        /// - CoculateDimension：面积计算核心方法，使用阈值分割、连通域筛选等算法
+        /// </summary>
         private void DimensionApply_Pic_Click(object sender, RoutedEventArgs e)
         {
-            OpenFileDialog ofd = new OpenFileDialog();
-            ofd.Filter = "*.jpg|*.jpg";
-            if (ofd.ShowDialog() == true)
+            try
             {
-                string filename = ofd.FileName;
+                OpenFileDialog ofd = new OpenFileDialog();
+                ofd.Filter = "*.jpg|*.jpg";
+                if (ofd.ShowDialog() == true)
+                {
+                    string filename = ofd.FileName;
 
-                HObject image;
-                HOperatorSet.GenEmptyObj(out image);
-                #region 加载模型图片
-                HOperatorSet.GenEmptyObj(out image);
-                HOperatorSet.ReadImage(out image, filename);
-                #endregion
-                int area = vml.Main.CoculateDimension(image, vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool, vml.Main.DataModel.FaraVisionDataModel.Settingmodel.HWindow, true);
-                NoticeBox.Show($"识别面积大小:{area}", "提示", MessageBoxIcon.Info, true, 10000);
+                    // 加载测试图片
+                    HObject image;
+                    HOperatorSet.GenEmptyObj(out image);
+                    HOperatorSet.ReadImage(out image, filename);
+                    
+                    // 计算面积
+                    int area = vml.Main.CoculateDimension(image, vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool, vml.Main.DataModel.FaraVisionDataModel.Settingmodel.HWindow, true);
+                    NoticeBox.Show($"识别面积大小:{area}", "提示", MessageBoxIcon.Info, true, 10000);
+                    
+                    // 释放图像资源
+                    image?.Dispose();
+                }
+            }
+            catch (Exception ex)
+            {
+                NoticeBox.Show($"面积测试失败: {ex.Message}", "错误", MessageBoxIcon.Error, true, 5000);
             }
         }
 
@@ -981,6 +1011,149 @@ namespace BusbarCompressionSystem.Model.FaraVision
             transform1.X = distanceX;
             transform1.Y = distanceY;
         }
+
+        #region 图片加载与状态管理
+
+        /// <summary>
+        /// 加载图片并转换为BitmapSource（避免重复读取，优化资源管理）
+        /// 
+        /// 业务场景：
+        /// - 用户在参数配置界面选择图片，用于ROI绘制、测量参数调试、校准等操作
+        /// - 图片需要同时用于HALCON图像处理（t.Image）和WPF界面显示（BitmapSource）
+        /// 
+        /// 核心逻辑：
+        /// 1. 加载HALCON图像到工具模型（t.Image），供后续测量、校准、边缘检测等算法使用
+        /// 2. 生成缩略图用于工具列表预览（CurrentBitmapSource）
+        /// 3. 转换原图为WPF格式用于参数配置界面显示（ShowBitmapSource）
+        /// 4. 只读取图片文件一次，避免旧版本重复读取造成的资源浪费
+        /// 5. 使用try-finally确保GDI句柄和HALCON对象正确释放，防止内存泄漏
+        /// 
+        /// 与其他模块关联：
+        /// - t.Image：被校准（CalibrateDimensionK_Click）、测量（DimensionMeasureApply_Click）、预览（PreviewDimensionMeasurement）等方法使用
+        /// - ShowBitmapSource：绑定到界面Image控件，显示原图并叠加ROI绘制层
+        /// </summary>
+        /// <param name="filename">图片文件完整路径（支持.jpg格式）</param>
+        /// <returns>成功返回true，失败时弹出错误提示并返回false</returns>
+        private bool LoadAndConvertImage(string filename)
+        {
+            try
+            {
+                // 1. 加载HALCON图像到工具模型
+                t.Image?.Dispose();
+                HOperatorSet.GenEmptyObj(out t.Image);
+                HOperatorSet.ReadImage(out t.Image, filename);
+
+                // 2. 转换为缩略图和原图的BitmapSource
+                HObject reducedImage = null;
+                Bitmap bmpReduced = null;
+                Bitmap bmpOriginal = null;
+                
+                try
+                {
+                    // 生成缩略图
+                    reducedImage = vml.Main.GetReducedImage(
+                        vml.Main.DataModel.FaraVisionDataModel.Settingmodel.ImageSize,
+                        vml.Main.DataModel.FaraVisionDataModel.Settingmodel.ImageSize,
+                        t.Image);
+                    
+                    // 转换为Bitmap
+                    Hobject2Bitmap.HobjectToBitmap24(reducedImage, out bmpReduced);
+                    Hobject2Bitmap.HobjectToBitmap24(t.Image, out bmpOriginal);
+
+                    // 3. 更新CurrentBitmapSource（缩略图）
+                    IntPtr hBitmap1 = bmpReduced.GetHbitmap();
+                    try
+                    {
+                        vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool.CurrentBitmapSource = null;
+                        vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool.CurrentBitmapSource = 
+                            Imaging.CreateBitmapSourceFromHBitmap(hBitmap1, IntPtr.Zero, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
+                    }
+                    finally
+                    {
+                        DeleteObject(hBitmap1);
+                    }
+
+                    // 4. 更新ShowBitmapSource（原图）
+                    IntPtr hBitmap2 = bmpOriginal.GetHbitmap();
+                    try
+                    {
+                        vml.Main.DataModel.FaraVisionDataModel.Processmodel.ShowBitmapSource = null;
+                        vml.Main.DataModel.FaraVisionDataModel.Processmodel.ShowBitmapSource = 
+                            Imaging.CreateBitmapSourceFromHBitmap(hBitmap2, IntPtr.Zero, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
+                    }
+                    finally
+                    {
+                        DeleteObject(hBitmap2);
+                    }
+
+                    return true;
+                }
+                finally
+                {
+                    // 清理临时资源
+                    reducedImage?.Dispose();
+                    bmpReduced?.Dispose();
+                    bmpOriginal?.Dispose();
+                }
+            }
+            catch (Exception ex)
+            {
+                NoticeBox.Show($"图片加载失败: {ex.Message}", "错误", MessageBoxIcon.Error, true, 5000);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 重置所有绘制状态（用于切换图片、测量类型等场景）
+        /// 
+        /// 业务场景：
+        /// - 用户切换图片后，需要清空之前的绘制状态，允许在新图片上重新绘制ROI
+        /// - 用户切换测量类型（直线到直线 → 圆心到圆心）时，需要清理不适用的ROI绘制状态
+        /// - 用户取消当前ROI绘制操作时，需要恢复初始状态
+        /// 
+        /// 核心逻辑：
+        /// 1. 重置6个ROI选择标志（条码/定位/尺寸/测量对象1/测量对象2），确保只有一个ROI处于激活状态
+        /// 2. 重置3个绘制进度标志（线段绘制/圆形绘制/圆心点击），避免绘制流程卡在中间状态
+        /// 3. 恢复5个选择按钮背景色为默认灰色，提供视觉反馈
+        /// 4. 清理临时预览控件（圆形预览Ellipse），避免残留UI元素
+        /// 
+        /// 调用时机：
+        /// - Button_Click（选择图片）：切换图片后立即调用，确保新图片可以重新绘制ROI
+        /// - MeasureType_SelectionChanged（切换测量类型）：清理不兼容的ROI状态
+        /// - 未来可扩展：取消ROI绘制按钮、重置配置按钮等
+        /// 
+        /// 与其他模块关联：
+        /// - refreshrectangle()：负责刷新已保存ROI的显示，本方法负责清理绘制状态，两者互补
+        /// - RemoveCirclePreview()：清理WPF层的临时圆形预览控件
+        /// </summary>
+        private void ResetDrawingStates()
+        {
+            // 重置矩形ROI选择状态
+            selectbroi = false;
+            selectproi = false;
+            selectdroi = false;
+            
+            // 重置测量对象ROI选择状态
+            selectmeasureobject1roi = false;
+            selectmeasureobject2roi = false;
+            
+            // 重置绘制进度标志
+            _lineDrawingInProgress = false;
+            _circleDrawingInProgress = false;
+            _isFirstCircleClick = true;
+            
+            // 恢复按钮背景色
+            SelectBarcodeROI.Background = System.Windows.Media.Brushes.Gray;
+            SelectPositionROI.Background = System.Windows.Media.Brushes.Gray;
+            SelectDimensionROI.Background = System.Windows.Media.Brushes.Gray;
+            SelectMeasureObject1ROI.Background = System.Windows.Media.Brushes.Gray;
+            SelectMeasureObject2ROI.Background = System.Windows.Media.Brushes.Gray;
+            
+            // 清理临时预览控件
+            RemoveCirclePreview();
+        }
+
+        #endregion
 
         #region 圆形ROI绘制辅助方法
 
