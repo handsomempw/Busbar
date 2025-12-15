@@ -11,6 +11,8 @@
         WindowStartupLocation="CenterScreen" WindowState="Maximized"
         Title="工具设置" Height="1020" Width="1200"
            SizeChanged="WindowX_SizeChanged"
+           Loaded="WindowX_Loaded"
+           MinWidth="1000"
         >
     <p:WindowX.DataContext>
         <Binding Source="{StaticResource Locator}" Path="Main.DataModel .FaraVisionDataModel.Processmodel.tool"/>
@@ -92,7 +94,7 @@
 
         </ScrollViewer>
 
-        <GroupBox Header="工具参数" Grid.Column="1">
+        <GroupBox Header="工具参数" Grid.Column="1" MaxWidth="400">
                 <Grid Grid.Column="1">
                 <Grid.RowDefinitions>
                     <RowDefinition Height=" auto"/>
@@ -118,7 +120,7 @@
                     </Grid.RowDefinitions>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="auto"/>
-                        <ColumnDefinition MinWidth="150"/>
+                        <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
                     <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right">工具序号:</TextBlock>
                     <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right">工具类型:</TextBlock>
@@ -161,7 +163,7 @@
                         </Grid.RowDefinitions>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="auto"/>
-                            <ColumnDefinition MinWidth="150"/>
+                            <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
                         <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center">二维码ROI:</TextBlock>
 
@@ -234,7 +236,7 @@
                         </Grid.RowDefinitions>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="auto"/>
-                            <ColumnDefinition MinWidth="150"/>
+                            <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
                         <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right" >X偏差范围:</TextBlock>
                         <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right" >Y偏差范围:</TextBlock>
@@ -348,15 +350,15 @@
 
 
                         <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right" >面积范围:</TextBlock>
-                        <TextBox Grid.Row="0" Grid.Column="1"   Margin="2" Text="{Binding MinDimension}"  />
+                        <TextBox Grid.Row="0" Grid.Column="1"   Margin="2" Text="{Binding MinDimension}" MinWidth="60" MaxWidth="120" />
                         <TextBlock Grid.Row="0" Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Right" >-</TextBlock>
-                        <TextBox Grid.Row="0" Grid.Column="3"   Margin="2" Text="{Binding MaxDimension}"  />
+                        <TextBox Grid.Row="0" Grid.Column="3"   Margin="2" Text="{Binding MaxDimension}" MinWidth="60" MaxWidth="120" />
 
 
                         <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right" >面积过滤:</TextBlock>
-                        <TextBox Grid.Row="1" Grid.Column="1"   Margin="2" Text="{Binding MinAreaFilter}"  />
+                        <TextBox Grid.Row="1" Grid.Column="1"   Margin="2" Text="{Binding MinAreaFilter}" MinWidth="60" MaxWidth="120" />
                         <TextBlock Grid.Row="1" Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Right" >-</TextBlock>
-                        <TextBox Grid.Row="1" Grid.Column="3"   Margin="2" Text="{Binding MaxAreaFilter}"  />
+                        <TextBox Grid.Row="1" Grid.Column="3"   Margin="2" Text="{Binding MaxAreaFilter}" MinWidth="60" MaxWidth="120" />
 
                         <CheckBox  Grid.Row="2" Grid.Column="0" VerticalAlignment="Center"  Margin="2" Grid.ColumnSpan="2"
                                     IsChecked="{Binding GrayMode}" 
@@ -381,9 +383,9 @@
                                 </Grid.ColumnDefinitions>
 
                                 <TextBlock  Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right">灰度范围:</TextBlock>
-                                <TextBox Grid.Row="0" Grid.Column="1"   Margin="2" Text="{Binding MinGray}"  />
+                                <TextBox Grid.Row="0" Grid.Column="1"   Margin="2" Text="{Binding MinGray}" MinWidth="60" MaxWidth="120" />
                                 <TextBlock Grid.Row="0" Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Right" >-</TextBlock>
-                                <TextBox Grid.Row="0" Grid.Column="3"   Margin="2" Text="{Binding MaxGray}"  />
+                                <TextBox Grid.Row="0" Grid.Column="3"   Margin="2" Text="{Binding MaxGray}" MinWidth="60" MaxWidth="120" />
 
 
 
@@ -415,17 +417,17 @@
                                 <TextBlock   Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right">绿色通道</TextBlock>
                                 <TextBlock   Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right">蓝色通道</TextBlock>
 
-                                <TextBox Grid.Row="0" Grid.Column="1"   Margin="2" Text="{Binding MinRed}"  />
+                                <TextBox Grid.Row="0" Grid.Column="1"   Margin="2" Text="{Binding MinRed}" MinWidth="60" MaxWidth="120" />
                                 <TextBlock Grid.Row="0" Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Right" >-</TextBlock>
-                                <TextBox Grid.Row="0" Grid.Column="3"   Margin="2" Text="{Binding MaxRed}"  />
+                                <TextBox Grid.Row="0" Grid.Column="3"   Margin="2" Text="{Binding MaxRed}" MinWidth="60" MaxWidth="120" />
 
-                                <TextBox Grid.Row="1" Grid.Column="1"   Margin="2" Text="{Binding MinGreen}"  />
+                                <TextBox Grid.Row="1" Grid.Column="1"   Margin="2" Text="{Binding MinGreen}" MinWidth="60" MaxWidth="120" />
                                 <TextBlock Grid.Row="1" Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Right" >-</TextBlock>
-                                <TextBox Grid.Row="1" Grid.Column="3"   Margin="2" Text="{Binding MaxGreen}"  />
+                                <TextBox Grid.Row="1" Grid.Column="3"   Margin="2" Text="{Binding MaxGreen}" MinWidth="60" MaxWidth="120" />
 
-                                <TextBox Grid.Row="2" Grid.Column="1"   Margin="2" Text="{Binding MinBlue}"  />
+                                <TextBox Grid.Row="2" Grid.Column="1"   Margin="2" Text="{Binding MinBlue}" MinWidth="60" MaxWidth="120" />
                                 <TextBlock Grid.Row="2" Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Right" >-</TextBlock>
-                                <TextBox Grid.Row="2" Grid.Column="3"   Margin="2" Text="{Binding MaxBlue}"  />
+                                <TextBox Grid.Row="2" Grid.Column="3"   Margin="2" Text="{Binding MaxBlue}" MinWidth="60" MaxWidth="120" />
 
                             </Grid>
                         </GroupBox>
@@ -489,7 +491,7 @@
                             </Grid.RowDefinitions>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="auto"/>
-                                <ColumnDefinition MinWidth="150"/>
+                                <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
 
                             <!-- 测量类型选择 -->
@@ -600,9 +602,9 @@
                                     <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="*"/>
                                 </Grid.ColumnDefinitions>
-                                <TextBox Grid.Column="0" Margin="0,0,5,0" Text="{Binding MinMeasureValue}" />
+                                <TextBox Grid.Column="0" Margin="0,0,5,0" Text="{Binding MinMeasureValue}" MinWidth="80" MaxWidth="120" />
                                 <TextBlock Grid.Column="1" VerticalAlignment="Center" Margin="5,0">-</TextBlock>
-                                <TextBox Grid.Column="2" Margin="5,0,0,0" Text="{Binding MaxMeasureValue}" />
+                                <TextBox Grid.Column="2" Margin="5,0,0,0" Text="{Binding MaxMeasureValue}" MinWidth="80" MaxWidth="120" />
                             </Grid>
 
                             <!-- 世界坐标校准 -->
@@ -622,7 +624,7 @@
 
                                     <!-- 真实尺寸输入 -->
                                     <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Margin="0,5">真实尺寸(mm):</TextBlock>
-                                    <TextBox Grid.Row="0" Grid.Column="1" Margin="2" Text="{Binding CalibrationRealSize}" />
+                                    <TextBox Grid.Row="0" Grid.Column="1" Margin="2" Text="{Binding CalibrationRealSize}" MinWidth="100" MaxWidth="150" />
                                     <Button Grid.Row="0" Grid.Column="2" Margin="5,2" Name="CalibrateDimensionK"
                                             Click="CalibrateDimensionK_Click" Padding="10,5"
                                             Background="Orange" Foreground="White">🎯 自动校准</Button>
@@ -792,9 +794,9 @@
                         <TextBlock Grid.Row="2" Grid.Column="0" Margin="5">NG1输出命令:</TextBlock>
                         <TextBlock Grid.Row="3" Grid.Column="0" Margin="5">NG2输出命令;</TextBlock>
 
-                        <TextBox Grid.Row="1" Grid.Column="1" Margin="2" Padding="2" Text="{Binding OKCMD}"/>
-                        <TextBox Grid.Row="2" Grid.Column="1" Margin="2" Padding="2" Text="{Binding NG1CMD}"/>
-                        <TextBox Grid.Row="3" Grid.Column="1" Margin="2" Padding="2" Text="{Binding NG2CMD}"/>
+                        <TextBox Grid.Row="1" Grid.Column="1" Margin="2" Padding="2" Text="{Binding OKCMD}" MinWidth="120" MaxWidth="200"/>
+                        <TextBox Grid.Row="2" Grid.Column="1" Margin="2" Padding="2" Text="{Binding NG1CMD}" MinWidth="120" MaxWidth="200"/>
+                        <TextBox Grid.Row="3" Grid.Column="1" Margin="2" Padding="2" Text="{Binding NG2CMD}" MinWidth="120" MaxWidth="200"/>
                     </Grid>
 
                 </GroupBox>

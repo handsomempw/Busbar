@@ -66,6 +66,43 @@ namespace BusbarCompressionSystem.Model.FaraVision
         }
 
         /// <summary>
+        /// 窗体加载时初始化尺寸测量UI与ROI显示，避免工具切换后的状态残留
+        /// </summary>
+        private void WindowX_Loaded(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                // 按当前测量类型同步 ROI 类型（Line/Circle），无需用户再次切换下拉框
+                ApplyMeasureTypeToROIType();
+
+                // 同步参数区显隐
+                UpdateROIParamsUIVisibility();
+
+                // 刷新已保存的 ROI 叠加显示
+                refreshrectangle();
+
+                // 清理临时绘制状态与按钮高亮
+                ResetDrawingStates();
+
+                // 清理 HALCON 预览残留，防止工具切换时出现旧图像叠加
+                if (vml?.Main?.DataModel?.FaraVisionDataModel?.Settingmodel?.HWindow != null)
+                {
+                    vml.Main.DataModel.FaraVisionDataModel.Settingmodel.HWindow.ClearWindow();
+                }
+
+                // 若已加载图片且当前为尺寸测量，启动一次预览以同步主界面显示
+                if (t?.Image != null && t.TestMode == TestModes.尺寸测量)
+                {
+                    vml.Main.PreviewDimensionMeasurement(t.Image, t, vml.Main.DataModel.FaraVisionDataModel.Settingmodel.HWindow);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"窗口初始化失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
         /// 选择图片按钮点击事件（参数配置界面）
         /// 
         /// 业务场景：
@@ -129,9 +166,21 @@ namespace BusbarCompressionSystem.Model.FaraVision
 
         private System.Windows.Point _downPoint;
         private bool _started = false;
+        
+        /// <summary>
+        /// 统一的鼠标移动事件处理器（Canvas层MouseMove事件）
+        /// 
+        /// 职责：
+        /// - 圆形ROI：鼠标移动时实时更新预览圆的半径
+        /// - 线段ROI：鼠标移动时实时更新预览线的终点位置
+        /// - 矩形ROI：鼠标拖动时实时更新矩形框的大小和位置
+        /// 
+        /// 调用链：
+        /// ContentControl_MouseMove → rectange_MouseMove → [分支处理]
+        /// </summary>
         private void rectange_MouseMove(object sender, MouseEventArgs e)
         {
-            // 处理圆形ROI绘制时的实时预览（拖动半径）
+            // === 分支1：圆形ROI实时预览 ===
             if (_circleDrawingInProgress)
             {
                 var currentPoint = e.GetPosition(show_image_canvas);
@@ -146,7 +195,7 @@ namespace BusbarCompressionSystem.Model.FaraVision
                 return;
             }
             
-            // 处理线段ROI绘制时的实时预览
+            // === 分支2：线段ROI实时预览 ===
             if (_lineDrawingInProgress && (selectmeasureobject1roi || selectmeasureobject2roi))
             {
                 var currentPoint = e.GetPosition(show_image_canvas);
@@ -164,7 +213,7 @@ namespace BusbarCompressionSystem.Model.FaraVision
                 return;
             }
 
-            // 处理矩形ROI的拖动绘制
+            // === 分支3：矩形ROI拖动绘制实时预览 ===
             if (_started)
             {
                 var point = e.GetPosition(show_image_canvas);
@@ -190,9 +239,20 @@ namespace BusbarCompressionSystem.Model.FaraVision
             }
         }
 
+        /// <summary>
+        /// 统一的鼠标按下事件处理器（Canvas层MouseDown事件）
+        /// 
+        /// 职责：
+        /// - 圆形ROI：记录圆心位置，初始化预览控件
+        /// - 线段ROI：记录起点位置，初始化预览线段
+        /// - 矩形ROI：记录起点位置，标记拖动开始
+        /// 
+        /// 调用链：
+        /// ContentControl_MouseLeftButtonDown → rectange_MouseDown → [分支处理]
+        /// </summary>
         private void rectange_MouseDown(object sender, MouseButtonEventArgs e)
         {
-            // 处理圆形ROI的两次点击模式（点击圆心）
+            // === 分支1：圆形ROI第一次点击（记录圆心） ===
             if ((selectmeasureobject1roi && t.MeasureObject1ROI.Type == ROIType.Circle) ||
                 (selectmeasureobject2roi && t.MeasureObject2ROI.Type == ROIType.Circle))
             {
@@ -211,7 +271,7 @@ namespace BusbarCompressionSystem.Model.FaraVision
                 return;
             }
             
-            // 处理线段ROI的两次点击模式
+            // === 分支2：线段ROI第一次点击（记录起点） ===
             if ((selectmeasureobject1roi && t.MeasureObject1ROI.Type == ROIType.Line) ||
                 (selectmeasureobject2roi && t.MeasureObject2ROI.Type == ROIType.Line))
             {
@@ -243,7 +303,7 @@ namespace BusbarCompressionSystem.Model.FaraVision
                 return;
             }
 
-            // 处理矩形ROI的拖动模式
+            // === 分支3：矩形ROI拖动开始（记录起点） ===
             if (selectproi || selectbroi || selectdroi)
             {
                 _downPoint = e.GetPosition(show_image_canvas);
@@ -251,9 +311,29 @@ namespace BusbarCompressionSystem.Model.FaraVision
             }
         }
 
+        /// <summary>
+        /// 统一的鼠标释放事件处理器（Canvas层MouseUp事件）
+        /// 
+        /// 设计说明：
+        /// - 本方法作为Canvas的统一MouseUp事件处理器，根据当前激活的ROI选择标志，分发到对应的ROI完成逻辑
+        /// - 支持三类ROI绘制模式：
+        ///   1. 圆形ROI：两次点击模式（点圆心 → 点半径）
+        ///   2. 线段ROI：两次点击模式（点起点 → 点终点）
+        ///   3. 矩形ROI：拖动模式（按下拖动 → 释放完成），用于二维码/位置/面积检测
+        /// 
+        /// 重构建议：
+        /// - 当前方法职责过多（150+ 行），建议拆分为：
+        ///   - HandleCircleROIMouseUp() - 圆形ROI完成处理
+        ///   - HandleLineROIMouseUp() - 线段ROI完成处理
+        ///   - HandleRectangleROIMouseUp() - 矩形ROI完成处理
+        /// - 主方法仅负责分发调用，提升可读性和可维护性
+        /// 
+        /// 调用链：
+        /// ContentControl_MouseLeftButtonUp → rectange_MouseUp → [分支处理]
+        /// </summary>
         private void rectange_MouseUp(object sender, MouseButtonEventArgs e)
         {
-            // 处理圆形ROI的点击（第一次点击的MouseUp忽略，第二次点击的MouseUp确定半径）
+            // === 分支1：圆形ROI完成处理 ===
             if (_circleDrawingInProgress && (selectmeasureobject1roi || selectmeasureobject2roi))
             {
                 // 如果是第一次点击的MouseUp，忽略它，等待用户移动鼠标后的第二次点击
@@ -330,7 +410,7 @@ namespace BusbarCompressionSystem.Model.FaraVision
                 return;
             }
             
-            // 处理线段ROI的第二次点击（终点）
+            // === 分支2：线段ROI完成处理 ===
             if (_lineDrawingInProgress && (selectmeasureobject1roi || selectmeasureobject2roi))
             {
                 var endPoint = e.GetPosition(show_image_canvas);
@@ -371,10 +451,25 @@ namespace BusbarCompressionSystem.Model.FaraVision
                 }
 
                 _lineDrawingInProgress = false;
+
+                // 刷新UI显示与预览
+                refreshrectangle();
+                UpdateROIParamsUIVisibility();
+                try
+                {
+                    if (t.Image != null && t.TestMode == TestModes.尺寸测量)
+                    {
+                        vml.Main.PreviewDimensionMeasurement(t.Image, t, vml.Main.DataModel.FaraVisionDataModel.Settingmodel.HWindow);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    NoticeBox.Show($"预览失败: {ex.Message}", "提示", MessageBoxIcon.Warning, true, 5000);
+                }
                 return;
             }
 
-            // 处理矩形ROI的拖动完成
+            // === 分支3：矩形ROI拖动完成处理（二维码/位置/面积检测） ===
             if (selectbroi)
             {
 
@@ -763,31 +858,15 @@ namespace BusbarCompressionSystem.Model.FaraVision
         private void MeasureType_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (t == null) return;
-            
+
             // 根据测量类型自动设置ROI类型
-            switch (t.MeasureType)
-            {
-                case DimensionMeasureType.直线到直线:
-                    // 两个对象都是Line
-                    t.MeasureObject1ROI.Type = ROIType.Line;
-                    t.MeasureObject2ROI.Type = ROIType.Line;
-                    break;
-                    
-                case DimensionMeasureType.直线到圆心:
-                    // 对象1是Line，对象2是Circle
-                    t.MeasureObject1ROI.Type = ROIType.Line;
-                    t.MeasureObject2ROI.Type = ROIType.Circle;
-                    break;
-                    
-                case DimensionMeasureType.圆心到圆心:
-                    // 两个对象都是Circle
-                    t.MeasureObject1ROI.Type = ROIType.Circle;
-                    t.MeasureObject2ROI.Type = ROIType.Circle;
-                    break;
-            }
-            
+            ApplyMeasureTypeToROIType();
+
             // 更新UI显示：根据ROI类型切换参数显示
             UpdateROIParamsUIVisibility();
+
+            // 立即刷新叠加层，确保切换类型时旧的圆形/线段预览被隐藏
+            refreshrectangle();
             
             // 清理现有ROI选择状态
             selectmeasureobject1roi = false;
@@ -938,6 +1017,9 @@ namespace BusbarCompressionSystem.Model.FaraVision
                 // 执行测量
                 double measureValue = vml.Main.MeasureDimension(t.Image, t, vml.Main.DataModel.FaraVisionDataModel.Settingmodel.HWindow, true);
                 
+                // 测量后立即刷新预览到WPF，避免首次测量主界面无叠加显示
+                vml.Main.PreviewDimensionMeasurement(t.Image, t, vml.Main.DataModel.FaraVisionDataModel.Settingmodel.HWindow);
+
                 if (measureValue < 0)
                 {
                     NoticeBox.Show("测量失败，请检查：\n1. ROI区域是否正确框选\n2. 边缘类型是否匹配\n3. 边缘灵敏度是否合适\n4. 是否已进行世界坐标校准", 
@@ -1227,6 +1309,30 @@ namespace BusbarCompressionSystem.Model.FaraVision
             if (_previewCircle != null)
             {
                 _previewCircle.Visibility = Visibility.Collapsed;
+            }
+        }
+
+        /// <summary>
+        /// 将当前测量类型映射到对应的 ROI 类型设置
+        /// </summary>
+        private void ApplyMeasureTypeToROIType()
+        {
+            switch (t.MeasureType)
+            {
+                case DimensionMeasureType.直线到直线:
+                    t.MeasureObject1ROI.Type = ROIType.Line;
+                    t.MeasureObject2ROI.Type = ROIType.Line;
+                    break;
+
+                case DimensionMeasureType.直线到圆心:
+                    t.MeasureObject1ROI.Type = ROIType.Line;
+                    t.MeasureObject2ROI.Type = ROIType.Circle;
+                    break;
+
+                case DimensionMeasureType.圆心到圆心:
+                    t.MeasureObject1ROI.Type = ROIType.Circle;
+                    t.MeasureObject2ROI.Type = ROIType.Circle;
+                    break;
             }
         }
 
