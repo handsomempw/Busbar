@@ -67,6 +67,23 @@ namespace BusbarCompressionSystem.Model.FaraVision
 
         /// <summary>
         /// 窗体加载时初始化尺寸测量UI与ROI显示，避免工具切换后的状态残留
+        /// 
+        /// 业务场景：
+        /// - 用户从主界面打开工具配置窗口，或在多个工具间切换时触发
+        /// - 需要根据当前工具的配置状态，同步UI控件的显示状态
+        /// 
+        /// 核心逻辑（职责分离设计）：
+        /// 1. 同步ROI类型设置（根据测量类型自动设置Line/Circle）
+        /// 2. 更新参数面板的显隐状态（线段参数/圆形参数）
+        /// 3. 刷新WPF Canvas上的ROI叠加层（矩形/线段/圆形框）
+        /// 4. 清理临时绘制状态（避免上次绘制的残留）
+        /// 5. 清空HALCON窗口（避免工具切换时的旧图像叠加）
+        /// 
+        /// 与其他模块关联：
+        /// - ApplyMeasureTypeToROIType：同步测量类型与ROI类型
+        /// - UpdateROIParamsUIVisibility：控制参数面板显隐
+        /// - refreshrectangle：刷新WPF Canvas上的ROI框
+        /// - ResetDrawingStates：清理绘制状态
         /// </summary>
         private void WindowX_Loaded(object sender, RoutedEventArgs e)
         {
@@ -78,7 +95,7 @@ namespace BusbarCompressionSystem.Model.FaraVision
                 // 同步参数区显隐
                 UpdateROIParamsUIVisibility();
 
-                // 刷新已保存的 ROI 叠加显示
+                // 刷新已保存的 ROI 叠加显示（仅WPF Canvas，不触发HALCON预览）
                 refreshrectangle();
 
                 // 清理临时绘制状态与按钮高亮
@@ -90,11 +107,6 @@ namespace BusbarCompressionSystem.Model.FaraVision
                     vml.Main.DataModel.FaraVisionDataModel.Settingmodel.HWindow.ClearWindow();
                 }
 
-                // 若已加载图片且当前为尺寸测量，启动一次预览以同步主界面显示
-                if (t?.Image != null && t.TestMode == TestModes.尺寸测量)
-                {
-                    vml.Main.PreviewDimensionMeasurement(t.Image, t, vml.Main.DataModel.FaraVisionDataModel.Settingmodel.HWindow);
-                }
             }
             catch (Exception ex)
             {
@@ -393,19 +405,6 @@ namespace BusbarCompressionSystem.Model.FaraVision
                 // 更新UI参数显示
                 UpdateROIParamsUIVisibility();
                 
-                // 调用HALCON预览方法显示圆形ROI和边缘检测结果
-                try
-                {
-                    if (t.Image != null && t.TestMode == TestModes.尺寸测量)
-                    {
-                        vml.Main.PreviewDimensionMeasurement(t.Image, t, vml.Main.DataModel.FaraVisionDataModel.Settingmodel.HWindow);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"圆形ROI预览失败: {ex.Message}");
-                    NoticeBox.Show($"预览失败: {ex.Message}\n请检查Metrology参数设置", "提示", MessageBoxIcon.Warning, true, 5000);
-                }
                 
                 return;
             }
@@ -452,20 +451,10 @@ namespace BusbarCompressionSystem.Model.FaraVision
 
                 _lineDrawingInProgress = false;
 
-                // 刷新UI显示与预览
+                // 刷新UI显示（仅WPF Canvas叠加层）
                 refreshrectangle();
                 UpdateROIParamsUIVisibility();
-                try
-                {
-                    if (t.Image != null && t.TestMode == TestModes.尺寸测量)
-                    {
-                        vml.Main.PreviewDimensionMeasurement(t.Image, t, vml.Main.DataModel.FaraVisionDataModel.Settingmodel.HWindow);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    NoticeBox.Show($"预览失败: {ex.Message}", "提示", MessageBoxIcon.Warning, true, 5000);
-                }
+              
                 return;
             }
 
@@ -514,20 +503,40 @@ namespace BusbarCompressionSystem.Model.FaraVision
 
 
 
+        /// <summary>
+        /// 刷新WPF Canvas上的ROI叠加层显示（根据保存的ROI参数更新UI控件）
+        /// 
+        /// 业务场景：
+        /// - 绘制完ROI后，需要将已保存的ROI参数可视化显示在图片上
+        /// - 切换工具时，需要加载并显示该工具已配置的ROI
+        /// - 切换测量类型时，需要切换显示线段ROI或圆形ROI
+        /// 
+        /// 核心逻辑：
+        /// 1. 刷新3个矩形ROI（二维码、位置检测、面积检测）的位置和尺寸
+        /// 2. 刷新测量对象1的ROI（圆形或线段）
+        /// 3. 刷新测量对象2的ROI（圆形或线段）
+        /// 4. 所有ROI叠加在show_image_canvas上，不触发HALCON预览
+        /// 
+        /// 调用时机：
+        /// - WindowX_Loaded、Button_Click、rectange_MouseUp、MeasureType_SelectionChanged等
+        /// </summary>
         private void refreshrectangle()
         {
             try
             {
 
                 var t = vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool;
+                // 刷新二维码ROI
                 RectangleBarcode.Margin = new Thickness(t.BarCodeROI.Col1, t.BarCodeROI.Row1, 0, 0);
                 RectangleBarcode.Width = t.BarCodeROI.Col2 - t.BarCodeROI.Col1;
                 RectangleBarcode.Height = t.BarCodeROI.Row2 - t.BarCodeROI.Row1;
 
+                // 刷新位置检测ROI
                 RectanglePosition.Margin = new Thickness(t.PositionROI.Col1, t.PositionROI.Row1, 0, 0);
                 RectanglePosition.Width = t.PositionROI.Col2 - t.PositionROI.Col1;
                 RectanglePosition.Height = t.PositionROI.Row2 - t.PositionROI.Row1;
 
+                // 刷新面积检测ROI
                 RectangleDimension.Margin = new Thickness(t.DimensionROI.Col1, t.DimensionROI.Row1, 0, 0);
                 RectangleDimension.Width = t.DimensionROI.Col2 - t.DimensionROI.Col1;
                 RectangleDimension.Height = t.DimensionROI.Row2 - t.DimensionROI.Row1;
@@ -892,7 +901,25 @@ namespace BusbarCompressionSystem.Model.FaraVision
         }
 
         /// <summary>
-        /// 根据ROI类型更新参数UI的显示/隐藏
+        /// 根据ROI类型更新参数UI面板的显示/隐藏
+        /// 
+        /// 业务场景：
+        /// - 选择测量类型（直线到直线/直线到圆心/圆心到圆心）后，ROI类型自动切换
+        /// - 需要同步切换参数输入面板：线段参数（Row1/Col1/Row2/Col2）或圆形参数（圆心/半径）
+        /// 
+        /// 核心逻辑：
+        /// - 测量对象1：根据MeasureObject1ROI.Type切换显示LineParams或CircleParams
+        /// - 测量对象2：根据MeasureObject2ROI.Type切换显示LineParams或CircleParams
+        /// 
+        /// XAML对应控件：
+        /// - MeasureObject1LineParams：Grid，包含Row1/Col1/Row2/Col2的TextBox
+        /// - MeasureObject1CircleParams：Grid，包含圆心Row/Col/半径的TextBox
+        /// - 同理测量对象2
+        /// 
+        /// 调用时机：
+        /// - WindowX_Loaded：窗口加载时同步UI
+        /// - MeasureType_SelectionChanged：测量类型切换后同步UI
+        /// - rectange_MouseUp：绘制完ROI后更新UI
         /// </summary>
         private void UpdateROIParamsUIVisibility()
         {
@@ -1047,7 +1074,18 @@ namespace BusbarCompressionSystem.Model.FaraVision
 
         /// <summary>
         /// Metrology参数变更事件处理器（300ms防抖）
-        /// 实现参数变更时的防抖预览刷新
+        /// 
+        /// 业务场景：
+        /// - 用户在"Metrology参数（高级设置）"展开面板中调整参数（搜索范围、卡尺数量、边缘阈值等）
+        /// - 使用防抖机制避免参数变更时的频繁预览
+        /// 
+        /// 预览时机：
+        /// - DimensionMeasureApply_Click：测试测量按钮
+        /// - CalibrateDimensionK_Click：校准按钮
+        /// 
+        /// 注意：
+        /// - 防抖定时器已保留，但不再触发预览（为未来可能的优化预留）
+        /// - 如果需要恢复实时预览，取消下方注释即可
         /// </summary>
         private void MetrologyParameter_Changed(object sender, RoutedEventArgs e)
         {
@@ -1060,12 +1098,11 @@ namespace BusbarCompressionSystem.Model.FaraVision
                 {
                     _metrologyPreviewTimer.Stop();
 
-                    // 执行预览刷新
+                    /*
                     try
                     {
                         if (t.Image != null && t.TestMode == TestModes.尺寸测量)
                         {
-                            // 调用MainViewModel的预览方法
                             vml.Main.PreviewDimensionMeasurement(t.Image, t, vml.Main.DataModel.FaraVisionDataModel.Settingmodel.HWindow);
                         }
                     }
@@ -1073,6 +1110,7 @@ namespace BusbarCompressionSystem.Model.FaraVision
                     {
                         Debug.WriteLine($"Metrology预览刷新失败: {ex.Message}");
                     }
+                    */
                 };
             }
 
@@ -1313,7 +1351,24 @@ namespace BusbarCompressionSystem.Model.FaraVision
         }
 
         /// <summary>
-        /// 将当前测量类型映射到对应的 ROI 类型设置
+        /// 将当前测量类型映射到对应的ROI类型设置（自动同步）
+        /// 
+        /// 业务场景：
+        /// - 用户在"测量类型"下拉框选择"直线到直线""直线到圆心""圆心到圆心"
+        /// - 系统自动设置测量对象1和2的ROI类型（Line或Circle）
+        /// 
+        /// 映射关系：
+        /// - 直线到直线：Object1=Line, Object2=Line （测量两条直线之间的距离）
+        /// - 直线到圆心：Object1=Line, Object2=Circle （测量直线到圆心的距离）
+        /// - 圆心到圆心：Object1=Circle, Object2=Circle （测量两个圆心之间的距离）
+        /// 
+        /// 调用时机：
+        /// - WindowX_Loaded：窗口加载时同步
+        /// - MeasureType_SelectionChanged：用户切换测量类型后自动同步
+        /// 
+        /// 与其他模块关联：
+        /// - UpdateROIParamsUIVisibility：同步更新参数面板显隐
+        /// - refreshrectangle：同步更新Canvas上的ROI控件显示
         /// </summary>
         private void ApplyMeasureTypeToROIType()
         {

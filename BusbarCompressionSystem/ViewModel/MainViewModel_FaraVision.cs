@@ -2526,11 +2526,37 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
-        /// 预览所有测量对象的边缘轮廓
+        /// 预览所有测量对象的边缘轮廓（在HALCON窗口显示）
+        /// 
+        /// 业务场景：
+        /// - 用户点击"测试测量"或"校准"按钮后，在工具配置界面的HALCON窗口显示边缘检测结果
+        /// - 显示内容：原图 + ROI框 + 边缘检测结果（拟合线/圆、卡尺位置、边缘点等）
+        /// 
+        /// 核心逻辑（职责分离设计）：
+        /// 1. 清空HALCON窗口并显示原图
+        /// 2. 绘制测量对象1的ROI框（绿色矩形/圆形）
+        /// 3. 调用PreviewEdgesForROI绘制测量对象1的边缘检测结果（青色拟合线/圆、边缘点等）
+        /// 4. 绘制测量对象2的ROI框（黄色矩形/圆形）
+        /// 5. 调用PreviewEdgesForROI绘制测量对象2的边缘检测结果
+        /// 
+        /// 设计原则：
+        /// - 预览结果只显示在HALCON窗口，不影响WPF界面的ShowBitmapSource
+        /// - ShowBitmapSource始终保持原图尺寸，避免触发WindowX_SizeChanged导致的缩放问题
+        /// - 职责分离：HALCON窗口负责预览，WPF Canvas负责ROI绘制交互
+        /// 
+        /// 调用时机：
+        /// - PreviewDimensionMeasurement：被测试测量、校准按钮调用
+        /// - DimensionMeasureApply_Click：测试测量按钮
+        /// - CalibrateDimensionK_Click（隐式）：校准完成后调用MeasureDimension，内部调用PreviewEdges
+        /// 
+        /// 与其他模块关联：
+        /// - PreviewEdgesForROI：预览单个ROI的边缘检测结果
+        /// - PreviewEdgesWithMetrology / PreviewCircleEdgesWithMetrology：使用Metrology模型检测边缘
+        /// - IsROIValid：验证ROI有效性
         /// </summary>
         /// <param name="image">输入图像</param>
         /// <param name="tool">工具模型</param>
-        /// <param name="hwindow">HALCON窗口</param>
+        /// <param name="hwindow">HALCON窗口（工具配置界面的Settingmodel.HWindow）</param>
         /// <returns>是否预览成功</returns>
         public bool PreviewEdges(HObject image, ToolModel tool, HWindow hwindow)
         {
@@ -2585,8 +2611,8 @@ namespace BusbarCompressionSystem.ViewModel
                     PreviewEdgesForROI(image, tool, tool.MeasureObject2ROI, hwindow, "yellow");
                 }
 
-                // 更新WPF显示：从HALCON窗口获取当前显示内容并更新到ShowBitmapSource
-                UpdateWpfDisplayFromHWindow(hwindow);
+                // - 如需恢复WPF同步显示，取消下方注释：
+                // UpdateWpfDisplayFromHWindow(hwindow);
 
                 return true;
             }
@@ -2599,6 +2625,14 @@ namespace BusbarCompressionSystem.ViewModel
 
         /// <summary>
         /// 从HALCON窗口获取当前显示内容并更新WPF的ShowBitmapSource
+        /// 
+        /// ⚠️ 重要提示：本方法已停用，不应再被调用
+        /// 
+        /// 停用原因：
+        /// 1. **尺寸不确定性**：DumpWindowImage获取的图像尺寸取决于HALCON窗口大小
+        ///    - 测试电脑和生产电脑的窗口尺寸可能不同
+        ///    - 不同分辨率/DPI设置导致窗口尺寸差异
+        ///    - 导致ShowBitmapSource尺寸变化不可预测
         /// </summary>
         /// <param name="hwindow">HALCON窗口</param>
         private void UpdateWpfDisplayFromHWindow(HWindow hwindow)
@@ -2664,9 +2698,36 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
-        /// 预览尺寸测量（用于参数调整时的实时反馈）
-        /// 为Metrology参数变更提供实时预览
+        /// 预览尺寸测量
+        /// 
+        /// 业务场景：
+        /// - 用户在工具配置界面点击"测试测量"或"校准"按钮后，显示边缘检测预览
+        /// - 预览结果显示在工具配置界面的HALCON窗口
+        /// 
+        /// 核心逻辑：
+        /// - 委托给PreviewEdges方法执行实际的边缘检测和绘制
+        /// - PreviewEdges会在HALCON窗口显示原图+ROI框+边缘检测结果
+        /// - 不更新WPF的ShowBitmapSource，避免触发界面尺寸变化
+        /// 
+        /// 设计原则（职责分离）：
+        /// - 本方法作为公共接口，供SettingForm调用
+        /// - 实际逻辑由PreviewEdges实现，保持单一职责
+        /// - 只在用户明确请求时调用，不进行自动实时预览
+        /// 
+        /// 调用时机（职责分离优化后）：
+        /// - ✅ DimensionMeasureApply_Click：测试测量按钮
+        /// - ✅ CalibrateDimensionK_Click隐式调用：校准后调用MeasureDimension，内部可能触发预览
+        /// - ❌ 已移除：WindowX_Loaded（窗口加载时）
+        /// - ❌ 已移除：rectange_MouseUp（绘制ROI后）
+        /// - ❌ 已移除：MetrologyParameter_Changed（参数变更时）
+        /// 
+        /// 与其他模块关联：
+        /// - PreviewEdges：实际执行边缘预览的核心方法
+        /// - SettingForm.xaml.cs：工具配置界面，通过vml.Main.PreviewDimensionMeasurement调用
         /// </summary>
+        /// <param name="image">输入图像（通常是tool.Image）</param>
+        /// <param name="tool">工具模型（包含ROI、Metrology参数等配置）</param>
+        /// <param name="hwindow">HALCON窗口（工具配置界面的Settingmodel.HWindow）</param>
         public void PreviewDimensionMeasurement(HObject image, ToolModel tool, HWindow hwindow)
         {
             try
