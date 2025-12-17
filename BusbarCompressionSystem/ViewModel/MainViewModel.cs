@@ -1107,10 +1107,9 @@ namespace BusbarCompressionSystem.ViewModel
         /// <param name="SN">产品序列号，用于在集合中定位记录</param>
         private void updatetv(string SN, float res, float maxvoltage, bool result, float maxcurrent, string tvinfo, string tvmeterid)
         {
-            try
+            App.Current.Dispatcher.BeginInvoke(new Action(() =>
             {
-
-                App.Current.Dispatcher.BeginInvoke(new Action(() =>
+                try
                 {
                     foreach (var p in DataModel.Recordmodel.ProductInfoRecords)
                     {
@@ -1125,9 +1124,12 @@ namespace BusbarCompressionSystem.ViewModel
                             break;
                         }
                     }
-                }));
-            }
-            catch (Exception ex) { }
+                }
+                catch (Exception ex)
+                {
+                    sqlite.WriteErrorLog("UPDATETV_EXCEPTION", $"更新耐压/阻值数据失败: {ex.Message}", SN);
+                }
+            }));
         }
         /// <summary>
         /// 根据产品 SN 更新 DataModel.Recordmodel.ProductInfoRecords 中对应记录的压力测试数据。
@@ -1138,10 +1140,9 @@ namespace BusbarCompressionSystem.ViewModel
         /// <param name="SN">产品序列号，用于在集合中定位记录</param>
         private void updatepressure(string SN, UInt16 Pressure_Average, UInt16 Pressure_Max, UInt16 Pressure_Min, bool Pressure_Result)
         {
-            try
+            App.Current.Dispatcher.BeginInvoke(new Action(() =>
             {
-
-                App.Current.Dispatcher.BeginInvoke(new Action(() =>
+                try
                 {
                     foreach (var p in DataModel.Recordmodel.ProductInfoRecords)
                     {
@@ -1155,9 +1156,12 @@ namespace BusbarCompressionSystem.ViewModel
                             break;
                         }
                     }
-                }));
-            }
-            catch (Exception ex) { }
+                }
+                catch (Exception ex)
+                {
+                    sqlite.WriteErrorLog("UPDATEPRESSURE_EXCEPTION", $"更新压力数据失败: {ex.Message}", SN);
+                }
+            }));
         }
 
 
@@ -1185,10 +1189,9 @@ namespace BusbarCompressionSystem.ViewModel
         /// <param name="SN">产品序列号，用于在集合中定位记录</param>
         private void updatetakephoto2(string SN, bool result, DateTime dt)
         {
-            try
+            App.Current.Dispatcher.BeginInvoke(new Action(() =>
             {
-
-                App.Current.Dispatcher.BeginInvoke(new Action(() =>
+                try
                 {
                     foreach (var p in DataModel.Recordmodel.ProductInfoRecords)
                     {
@@ -1199,9 +1202,12 @@ namespace BusbarCompressionSystem.ViewModel
                             break;
                         }
                     }
-                }));
-            }
-            catch (Exception ex) { }
+                }
+                catch (Exception ex)
+                {
+                    sqlite.WriteErrorLog("UPDATETAKEPHOTO2_EXCEPTION", $"更新AOI外观数据失败: {ex.Message}", SN);
+                }
+            }));
         }
 
 
@@ -1310,86 +1316,148 @@ namespace BusbarCompressionSystem.ViewModel
             return false;
         }
         public UInt16 PLC_ReadUint16(int address)
+{
+    ModbusTcpNet modbusTcp = new ModbusTcpNet();
+    int maxRetry = 3;
+    
+    for (int i = 0; i < maxRetry; i++)
+    {
+        try
         {
-            ModbusTcpNet modbusTcp = new ModbusTcpNet();
-            try
-            {
-                modbusTcp.ConnectTimeOut = 1;
-                modbusTcp.ReceiveTimeOut = 1;
-                modbusTcp.IpAddress = DataModel.Settingmodel.PLC_IP;
-                modbusTcp.Port = DataModel.Settingmodel.PLC_Port;
-                modbusTcp.DataFormat = HslCommunication.Core.DataFormat.CDAB;
-                var connectresult = modbusTcp.ConnectServer();
+            modbusTcp.ConnectTimeOut = 1000; // 优化超时设置
+            modbusTcp.ReceiveTimeOut = 1000;
+            modbusTcp.IpAddress = DataModel.Settingmodel.PLC_IP;
+            modbusTcp.Port = DataModel.Settingmodel.PLC_Port;
+            modbusTcp.DataFormat = HslCommunication.Core.DataFormat.CDAB;
 
-                if (connectresult.IsSuccess)
+            var connectresult = modbusTcp.ConnectServer();
+            if (connectresult.IsSuccess)
+            {
+                var r = modbusTcp.ReadUInt16(address.ToString(), 1);
+                modbusTcp.ConnectClose();
+                
+                if (r.IsSuccess)
+                { 
+                    return r.Content[0]; 
+                }
+                else
                 {
-                    var r = modbusTcp.ReadUInt16(address.ToString(), 1);
-                    modbusTcp.ConnectClose();
-                    if (r.IsSuccess)
-                    { return r.Content[0]; }
+                   // 若最后一次也失败，记录日志
+                   if (i == maxRetry - 1)
+                       writeLog($"[PLC通讯] 读取UInt16失败(D{address}): {r.Message}", false);
                 }
             }
-            catch
+            else
             {
-                ;
+                 if (i == maxRetry - 1)
+                       writeLog($"[PLC通讯] 连接失败(D{address}): {connectresult.Message}", false);
             }
-            return 0;
-
         }
+        catch (Exception ex)
+        {
+             if (i == maxRetry - 1)
+                  writeLog($"[PLC通讯] 读取UInt16异常(D{address}): {ex.Message}", false);
+        }
+        
+        // 简单延时重试
+        Thread.Sleep(50);
+    }
+    
+    return 0;
+}
         public float PLC_ReadFloat(int address)
-        {
-            ModbusTcpNet modbusTcp = new ModbusTcpNet();
-            try
-            {
-                modbusTcp.ConnectTimeOut = 1;
-                modbusTcp.ReceiveTimeOut = 1;
-                modbusTcp.IpAddress = DataModel.Settingmodel.PLC_IP;
-                modbusTcp.Port = DataModel.Settingmodel.PLC_Port;
-                modbusTcp.DataFormat = HslCommunication.Core.DataFormat.CDAB;
-                var connectresult = modbusTcp.ConnectServer();
+{
+    ModbusTcpNet modbusTcp = new ModbusTcpNet();
+    int maxRetry = 3;
 
-                if (connectresult.IsSuccess)
+    for (int i = 0; i < maxRetry; i++)
+    {
+        try
+        {
+            modbusTcp.ConnectTimeOut = 1000; // 优化超时
+            modbusTcp.ReceiveTimeOut = 1000;
+            modbusTcp.IpAddress = DataModel.Settingmodel.PLC_IP;
+            modbusTcp.Port = DataModel.Settingmodel.PLC_Port;
+            modbusTcp.DataFormat = HslCommunication.Core.DataFormat.CDAB;
+            
+            var connectresult = modbusTcp.ConnectServer();
+            if (connectresult.IsSuccess)
+            {
+                var r = modbusTcp.ReadFloat(address.ToString(), 1);
+                modbusTcp.ConnectClose();
+                
+                if (r.IsSuccess)
+                { 
+                    return r.Content[0]; 
+                }
+                else
                 {
-                    var r = modbusTcp.ReadFloat(address.ToString(), 1);
-                    modbusTcp.ConnectClose();
-                    if (r.IsSuccess)
-                    { return r.Content[0]; }
+                   if (i == maxRetry - 1)
+                       writeLog($"[PLC通讯] 读取Float失败(D{address}): {r.Message}", false);
                 }
             }
-            catch
+            else
             {
-                ;
+                 if (i == maxRetry - 1)
+                       writeLog($"[PLC通讯] 连接失败(D{address}): {connectresult.Message}", false);
             }
-            return float.NaN;
-
         }
+        catch (Exception ex)
+        {
+             if (i == maxRetry - 1)
+                 writeLog($"[PLC通讯] 读取Float异常(D{address}): {ex.Message}", false);
+        }
+        Thread.Sleep(50);
+    }
+
+    return float.NaN;
+}
         public string PLC_Readstring(int address)
+{
+    ModbusTcpNet modbusTcp = new ModbusTcpNet();
+    int maxRetry = 3;
+    
+    for(int i=0; i<maxRetry; i++)
+    {
+        try
         {
-            ModbusTcpNet modbusTcp = new ModbusTcpNet();
-            try
+            modbusTcp.ConnectTimeOut = 1000;
+            modbusTcp.ReceiveTimeOut = 1000;
+            modbusTcp.IpAddress = DataModel.Settingmodel.PLC_IP;
+            modbusTcp.Port = DataModel.Settingmodel.PLC_Port;
+            modbusTcp.DataFormat = HslCommunication.Core.DataFormat.CDAB;
+            
+            var connectresult = modbusTcp.ConnectServer();
+            if (connectresult.IsSuccess)
             {
-                modbusTcp.ConnectTimeOut = 1;
-                modbusTcp.ReceiveTimeOut = 1;
-                modbusTcp.IpAddress = DataModel.Settingmodel.PLC_IP;
-                modbusTcp.Port = DataModel.Settingmodel.PLC_Port;
-                modbusTcp.DataFormat = HslCommunication.Core.DataFormat.CDAB;
-                var connectresult = modbusTcp.ConnectServer();
-
-                if (connectresult.IsSuccess)
+                var r = modbusTcp.ReadString(address.ToString(), 25);
+                modbusTcp.ConnectClose();
+                if (r.IsSuccess)
+                { 
+                    return r.Content.Replace("\0", ""); 
+                }
+                else
                 {
-                    var r = modbusTcp.ReadString(address.ToString(), 25);
-                    modbusTcp.ConnectClose();
-                    if (r.IsSuccess)
-                    { return r.Content.Replace("\0", ""); }
+                   if (i == maxRetry - 1)
+                       writeLog($"[PLC通讯] 读取String失败(D{address}): {r.Message}", false);
                 }
             }
-            catch
+            else
             {
-                ;
+                if (i == maxRetry - 1)
+                       writeLog($"[PLC通讯] 连接失败(D{address}): {connectresult.Message}", false);
             }
-            return string.Empty;
-
         }
+        catch (Exception ex)
+        {
+             if (i == maxRetry - 1)
+                 writeLog($"[PLC通讯] 读取String异常(D{address}): {ex.Message}", false);
+        }
+        Thread.Sleep(50);
+    }
+
+    return string.Empty;
+}
         public bool PLC_Writestring(string address, string data)
         {
             ModbusTcpNet modbusTcp = new ModbusTcpNet();

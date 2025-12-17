@@ -24,7 +24,7 @@ namespace SQLITEDATABASE
         /// 独立文件存储，便于问题定位和统计分析
         /// 输出路径：日志\数据库异常\{日期}.txt
         /// </summary>
-        private static void WriteErrorLog(string tag, string message, string sn = "", string wocode = "")
+        public static void WriteErrorLog(string tag, string message, string sn = "", string wocode = "")
         {
             try
             {
