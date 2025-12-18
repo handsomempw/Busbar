@@ -293,8 +293,13 @@ namespace BusbarCompressionSystem.ViewModel
                 writeLog($"写入PLC地址 {DataModel.Settingmodel.AddressSN}: {sn};{wocode}");
                 PLC_Writestring(DataModel.Settingmodel.AddressSN.ToString(), $"{sn};{wocode}");
                 
-                writeLog($"创建数据库记录: 工单={wocode}, 物料={partnoid}, SN={sn}, 工位={DataModel.Settingmodel.SETTING_DATA.StationCode}, 设备={DataModel.Settingmodel.SETTING_DATA.MachineID}");
-                sqlite.CREATENEWLINE(wocode, partnoid, sn, DataModel.Settingmodel.SETTING_DATA.StationCode, DataModel.Settingmodel.SETTING_DATA.MachineID, DateTime.Now);
+                writeLog($"创建数据库记录: wocode={wocode}, partnoid={partnoid}, SN={sn}, 工位={DataModel.Settingmodel.SETTING_DATA.StationCode}, 设备={DataModel.Settingmodel.SETTING_DATA.MachineID}");
+                bool dbResult = sqlite.CREATENEWLINE(wocode, partnoid, sn, DataModel.Settingmodel.SETTING_DATA.StationCode, DataModel.Settingmodel.SETTING_DATA.MachineID, DateTime.Now);
+                
+                if (!dbResult)
+                {
+                    writeLog($"⚠ 数据库记录创建失败！wocode={wocode}, SN={sn}", true);
+                }
                 
                 writeLog($"✓ 扫码处理成功！");
                 return string.Empty;
@@ -2257,7 +2262,23 @@ namespace BusbarCompressionSystem.ViewModel
                 else if (cmd == "CHECK1")
                 {
                     #region 读取产品编号
-                    string s = PLC_Readstring(DataModel.Settingmodel.AddressSN + 25 * 4);
+                    // Debug: 读取所有相关的5个地址块数据，用于排查偏移或数据错位问题
+                    string s_base = PLC_Readstring(DataModel.Settingmodel.AddressSN);
+                    string s_25 = PLC_Readstring(DataModel.Settingmodel.AddressSN + 25);
+                    string s_50 = PLC_Readstring(DataModel.Settingmodel.AddressSN + 50);
+                    string s_75 = PLC_Readstring(DataModel.Settingmodel.AddressSN + 75);
+                    string s_100 = PLC_Readstring(DataModel.Settingmodel.AddressSN + 100); // 这是 target
+
+                    writeLog($"[CHECK1 Debug] 全地址数据读取详情:");
+                    writeLog($"  AddressSN+0   (地址{DataModel.Settingmodel.AddressSN}) : [{s_base}]", false);
+                    writeLog($"  AddressSN+25  (地址{DataModel.Settingmodel.AddressSN + 25}) : [{s_25}]", false);
+                    writeLog($"  AddressSN+50  (地址{DataModel.Settingmodel.AddressSN + 50}) : [{s_50}]", false);
+                    writeLog($"  AddressSN+75  (地址{DataModel.Settingmodel.AddressSN + 75}) : [{s_75}]", false);
+                    writeLog($"  AddressSN+100 (地址{DataModel.Settingmodel.AddressSN + 100}) : [{s_100}] <== 当前使用的Target", false);
+
+                    string s = s_100;
+                    // writeLog($"[CHECK1 Debug] PLC原始读取值: [{s}]"); // 上方已记录，此行可省略
+
                     string[] ss = s.Split(';');
                     if (ss.Length == 2)
                     {
@@ -2272,7 +2293,11 @@ namespace BusbarCompressionSystem.ViewModel
                     }
                     else
                     {
-                        writeLog($"视觉检测产品编号读取错误:{s}");
+                        writeLog($"视觉检测产品编号读取错误! 原始内容:[{s}], 分割长度:{ss.Length}", true);
+                        for (int k = 0; k < ss.Length; k++)
+                        {
+                            writeLog($"  -> 分割项[{k}]: {ss[k]}", false);
+                        }
                     }
 
                     #endregion
