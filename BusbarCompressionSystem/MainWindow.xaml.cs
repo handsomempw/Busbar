@@ -174,25 +174,58 @@ namespace BusbarCompressionSystem
         {
             new Thread(() =>
             {
+                // 【日志】记录参数下发开始，包含当前耐压参数详细信息
+                var tvParam = vml.Main.DataModel.Processmodel.TVParameter;
+                vml.Main.writeLog($"==========开始耐压参数下发==========");
+                vml.Main.writeLog($"参数详情: 电压={tvParam.Voltage}V, 测试时间={tvParam.TestTime}s, 上升时间={tvParam.RiseTime}s, 下降时间={tvParam.FallTime}s");
+                vml.Main.writeLog($"参数详情: 电流上限={tvParam.High}mA, 电流下限={tvParam.Low}mA, 电弧值={tvParam.Arc}, 频率={tvParam.Freq}Hz");
+                vml.Main.writeLog($"参数详情: 测试模式={tvParam.TestMode}");
+                
+                // 【日志】耐压仪器1参数下发
+                vml.Main.writeLog($"[耐压1] 开始连接仪器... IP={vml.Main.DataModel.Settingmodel.AT9620_1.IP}, 端口={vml.Main.DataModel.Settingmodel.AT9620_1.Port}");
                 var r1 = vml.Main.DataModel.Settingmodel.AT9620_1.Download();
-                var r2 = vml.Main.DataModel.Settingmodel.AT9620_2.Download();
-                var r3 = vml.Main.DataModel.Settingmodel.AT9620_3.Download();
                 if (!r1.Success)
                 {
+                    vml.Main.writeLog($"[耐压1] 参数下发失败! 错误信息: {r1.Error}", true);
                     NoticeBox.Show("耐压工位1参数下发失败", "错误", MessageBoxIcon.Error);
                 }
-                else if (!r2.Success)
+                else
                 {
+                    vml.Main.writeLog($"[耐压1] 参数下发成功！");
+                }
+                
+                // 【日志】耐压仪器2参数下发
+                vml.Main.writeLog($"[耐压2] 开始连接仪器... IP={vml.Main.DataModel.Settingmodel.AT9620_2.IP}, 端口={vml.Main.DataModel.Settingmodel.AT9620_2.Port}");
+                var r2 = vml.Main.DataModel.Settingmodel.AT9620_2.Download();
+                if (!r2.Success)
+                {
+                    vml.Main.writeLog($"[耐压2] 参数下发失败! 错误信息: {r2.Error}", true);
                     NoticeBox.Show("耐压工位2参数下发失败", "错误", MessageBoxIcon.Error);
                 }
-                else if (!r3.Success)
+                else
                 {
+                    vml.Main.writeLog($"[耐压2] 参数下发成功！");
+                }
+                
+                // 【优化】第三个仪器已禁用，跳过参数下发，但保留检查逻辑以兼容旧代码
+                vml.Main.writeLog($"[耐压3] 已禁用，跳过参数下发（设备已更新）");
+                var r3 = new AT9620.Result() { Success = true }; // 模拟成功，避免影响整体流程
+                //var r3 = vml.Main.DataModel.Settingmodel.AT9620_3.Download();
+                if (!r3.Success)
+                {
+                    vml.Main.writeLog($"[耐压3] 参数下发失败（此仪器已禁用，不应该执行到这里）", true);
                     NoticeBox.Show("耐压工位3参数下发失败", "错误", MessageBoxIcon.Error);
                 }
 
+                // 【日志】汇总结果
+                if (r1.Success && r2.Success && r3.Success)
+                {
+                    vml.Main.writeLog($"==========参数下发全部完成==========");
+                    NoticeBox.Show("参数下发完成", "成功", MessageBoxIcon.Success, true, 3000);
+                }
                 else
                 {
-                    NoticeBox.Show("参数下发完成", "成功", MessageBoxIcon.Success, true, 5000);
+                    vml.Main.writeLog($"==========参数下发存在失败项==========", true);
                 }
             }).Start();
         }

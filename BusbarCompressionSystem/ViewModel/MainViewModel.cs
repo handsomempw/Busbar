@@ -226,20 +226,60 @@ namespace BusbarCompressionSystem.ViewModel
 
         #endregion
         #region 操作
+        /// <summary>
+        /// 处理扫码数据，完成产品SN的解码、验证和数据库记录创建
+        /// </summary>
+        /// <param name="snstr">扫码原始数据字符串</param>
+        /// <returns>
+        /// 返回错误信息字符串，如果处理成功则返回空字符串
+        /// 可能的错误信息包括：
+        /// - 标签解码失败
+        /// - 混批错误（不同规格产品）
+        /// - 工单号查询失败
+        /// - 物料编码查询失败
+        /// </returns>
+        /// <remarks>
+        /// 处理流程：
+        /// 1. 解码扫码数据获取产品SN
+        /// 2. 根据SN查询MES系统获取工单号和物料编码
+        /// 3. 验证物料编码是否与当前产线规格一致（防止混批）
+        /// 4. 验证数据完整性（工单号和物料编码不能为空）
+        /// 5. 将SN和工单号写入PLC
+        /// 6. 在本地数据库创建生产记录
+        /// </remarks>
         public string _ScanSN(string snstr)
         {
             //if (string.IsNullOrEmpty(DataModel.Processmodel.TakePhotoTestModel.Productinfo.SN))
             //{
+            
+            // 记录扫码原始数据
+            writeLog($"扫码原始数据: {snstr}");
+            
+            // 解码SN
             string sn = MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.DecodeSN(snstr);
+            writeLog($"解码后的SN: {(string.IsNullOrEmpty(sn) ? "解码失败" : sn)}");
+            
             if (!string.IsNullOrEmpty(sn))
             {
                 string wocode = MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.get_WO_CODE(sn);
+                writeLog($"查询WOCODE: {(string.IsNullOrEmpty(wocode) ? "查询失败" : wocode)}");
+                
                 string partnoid = MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.get_PartNO_ID(sn);
+                writeLog($"查询PartNOID: {(string.IsNullOrEmpty(partnoid) ? "查询失败" : partnoid)}");
+               
                 if (partnoid != DataModel.Processmodel.PartNOID)
                 {
-                    return $"不同规格产品禁止混合作业:{partnoid},{DataModel.Processmodel.PartNOID}";
+                    // 【日志】混批报错详细信息
+                    writeLog($"❌ 检测到混批! 不允许不同规格产品混合作业", true);
+                    writeLog($"  - 产线当前规格: {DataModel.Processmodel.PartNOID}", true);
+                    writeLog($"  - 扫码产品规格: {partnoid}", true);
+                    writeLog($"  - 产品SN: {sn}", true);
+                    writeLog($"  - 工单号: {wocode}", true);
+                    writeLog($"========== 扫码处理失败（混批错误）==========", true);
+                    return $"混批错误！禁止不同规格产品混合作业\n当前规格: {DataModel.Processmodel.PartNOID}\n扫码规格: {partnoid}";
                 }
 
+                // 数据完整性检查
                 if (string.IsNullOrEmpty(wocode))
                 {
                     return "关联批次号读取失败";
@@ -248,11 +288,15 @@ namespace BusbarCompressionSystem.ViewModel
                 {
                     return "关联规格信息读取失败";
                 }
-                //DataModel.Processmodel.TakePhotoTestModel.Productinfo.SN = sn;
-                //DataModel.Processmodel.TakePhotoTestModel.Productinfo.WOCODE = wocode;
-                //DataModel.Processmodel.TakePhotoTestModel.Productinfo.PartNOID = partnoid;
+                
+                // 写入PLC和数据库
+                writeLog($"写入PLC地址 {DataModel.Settingmodel.AddressSN}: {sn};{wocode}");
                 PLC_Writestring(DataModel.Settingmodel.AddressSN.ToString(), $"{sn};{wocode}");
+                
+                writeLog($"创建数据库记录: 工单={wocode}, 物料={partnoid}, SN={sn}, 工位={DataModel.Settingmodel.SETTING_DATA.StationCode}, 设备={DataModel.Settingmodel.SETTING_DATA.MachineID}");
                 sqlite.CREATENEWLINE(wocode, partnoid, sn, DataModel.Settingmodel.SETTING_DATA.StationCode, DataModel.Settingmodel.SETTING_DATA.MachineID, DateTime.Now);
+                
+                writeLog($"✓ 扫码处理成功！");
                 return string.Empty;
 
             }
@@ -396,7 +440,8 @@ namespace BusbarCompressionSystem.ViewModel
                             int TakePhoto1Trig = readresult.Content[2];
                             int TV1Trig = readresult.Content[6];
                             int TV2Trig = readresult.Content[8];
-                            int TV3Trig = readresult.Content[10];
+                            // 【优化】不再读取第三个耐压仪器的触发信号（设备已更新，不再使用第三个仪器）
+                            // int TV3Trig = readresult.Content[10];
 
                             int SecondScanTrig = secondScanResult.IsSuccess ? secondScanResult.Content[0] : 0;
 
@@ -478,22 +523,23 @@ namespace BusbarCompressionSystem.ViewModel
                             catch {; }
                             #endregion
 
-                            #region 耐压3触发
-                            try
-                            {
-                                if ((TV3Trig == 1 || TV3Trig == 2) & DataModel.Processmodel.TV3_Trig_IO.IOstatus == 0)
-                                {
-                                    new Thread(() =>
-                                    {
-                                        TV3Process();
-                                    }).Start();
-                                }
-                                if ((TV3Trig == 3) & DataModel.Processmodel.TV3_Trig_IO.IOstatus != TV3Trig)
-                                {
-                                    DataModel.Settingmodel.AT9620_3.stop = true;
-                                }
-                            }
-                            catch {; }
+                            #region 耐压3触发【已禁用】
+                            // 【优化】第三个耐压仪器已不再使用，注释掉触发逻辑
+                            //try
+                            //{
+                            //    if ((TV3Trig == 1 || TV3Trig == 2) & DataModel.Processmodel.TV3_Trig_IO.IOstatus == 0)
+                            //    {
+                            //        new Thread(() =>
+                            //        {
+                            //            TV3Process();
+                            //        }).Start();
+                            //    }
+                            //    if ((TV3Trig == 3) & DataModel.Processmodel.TV3_Trig_IO.IOstatus != TV3Trig)
+                            //    {
+                            //        DataModel.Settingmodel.AT9620_3.stop = true;
+                            //    }
+                            //}
+                            //catch {; }
                             #endregion
 
 
@@ -503,7 +549,8 @@ namespace BusbarCompressionSystem.ViewModel
                             DataModel.Processmodel.TakePhoto1_Trig_IO.IOstatus = TakePhoto1Trig;
                             DataModel.Processmodel.TV1_Trig_IO.IOstatus = TV1Trig;
                             DataModel.Processmodel.TV2_Trig_IO.IOstatus = TV2Trig;
-                            DataModel.Processmodel.TV3_Trig_IO.IOstatus = TV3Trig;
+                            // 【优化】第三个耐压仪器已禁用，设置状态为-1（不可用）
+                            DataModel.Processmodel.TV3_Trig_IO.IOstatus = -1;
 
 
 
@@ -521,8 +568,8 @@ namespace BusbarCompressionSystem.ViewModel
                         DataModel.Processmodel.TakePhoto1_Trig_IO.IOstatus = -1;
                         DataModel.Processmodel.TV1_Trig_IO.IOstatus = -1;
                         DataModel.Processmodel.TV2_Trig_IO.IOstatus = -1;
-                        DataModel.Processmodel.TV3_Trig_IO.IOstatus = -1;
-
+                        DataModel.Processmodel.TV3_Trig_IO.IOstatus = -1; // 第三个仪器始终为-1（已禁用）
+                        writeLog("PLC通讯失败，所有触发信号置为-1", true);
                         #endregion
                     }
                     //modbusTcp?.ConnectClose();
@@ -1200,7 +1247,8 @@ namespace BusbarCompressionSystem.ViewModel
                 {
                     var r1 = modbusTcp.ReadCoil(DataModel.Settingmodel.Meter1AvailableAddress.ToString(), 1);
                     var r2 = modbusTcp.ReadCoil(DataModel.Settingmodel.Meter2AvailableAddress.ToString(), 1);
-                    var r3 = modbusTcp.ReadCoil(DataModel.Settingmodel.Meter3AvailableAddress.ToString(), 1);
+                    // 【优化】不再读取第三个耐压仪器的PLC状态（设备已更新，不再使用第三个仪器）
+                    // var r3 = modbusTcp.ReadCoil(DataModel.Settingmodel.Meter3AvailableAddress.ToString(), 1);
                     modbusTcp.Write(DataModel.Settingmodel.ShankHandAddress.ToString(), (UInt16)1);
                     modbusTcp.Write(DataModel.Settingmodel.DeviceAvailableAddress.ToString(), DataModel.Processmodel.allow_start);
                     modbusTcp.ConnectClose();
@@ -1208,15 +1256,17 @@ namespace BusbarCompressionSystem.ViewModel
                     {
                         DataModel.Processmodel.TVAvailable.TV1Available = !r1.Content[0];
                         DataModel.Processmodel.TVAvailable.TV2Available = !r2.Content[0];
-                        DataModel.Processmodel.TVAvailable.TV3Available = !r3.Content[0];
+                        // 【优化】强制设置第三个仪器为不可用状态
+                        DataModel.Processmodel.TVAvailable.TV3Available = false;
                     }
 
-                    return r1.IsSuccess & r2.IsSuccess & r3.IsSuccess;
+                    // 【优化】只返回前两个仪器的状态，不再检查第三个仪器
+                    return r1.IsSuccess & r2.IsSuccess;
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                ;
+                writeLog($"PLC读取仪器可用状态异常: {ex.Message}", true);
             }
 
             return false;
@@ -1228,6 +1278,18 @@ namespace BusbarCompressionSystem.ViewModel
 
         private object writeBug_Locker = new object();
 
+        /// <summary>
+        /// 写入日志信息到文件和界面显示
+        /// </summary>
+        /// <param name="LogContent">日志内容</param>
+        /// <param name="showdatarecord">是否在界面上显示日志记录，默认为 true</param>
+        /// <remarks>
+        /// 该方法执行以下操作：
+        /// 1. 创建带时间戳的日志项
+        /// 2. 如果 showdatarecord 为 true，则在 UI 线程中更新界面日志列表（最多保留 200 条）
+        /// 3. 将日志写入到按日期命名的文本文件中（格式：yyyyMMdd.txt）
+        /// 4. 日志文件保存路径：程序目录\日志\日志\
+        /// </remarks>
         internal void writeLog(string LogContent, bool showdatarecord = true)
         {
             if (string.IsNullOrEmpty(LogContent)) { return; }
