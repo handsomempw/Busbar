@@ -202,10 +202,6 @@ namespace SQLITEDATABASE
             {
                 WriteErrorLog("[数据库异常]UpdateTakePhoto1失败", $"异常: {ex.Message}", SN, WOCODE);
             }
-            catch (Exception ex)
-            {
-               WriteErrorLog("UPDATE_TAKEPHOTO1_ERROR", $"更新拍照1结果失败: {ex.Message}", SN, WOCODE);
-            }
             return false;
         }
 
@@ -235,10 +231,6 @@ namespace SQLITEDATABASE
             catch (Exception ex)
             {
                 WriteErrorLog("[数据库异常]UpdatePressure失败", $"异常: {ex.Message}", SN, WOCODE);
-            }
-            catch (Exception ex)
-            {
-                WriteErrorLog("UPDATE_PRESSURE_ERROR", $"更新压力结果失败: {ex.Message}", SN, WOCODE);
             }
             return false;
         }
@@ -273,10 +265,6 @@ namespace SQLITEDATABASE
             {
                 WriteErrorLog("[数据库异常]UpdateTV失败", $"异常: {ex.Message}", SN, WOCODE);
             }
-            catch (Exception ex)
-            {
-                WriteErrorLog("UPDATE_TV_ERROR", $"更新耐压结果失败: {ex.Message}", SN, WOCODE);
-            }
             return false;
         }
         /// <summary>
@@ -304,10 +292,6 @@ namespace SQLITEDATABASE
             catch (Exception ex)
             {
                 WriteErrorLog("[数据库异常]UpdateTakePhoto2失败", $"异常: {ex.Message}", SN, WOCODE);
-            }
-            catch (Exception ex)
-            {
-                WriteErrorLog("UPDATE_TAKEPHOTO2_ERROR", $"更新拍照2结果失败: {ex.Message}", SN, WOCODE);
             }
             return false;
         }
