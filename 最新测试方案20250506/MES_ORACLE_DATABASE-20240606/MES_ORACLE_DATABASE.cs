@@ -16,6 +16,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Xml.Linq;
+using System.Threading; //添加Thread命名空间用于获取线程ID
 
 namespace MES_ORACLE_DATABASE
 {
@@ -32,6 +33,66 @@ namespace MES_ORACLE_DATABASE
         private static AutoLineClient client = AutoLineClient.Create("http://mes-equip.efara.cn");
         private static Dictionary<string, string> dicStandardGroup = new Dictionary<string, string>();//工序码、工序名称对应清单
         private static IProductBarcodeResolver _productBarcodeResolver;//= new ProductBarcodeResolverFactory().RemoteRuleSetBased();
+        private static object perfLogLocker = new object(); // 性能日志文件锁
+
+        /// <summary>
+        /// 添加MES数据库操作性能诊断日志方法
+        /// 写入性能诊断日志到独立文件
+        /// </summary>
+        private static void WritePerfLog(string tag, string message, long? elapsedMs = null, string extraInfo = null)
+        {
+            try
+            {
+                int threadId = Thread.CurrentThread.ManagedThreadId;
+                string threadName = Thread.CurrentThread.Name ?? $"Thread-{threadId}";
+
+                // 检测是否为异常耗时（超过1秒）
+                bool isAbnormalTime = elapsedMs.HasValue && elapsedMs.Value > 1000;
+                string perfLevel = isAbnormalTime ? "PERF-异常" : "PERF";
+
+                StringBuilder logBuilder = new StringBuilder();
+                logBuilder.Append($"[{DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff")}]");
+                logBuilder.Append($"[{threadName}]");
+                logBuilder.Append($"[MES_DB_{tag}]");
+                logBuilder.Append($"[{perfLevel}]");
+                logBuilder.Append($"[MES_ORACLE_DATABASE] {message}");
+
+                if (elapsedMs.HasValue)
+                {
+                    string timeDisplay = isAbnormalTime ?
+                        $"耗时={elapsedMs.Value}ms[异常!!!]" :
+                        $"耗时={elapsedMs.Value}ms";
+                    logBuilder.Append($" | {timeDisplay}");
+                }
+
+                if (!string.IsNullOrEmpty(extraInfo))
+                {
+                    logBuilder.Append($" | {extraInfo}");
+                }
+
+                string logContent = logBuilder.ToString();
+
+                string filename = $"{Environment.CurrentDirectory}\\日志\\性能诊断\\{DateTime.Now.ToString("yyyyMMdd")}_performance.log";
+                string dir = Path.GetDirectoryName(filename);
+                if (!Directory.Exists(dir))
+                {
+                    Directory.CreateDirectory(dir);
+                }
+
+                lock (perfLogLocker)
+                {
+                    using (StreamWriter sw = new StreamWriter(filename, true, Encoding.UTF8))
+                    {
+                        sw.WriteLine(logContent);
+                        sw.Close();
+                    }
+                }
+            }
+            catch
+            {
+                // 性能日志失败不应影响业务
+            }
+        }
         public struct worker_info
         {
             public string worker_name;
@@ -677,11 +738,20 @@ namespace MES_ORACLE_DATABASE
 
         public static bool GetProductInfo(string SN)
         {
+            // 添加性能诊断日志
+            Stopwatch sw = Stopwatch.StartNew();
+            WritePerfLog("GETPRODUCTINFO_START", "GetProductInfo开始(MES API调用)", extraInfo: $"SN={SN}");
+
             try
             {
                 var r = client.GetSerialProductInfo(SN);
+                sw.Stop();
+
                 if (r.Success)
                 {
+                    WritePerfLog("GETPRODUCTINFO_SUCCESS", "GetProductInfo成功", sw.ElapsedMilliseconds,
+                        $"WOCODE={r.Data.Lot}, PartNO={r.Data.PartNo}");
+
                     __SN = r.Data.SerialNumber;
                     __WOCODE = r.Data.Lot;
                     __PARTNOID = r.Data.PartNo;
@@ -696,10 +766,17 @@ namespace MES_ORACLE_DATABASE
 
                     return true;
                 }
+                else
+                {
+                    WritePerfLog("GETPRODUCTINFO_FAILED", "GetProductInfo失败", sw.ElapsedMilliseconds,
+                        $"Message={r.Message}");
+                }
             }
             catch (Exception ex)
             {
-                ;
+                sw.Stop();
+                WritePerfLog("GETPRODUCTINFO_EXCEPTION", "GetProductInfo异常", sw.ElapsedMilliseconds,
+                    $"Error={ex.Message}");
             }
 
             //__SN = string.Empty;
@@ -791,18 +868,31 @@ namespace MES_ORACLE_DATABASE
 
         public static string get_WO_CODE(string SN)
         {
+            //添加性能诊断日志
+            Stopwatch sw = Stopwatch.StartNew();
+            WritePerfLog("GET_WOCODE_START", "get_WO_CODE开始", extraInfo: $"SN={SN}");
+
             try
             {
                 if (string.IsNullOrEmpty(__SN) || string.IsNullOrEmpty(__WOCODE) || string.IsNullOrEmpty(__PARTNOID) || SN != __SN)
                 {
+                    WritePerfLog("GET_WOCODE_CACHE_MISS", "缓存未命中,调用GetProductInfo", extraInfo: $"CachedSN={__SN}, RequestSN={SN}");
+                    Stopwatch swGetInfo = Stopwatch.StartNew();
                     var r = GetProductInfo(SN);
+                    swGetInfo.Stop();
+                    WritePerfLog("GET_WOCODE_GETPRODUCTINFO", "GetProductInfo完成", swGetInfo.ElapsedMilliseconds, $"Success={r}");
+
                     if (r)
                     {
+                        sw.Stop();
+                        WritePerfLog("GET_WOCODE_SUCCESS", "get_WO_CODE成功", sw.ElapsedMilliseconds, $"WOCODE={__WOCODE}");
                         return __WOCODE;
                     }
                 }
                 else
                 {
+                    sw.Stop();
+                    WritePerfLog("GET_WOCODE_CACHE_HIT", "缓存命中", sw.ElapsedMilliseconds, $"WOCODE={__WOCODE}");
                     return __WOCODE;
                 }
 
@@ -810,31 +900,58 @@ namespace MES_ORACLE_DATABASE
                 //string sql = $"select WO_CODE from WIP_D_PRODUCT_SERIAL@Mesprod WHERE sn='{SN}'";
                 //return ReadString_mes(sql);
             }
-            catch { }
+            catch (Exception ex)
+            {
+                sw.Stop();
+                WritePerfLog("GET_WOCODE_EXCEPTION", "get_WO_CODE异常", sw.ElapsedMilliseconds, $"Error={ex.Message}");
+            }
+
+            sw.Stop();
+            WritePerfLog("GET_WOCODE_FAILED", "get_WO_CODE失败", sw.ElapsedMilliseconds);
             return null;
         }
 
         public static string get_PartNO_ID(string SN)
         {
+            // 添加性能诊断日志
+            Stopwatch sw = Stopwatch.StartNew();
+            WritePerfLog("GET_PARTNOID_START", "get_PartNO_ID开始", extraInfo: $"SN={SN}");
+
             try
             {
                 if (string.IsNullOrEmpty(__SN) || string.IsNullOrEmpty(__WOCODE) || string.IsNullOrEmpty(__PARTNOID) || SN != __SN)
                 {
+                    WritePerfLog("GET_PARTNOID_CACHE_MISS", "缓存未命中,调用GetProductInfo", extraInfo: $"CachedSN={__SN}, RequestSN={SN}");
+                    Stopwatch swGetInfo = Stopwatch.StartNew();
                     var r = GetProductInfo(SN);
+                    swGetInfo.Stop();
+                    WritePerfLog("GET_PARTNOID_GETPRODUCTINFO", "GetProductInfo完成", swGetInfo.ElapsedMilliseconds, $"Success={r}");
+
                     if (r)
                     {
+                        sw.Stop();
+                        WritePerfLog("GET_PARTNOID_SUCCESS", "get_PartNO_ID成功", sw.ElapsedMilliseconds, $"PartNOID={__PARTNOID}");
                         return __PARTNOID;
                     }
                 }
                 else
                 {
+                    sw.Stop();
+                    WritePerfLog("GET_PARTNOID_CACHE_HIT", "缓存命中", sw.ElapsedMilliseconds, $"PartNOID={__PARTNOID}");
                     return __PARTNOID;
                 }
                 ////string sql = $"SELECT  WO_CODE from V_PRODUCT_STATE where sn = '{SN}'";
                 //string sql = $"select WO_CODE from WIP_D_PRODUCT_SERIAL@Mesprod WHERE sn='{SN}'";
                 //return ReadString_mes(sql);
             }
-            catch { }
+            catch (Exception ex)
+            {
+                sw.Stop();
+                WritePerfLog("GET_PARTNOID_EXCEPTION", "get_PartNO_ID异常", sw.ElapsedMilliseconds, $"Error={ex.Message}");
+            }
+
+            sw.Stop();
+            WritePerfLog("GET_PARTNOID_FAILED", "get_PartNO_ID失败", sw.ElapsedMilliseconds);
             return null;
             //try
             //{
@@ -847,6 +964,9 @@ namespace MES_ORACLE_DATABASE
 
         public static string DecodeSN(string CODEstr)
         {
+            // 添加详细性能诊断日志
+            Stopwatch swTotal = Stopwatch.StartNew();
+            WritePerfLog("DECODE_START", "DecodeSN开始", extraInfo: $"Input={CODEstr}");
 
             __SN = string.Empty;
             __WOCODE = string.Empty;
@@ -870,13 +990,23 @@ namespace MES_ORACLE_DATABASE
                 //    return match1.Value;
                 //}
                 //Stopwatch sw = Stopwatch.StartNew();
+
+                // 步骤1: 初始化ProductBarcodeResolver
+                Stopwatch sw1 = Stopwatch.StartNew();
                 if (_productBarcodeResolver == null)
                 {
+                    WritePerfLog("RESOLVER_INIT_START", "ProductBarcodeResolver初始化开始");
                     try
                     {
                         _productBarcodeResolver = new ProductBarcodeResolverFactory().RemoteRuleSetBased();
+                        sw1.Stop();
+                        WritePerfLog("RESOLVER_INIT_END", "ProductBarcodeResolver初始化完成", sw1.ElapsedMilliseconds);
                     }
-                    catch (Exception e) {; }
+                    catch (Exception e)
+                    {
+                        sw1.Stop();
+                        WritePerfLog("RESOLVER_INIT_FAILED", "ProductBarcodeResolver初始化失败", sw1.ElapsedMilliseconds, $"Error={e.Message}");
+                    }
                 }
                 //sw.Stop();
                 //Debug.WriteLine(sw.ElapsedMilliseconds);
@@ -891,38 +1021,64 @@ namespace MES_ORACLE_DATABASE
                 string WO_CODE = string.Empty;
 
                 string _msn = string.Empty;
+
+                // 步骤2: Resolver解析
+                Stopwatch sw2 = Stopwatch.StartNew();
+                WritePerfLog("RESOLVER_RESOLVE_START", "Resolver.Resolve开始", extraInfo: $"Input={CODEstr}");
                 try
                 {
                     _msn = _productBarcodeResolver.Resolve(CODEstr);
+                    sw2.Stop();
+                    WritePerfLog("RESOLVER_RESOLVE_END", "Resolver.Resolve完成", sw2.ElapsedMilliseconds, $"Result={_msn ?? "NULL"}");
                 }
-                catch {; }
+                catch (Exception ex)
+                {
+                    sw2.Stop();
+                    WritePerfLog("RESOLVER_RESOLVE_FAILED", "Resolver.Resolve失败", sw2.ElapsedMilliseconds, $"Error={ex.Message}");
+                }
+
                 if (string.IsNullOrEmpty(_msn))
                 {
+                    // 步骤3: GraphQL查询GetSNByMP
+                    Stopwatch sw3 = Stopwatch.StartNew();
+                    WritePerfLog("GRAPHQL_START", "GetSNByMP开始(GraphQL查询)", extraInfo: $"MP={CODEstr}");
                     var r = GetSNByMP(CODEstr, out SN, out WO_CODE);
+                    sw3.Stop();
+                    WritePerfLog("GRAPHQL_END", "GetSNByMP完成", sw3.ElapsedMilliseconds, $"Success={r}, SN={SN ?? "NULL"}");
 
                     if (r)
                     {
 
                         #region 母排厂获取上一层码
-
+                        // 步骤4: 获取上层码
+                        Stopwatch sw4 = Stopwatch.StartNew();
+                        WritePerfLog("GETSNBYMSN_START", "GetSNbyMSN开始", extraInfo: $"SN={SN}");
                         string top_sn = string.Empty;
                         var r1 = GetSNbyMSN(SN, out top_sn);
+                        sw4.Stop();
+                        WritePerfLog("GETSNBYMSN_END", "GetSNbyMSN完成", sw4.ElapsedMilliseconds, $"Success={r1}, TopSN={top_sn ?? "NULL"}");
                         #endregion
 
 
                         if (!string.IsNullOrEmpty(top_sn))
                         {
+                            swTotal.Stop();
+                            WritePerfLog("DECODE_SUCCESS", "DecodeSN成功(返回TopSN)", swTotal.ElapsedMilliseconds, $"Result={top_sn}");
                             return top_sn;
                         }
                         else
                         {
 
                             __SN = SN;
+                            swTotal.Stop();
+                            WritePerfLog("DECODE_SUCCESS", "DecodeSN成功(返回SN)", swTotal.ElapsedMilliseconds, $"Result={SN}");
                             return SN;
                         }
                     }
                     else
                     {
+                        swTotal.Stop();
+                        WritePerfLog("DECODE_FAILED", "DecodeSN失败(GetSNByMP返回false)", swTotal.ElapsedMilliseconds);
                         return string.Empty;
                     }
 
@@ -944,7 +1100,13 @@ namespace MES_ORACLE_DATABASE
                 }
                 else
                 {
+                    // 步骤5: 通过MSN获取SN
+                    Stopwatch sw5 = Stopwatch.StartNew();
+                    WritePerfLog("GETSNBYMSN2_START", "GetSNbyMSN开始(通过MSN)", extraInfo: $"MSN={_msn}");
                     var r1 = GetSNbyMSN(_msn, out _sn);
+                    sw5.Stop();
+                    WritePerfLog("GETSNBYMSN2_END", "GetSNbyMSN完成", sw5.ElapsedMilliseconds, $"Success={r1}, SN={_sn ?? "NULL"}");
+
                     if (string.IsNullOrEmpty(_sn))
                     {
                         _sn = _msn;
@@ -955,15 +1117,25 @@ namespace MES_ORACLE_DATABASE
                     //{
                     //    return SN;
                     //}
+
+                    // 步骤6: CheckSN
+                    Stopwatch sw6 = Stopwatch.StartNew();
+                    WritePerfLog("CHECKSN_START", "CheckSN开始", extraInfo: $"SN={_sn}");
                     CheckSN(_sn);
+                    sw6.Stop();
+                    WritePerfLog("CHECKSN_END", "CheckSN完成", sw6.ElapsedMilliseconds);
+
                     __SN = _sn;
+                    swTotal.Stop();
+                    WritePerfLog("DECODE_SUCCESS", "DecodeSN成功(通过Resolver)", swTotal.ElapsedMilliseconds, $"Result={_sn}");
 
                 }
                 return _sn;
             }
-            catch
+            catch (Exception ex)
             {
-                ;
+                swTotal.Stop();
+                WritePerfLog("DECODE_EXCEPTION", "DecodeSN异常", swTotal.ElapsedMilliseconds, $"Error={ex.Message}");
             }
             return null;
         }

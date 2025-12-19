@@ -364,4 +364,6 @@ FodyWeavers.xsd
 /.cunzhi-memory
 /doc
 *.md
+/.cursor
+/测试照片
 /.vscode

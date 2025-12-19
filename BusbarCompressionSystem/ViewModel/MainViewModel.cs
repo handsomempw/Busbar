@@ -41,6 +41,7 @@ using System.Drawing;
 using System.Linq;
 using Honeywell;
 using System.Runtime.InteropServices; // 用于GDI句柄管理
+using BusbarCompressionSystem.Utils;
 
 namespace BusbarCompressionSystem.ViewModel
 {
@@ -77,6 +78,48 @@ namespace BusbarCompressionSystem.ViewModel
 
         public DataModel DataModel { get; set; } = new DataModel();
 
+        private void SaveXmlSafely<T>(string filename, T data)
+        {
+            string dir = Path.GetDirectoryName(filename);
+            if (!Directory.Exists(dir))
+            {
+                Directory.CreateDirectory(dir);
+            }
+
+            string tempFile = $"{filename}.tmp";
+            string backupFile = $"{filename}.bak";
+
+            try
+            {
+                using (var stream = new FileStream(tempFile, FileMode.Create, FileAccess.Write, FileShare.None))
+                {
+                    var serializer = new XmlSerializer(typeof(T));
+                    serializer.Serialize(stream, data);
+                    stream.Flush();
+                }
+
+                if (File.Exists(filename))
+                {
+                    File.Replace(tempFile, filename, backupFile, true);
+                    if (File.Exists(backupFile))
+                    {
+                        File.Delete(backupFile);
+                    }
+                }
+                else
+                {
+                    File.Move(tempFile, filename);
+                }
+            }
+            catch
+            {
+                if (File.Exists(tempFile))
+                {
+                    File.Delete(tempFile);
+                }
+                throw;
+            }
+        }
 
         #region 数据保存加载
         #region 过程数据
@@ -84,17 +127,7 @@ namespace BusbarCompressionSystem.ViewModel
         {
 
             string filename = $"{Environment.CurrentDirectory}\\配置\\过程数据.xml";
-            string dir = Path.GetDirectoryName(filename);
-            if (!Directory.Exists(dir))
-            {
-                Directory.CreateDirectory(dir);
-            }
-
-            using (var stream = File.Open(filename, FileMode.Create))
-            {
-                var serializer = new XmlSerializer(typeof(Processmodel));
-                serializer.Serialize(stream, DataModel.Processmodel);
-            }
+            SaveXmlSafely(filename, DataModel.Processmodel);
         }
         public void LoadProcessmodel()
         {
@@ -132,17 +165,7 @@ namespace BusbarCompressionSystem.ViewModel
         {
 
             string filename = $"{Environment.CurrentDirectory}\\配置\\配置数据.xml";
-            string dir = Path.GetDirectoryName(filename);
-            if (!Directory.Exists(dir))
-            {
-                Directory.CreateDirectory(dir);
-            }
-
-            using (var stream = File.Open(filename, FileMode.Create))
-            {
-                var serializer = new XmlSerializer(typeof(SettingModel));
-                serializer.Serialize(stream, DataModel.Settingmodel);
-            }
+            SaveXmlSafely(filename, DataModel.Settingmodel);
         }
         public void LoadSettingModel()
         {
@@ -166,13 +189,18 @@ namespace BusbarCompressionSystem.ViewModel
                 {
                     DataModel.Settingmodel = new SettingModel();
                 }
+                
+                // 加载独立的耐压状态映射配置文件
+                LoadTvStatusMappings();
             }
             catch (Exception ex)
             {
                 DataModel.Settingmodel = new SettingModel();
 
                 MessageBox.Show($"配置数据.xml加载失败,软件已重置配置，请进入配置文件按需求修改,再重新打开软件:\r\n{ex.Message}");
-
+                
+                // 加载独立的耐压状态映射配置文件
+                LoadTvStatusMappings();
             }
         }
         #endregion
@@ -181,16 +209,7 @@ namespace BusbarCompressionSystem.ViewModel
         public void SaveRecordModel()
         {
             string filename = $"{Environment.CurrentDirectory}\\配置\\日志数据.xml";
-            string dir = Path.GetDirectoryName(filename);
-            if (!Directory.Exists(dir))
-            {
-                Directory.CreateDirectory(dir);
-            }
-            using (var stream = File.Open(filename, FileMode.Create))
-            {
-                var serializer = new XmlSerializer(typeof(RecordModel));
-                serializer.Serialize(stream, DataModel.Recordmodel);
-            }
+            SaveXmlSafely(filename, DataModel.Recordmodel);
         }
         public void LoadRecordModel()
         {
@@ -222,6 +241,53 @@ namespace BusbarCompressionSystem.ViewModel
 
             }
         }
+
+        /// <summary>
+        /// 加载耐压状态映射配置文件
+        /// 文件路径：配置/耐压状态映射.xml
+        /// 格式：&lt;StatusMappings&gt;&lt;Map Code="状态代码" Display="中文描述" /&gt;&lt;/StatusMappings&gt;
+        /// </summary>
+        private void LoadTvStatusMappings()
+        {
+            try
+            {
+                string xmlPath = Path.Combine(Environment.CurrentDirectory, "配置", "耐压状态映射.xml");
+
+                if (!File.Exists(xmlPath))
+                {
+                    // 首次运行：生成默认配置文件
+                    if (TvStatusTranslator.SaveDefaultXml(xmlPath, out string saveError))
+                    {
+                        writeLog($"已生成默认耐压状态映射配置文件: {xmlPath}");
+                    }
+                    else
+                    {
+                        writeLog($"生成默认耐压状态映射配置文件失败: {saveError}");
+                    }
+                }
+                else
+                {
+                    // 加载现有配置文件
+                    if (TvStatusTranslator.LoadFromXml(xmlPath, out string loadError))
+                    {
+                        writeLog($"已加载耐压状态映射配置: {xmlPath}");
+                    }
+                    else
+                    {
+                        writeLog($"耐压状态映射配置加载失败，使用默认配置: {loadError}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                writeLog($"耐压状态映射配置处理异常: {ex.Message}");
+            }
+        }
+
+        private string GetLocalizedTvStatus(string status)
+        {
+            return TvStatusTranslator.Translate(status);
+        }
         #endregion
 
         #endregion
@@ -246,9 +312,26 @@ namespace BusbarCompressionSystem.ViewModel
         /// 4. 验证数据完整性（工单号和物料编码不能为空）
         /// 5. 将SN和工单号写入PLC
         /// 6. 在本地数据库创建生产记录
+        /// 业务逻辑：
+        /// 1. 点检SN码（INSPECTION_TV_OK/NG, INSPECTION_AOI_OK/NG）：跳过MES校验，直接创建本地记录
+        /// 2. 普通SN码：调用MES解析获取产品信息，校验规格一致性后创建本地记录
         /// </remarks>
         public string _ScanSN(string snstr)
         {
+            // 点检SN码特殊处理：跳过MES校验，直接返回成功
+            // 扩展为四个点检 SN：耐压点检 OK/NG + AOI 点检 OK/NG
+            if (snstr == DataModel.Settingmodel.SETTING_DATA.InspectionTVOKSN ||
+                snstr == DataModel.Settingmodel.SETTING_DATA.InspectionTVNGSN ||
+                snstr == DataModel.Settingmodel.SETTING_DATA.InspectionAOIOKSN ||
+                snstr == DataModel.Settingmodel.SETTING_DATA.InspectionAOINGSN)
+            {
+                string wocode = MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.get_WO_CODE(snstr);
+                string partnoid = MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.get_PartNO_ID(snstr);
+                PLC_Writestring(DataModel.Settingmodel.AddressSN.ToString(), $"{snstr};{wocode}");
+                sqlite.CREATENEWLINE(wocode, partnoid, snstr, DataModel.Settingmodel.SETTING_DATA.StationCode, DataModel.Settingmodel.SETTING_DATA.MachineID, DateTime.Now);
+                return string.Empty;
+            }
+
             //if (string.IsNullOrEmpty(DataModel.Processmodel.TakePhotoTestModel.Productinfo.SN))
             //{
             
@@ -316,6 +399,14 @@ namespace BusbarCompressionSystem.ViewModel
             //}
         }
 
+        /// <summary>
+        /// 扫描产品编号并进行MES校验
+        /// </summary>
+        /// <remarks>
+        /// 触发方式：手动扫码（Enter键/按钮）或 自动扫码（PLC触发）
+        /// 点检SN码会跳过MES校验，普通SN进行完整校验
+        /// </remarks>
+        /// <returns>true: 扫码成功; false: 扫码失败</returns>
         public bool ScanSN()
         {
             string s = _ScanSN(DataModel.Processmodel.sninputstr);
@@ -547,6 +638,76 @@ namespace BusbarCompressionSystem.ViewModel
                             //catch {; }
                             #endregion
 
+                            #region 阻值触发
+                            // 读取阻值触发信号（M地址，Bool类型）
+                            var res1TrigResult = modbusTcp.ReadCoil(DataModel.Settingmodel.Res1TrigAddress.ToString(), 1);
+                            if (!res1TrigResult.IsSuccess)
+                            {
+                                writeLog($"阻值1触发信号读取失败 M{DataModel.Settingmodel.Res1TrigAddress}, Err:{res1TrigResult.Message}");
+                            }
+                            var res2TrigResult = modbusTcp.ReadCoil(DataModel.Settingmodel.Res2TrigAddress.ToString(), 1);
+                            if (!res2TrigResult.IsSuccess)
+                            {
+                                writeLog($"阻值2触发信号读取失败 M{DataModel.Settingmodel.Res2TrigAddress}, Err:{res2TrigResult.Message}");
+                            }
+                            var res3TrigResult = modbusTcp.ReadCoil(DataModel.Settingmodel.Res3TrigAddress.ToString(), 1);
+                            if (!res3TrigResult.IsSuccess)
+                            {
+                                writeLog($"阻值3触发信号读取失败 M{DataModel.Settingmodel.Res3TrigAddress}, Err:{res3TrigResult.Message}");
+                            }
+                            
+                            // 判断读取阻值1触发信号（M地址，Bool类型）的结果，若通信成功且内容为true，则Res1Trig为1，否则为0
+                            int Res1Trig = res1TrigResult.IsSuccess && res1TrigResult.Content[0] ? 1 : 0;
+                            int Res2Trig = res2TrigResult.IsSuccess && res2TrigResult.Content[0] ? 1 : 0;
+                            int Res3Trig = res3TrigResult.IsSuccess && res3TrigResult.Content[0] ? 1 : 0;
+
+                            // 触发状态变更日志（避免刷屏，仅在状态变化时记录）
+                            if (Res1Trig != DataModel.Processmodel.Res1_Trig_IO.IOstatus)
+                            {
+                                writeLog($"阻值1触发状态 M{DataModel.Settingmodel.Res1TrigAddress} 变更为 {Res1Trig}");
+                            }
+                            if (Res2Trig != DataModel.Processmodel.Res2_Trig_IO.IOstatus)
+                            {
+                                writeLog($"阻值2触发状态 M{DataModel.Settingmodel.Res2TrigAddress} 变更为 {Res2Trig}");
+                            }
+                            if (Res3Trig != DataModel.Processmodel.Res3_Trig_IO.IOstatus)
+                            {
+                                writeLog($"阻值3触发状态 M{DataModel.Settingmodel.Res3TrigAddress} 变更为 {Res3Trig}");
+                            }
+
+                            // 阻值1触发
+                            try
+                            {
+                                if (Res1Trig == 1 & DataModel.Processmodel.Res1_Trig_IO.IOstatus == 0)
+                                {
+                                    writeLog($"阻值1触发=1(M{DataModel.Settingmodel.Res1TrigAddress}), 准备读取阻值地址D{DataModel.Settingmodel.AddressRes}");
+                                    new Thread(() => { Res1Process(); }).Start();
+                                }
+                            }
+                            catch {; }
+
+                            // 阻值2触发
+                            try
+                            {
+                                if (Res2Trig == 1 & DataModel.Processmodel.Res2_Trig_IO.IOstatus == 0)
+                                {
+                                    writeLog($"阻值2触发=1(M{DataModel.Settingmodel.Res2TrigAddress}), 准备读取阻值地址D{DataModel.Settingmodel.AddressRes + 2}");
+                                    new Thread(() => { Res2Process(); }).Start();
+                                }
+                            }
+                            catch {; }
+
+                            // 阻值3触发
+                            try
+                            {
+                                if (Res3Trig == 1 & DataModel.Processmodel.Res3_Trig_IO.IOstatus == 0)
+                                {
+                                    writeLog($"阻值3触发=1(M{DataModel.Settingmodel.Res3TrigAddress}), 准备读取阻值地址D{DataModel.Settingmodel.AddressRes + 4}");
+                                    new Thread(() => { Res3Process(); }).Start();
+                                }
+                            }
+                            catch {; }
+                            #endregion
 
                             #region 数据复制刷新
                             DataModel.Processmodel.Scan_Trig_IO.IOstatus = ScanTrig;
@@ -556,9 +717,9 @@ namespace BusbarCompressionSystem.ViewModel
                             DataModel.Processmodel.TV2_Trig_IO.IOstatus = TV2Trig;
                             // 【优化】第三个耐压仪器已禁用，设置状态为-1（不可用）
                             DataModel.Processmodel.TV3_Trig_IO.IOstatus = -1;
-
-
-
+                            DataModel.Processmodel.Res1_Trig_IO.IOstatus = Res1Trig;
+                            DataModel.Processmodel.Res2_Trig_IO.IOstatus = Res2Trig;
+                            DataModel.Processmodel.Res3_Trig_IO.IOstatus = Res3Trig;
                             #endregion
                         }
                         #endregion
@@ -573,7 +734,10 @@ namespace BusbarCompressionSystem.ViewModel
                         DataModel.Processmodel.TakePhoto1_Trig_IO.IOstatus = -1;
                         DataModel.Processmodel.TV1_Trig_IO.IOstatus = -1;
                         DataModel.Processmodel.TV2_Trig_IO.IOstatus = -1;
-                        DataModel.Processmodel.TV3_Trig_IO.IOstatus = -1; // 第三个仪器始终为-1（已禁用）
+                        DataModel.Processmodel.TV3_Trig_IO.IOstatus = -1;
+                        DataModel.Processmodel.Res1_Trig_IO.IOstatus = -1;
+                        DataModel.Processmodel.Res2_Trig_IO.IOstatus = -1;
+                        DataModel.Processmodel.Res3_Trig_IO.IOstatus = -1;
                         writeLog("PLC通讯失败，所有触发信号置为-1", true);
                         #endregion
                     }
@@ -610,42 +774,55 @@ namespace BusbarCompressionSystem.ViewModel
 
         public void ScannerProcess()
         {
-            if (DataModel.Settingmodel.ScannerMode == "HF800")
+            try
             {
-                var r = DataModel.Settingmodel.HF800.Scanner();
-                string s = r.value.Replace("\r", "").Replace("\n", "");
-                DataModel.Processmodel.sninputstr = s;
-                //SQLITEDATABASE.sqlite.CREATENEWLINE("1", "1", s);
-                PLC_write((DataModel.Settingmodel.AddressStart + 1).ToString(), (UInt16)(r.Status == Honeywell.Status.OK ? 1 : 2));
-
-            }
-            else
-            {
-                var r = DataModel.Settingmodel.ScannerModel.Scanner();
-                string s = r.receivestring.Replace("\r", "").Replace("\n", "");
-                if (!String.IsNullOrEmpty(s))
+                if (DataModel.Settingmodel.ScannerMode == "HF800")
                 {
-                    //s = "7Y00000000" + ((byte)(new Random().NextDouble() * 10)).ToString();
-                    //s = $"7Y0000{DateTime.Now.ToString("MMss")}";
-
-                    DataModel.Processmodel.sninputstr = s;
-
-                    var R = ScanSN();
-
-
-                    PLC_write((DataModel.Settingmodel.AddressStart + 1).ToString(), (UInt16)(r.IsSuccess & R ? 1 : 2));
+                    var r = DataModel.Settingmodel.HF800.Scanner();
+                    // 添加空值检查，防止r.value为null时崩溃
+                    if (r.Status == Honeywell.Status.OK && !string.IsNullOrEmpty(r.value))
+                    {
+                        string s = r.value.Replace("\r", "").Replace("\n", "").Trim();
+                        DataModel.Processmodel.sninputstr = s;
+                        //SQLITEDATABASE.sqlite.CREATENEWLINE("1", "1", s);
+                        //PLC_write((DataModel.Settingmodel.AddressStart + 1).ToString(), (UInt16)1);
+                        var R = ScanSN();
+                        PLC_write((DataModel.Settingmodel.AddressStart + 1).ToString(), (UInt16)(R ? 1 : 2));
+                    }
+                    else
+                    {
+                        // 扫码失败，写入PLC失败状态
+                        PLC_write((DataModel.Settingmodel.AddressStart + 1).ToString(), (UInt16)2);
+                    }
                 }
                 else
                 {
-                    PLC_write((DataModel.Settingmodel.AddressStart + 1).ToString(), (UInt16)(2));
-
+                    var r = DataModel.Settingmodel.ScannerModel.Scanner();
+                    string s = r.receivestring?.Replace("\r", "").Replace("\n", "").Trim() ?? "";
+                    if (!String.IsNullOrEmpty(s))
+                    {
+                        //s = "7Y00000000" + ((byte)(new Random().NextDouble() * 10)).ToString();
+                        //s = $"7Y0000{DateTime.Now.ToString("MMss")}";
+                        DataModel.Processmodel.sninputstr = s;
+                        var R = ScanSN();
+                        PLC_write((DataModel.Settingmodel.AddressStart + 1).ToString(), (UInt16)(r.IsSuccess && R ? 1 : 2));
+                    }
+                    else
+                    {
+                        PLC_write((DataModel.Settingmodel.AddressStart + 1).ToString(), (UInt16)2);
+                    }
                 }
             }
-
-
-
+            catch (Exception ex)
+            {
+                // 异常处理，防止崩溃，写入PLC失败状态
+                try
+                {
+                    PLC_write((DataModel.Settingmodel.AddressStart + 1).ToString(), (UInt16)2);
+                }
+                catch { }
+            }
         }
-
         public void SecondScannerProcess()
         {
             if (DataModel.Settingmodel.SecondScannerMode == "HF800")
@@ -684,7 +861,6 @@ namespace BusbarCompressionSystem.ViewModel
                 }
             }
         }
-
         public void TakePhoto1Process()
         {
 
@@ -762,6 +938,14 @@ namespace BusbarCompressionSystem.ViewModel
             }
         }
 
+        /// <summary>
+        /// 创建一条新的产品过程数据记录并加入到 DataModel.Recordmodel.ProductInfoRecords 集合中。
+        /// 业务含义：
+        /// - 在拍照留底完成后调用，将当前产品的基础信息、拍照结果缓存在内存集合里；
+        /// - 后续耐压、压力、AOI 等过程都会通过 SN 在该集合中找到对应记录并补充数据，
+        ///   最终在 CHECK1 / CHECK2 中做综合判定和保存到 MES。
+        /// </summary>
+        /// <param name="takephoto1">拍照留底是否成功</param>
         private void newline(bool takephoto1)
         {
             try
@@ -807,6 +991,8 @@ namespace BusbarCompressionSystem.ViewModel
 
 
             var r = DataModel.Settingmodel.AT9620_1.Start();
+            var localizedTvInfo1 = GetLocalizedTvStatus(DataModel.Processmodel.TVTestTestModel1.TVInfo);
+            DataModel.Processmodel.TVTestTestModel1.TVInfo = localizedTvInfo1;
 
             sqlite.UpdateTV(DataModel.Processmodel.TVTestTestModel1.Productinfo.WOCODE,
                 DataModel.Processmodel.TVTestTestModel1.Productinfo.PartNOID,
@@ -815,7 +1001,7 @@ namespace BusbarCompressionSystem.ViewModel
                 DataModel.Processmodel.TVTestTestModel1.TVMaxVoltage,
                 r.Success,
                 DataModel.Processmodel.TVTestTestModel1.TVMaxCurrent,
-                DataModel.Processmodel.TVTestTestModel1.TVInfo,
+                localizedTvInfo1,
                 DataModel.Settingmodel.SETTING_DATA.TVMeterID1
                 );
 
@@ -824,18 +1010,19 @@ namespace BusbarCompressionSystem.ViewModel
                 DataModel.Processmodel.TVTestTestModel1.TVMaxVoltage,
                 r.Success,
                 DataModel.Processmodel.TVTestTestModel1.TVMaxCurrent,
-                DataModel.Processmodel.TVTestTestModel1.TVInfo,
+                localizedTvInfo1,
                 DataModel.Settingmodel.SETTING_DATA.TVMeterID1
                 );
 
             //if (r.Success)
             if (!r.Success)
             {
+                var failureStatus1 = GetLocalizedTvStatus(DataModel.Processmodel.TVTestTestModel1.Status);
                 DataModel.Settingmodel.Sqlserver.Save_TVProcessData(
                     DataModel.Processmodel.TVTestTestModel1.Productinfo.WOCODE,
                     DataModel.Processmodel.TVTestTestModel1.Productinfo.SN,
                     DataModel.Settingmodel.SETTING_DATA.ProcedureName,
-                    DataModel.Processmodel.TVTestTestModel1.Status,
+                    failureStatus1,
                     DataModel.Settingmodel.SETTING_DATA.WorkerID,
                     DateTime.Now,
                     DataModel.Settingmodel.SETTING_DATA.TVMeterID1,
@@ -860,13 +1047,15 @@ namespace BusbarCompressionSystem.ViewModel
             {
                 writeLog($"耐压2产品编号读取错误:{s}");
             }
+
             float res = PLC_ReadFloat(DataModel.Settingmodel.AddressRes + 1 * 2);
             DataModel.Processmodel.TVTestTestModel2.Res = res;
+
             DataModel.Processmodel.TVTestTestModel2.TVMaxVoltage = 0;
             DataModel.Processmodel.TVTestTestModel2.TVMaxCurrent = 0;
             var r = DataModel.Settingmodel.AT9620_2.Start();
-
-
+            var localizedTvInfo2 = GetLocalizedTvStatus(DataModel.Processmodel.TVTestTestModel2.TVInfo);
+            DataModel.Processmodel.TVTestTestModel2.TVInfo = localizedTvInfo2;
 
             sqlite.UpdateTV(DataModel.Processmodel.TVTestTestModel2.Productinfo.WOCODE,
                DataModel.Processmodel.TVTestTestModel2.Productinfo.PartNOID,
@@ -874,19 +1063,34 @@ namespace BusbarCompressionSystem.ViewModel
                res,
                DataModel.Processmodel.TVTestTestModel2.TVMaxVoltage,
                r.Success,
-                 DataModel.Processmodel.TVTestTestModel2.TVMaxCurrent,
-                DataModel.Processmodel.TVTestTestModel2.TVInfo,
-                DataModel.Settingmodel.SETTING_DATA.TVMeterID2
+               DataModel.Processmodel.TVTestTestModel2.TVMaxCurrent,
+               localizedTvInfo2,
+               DataModel.Settingmodel.SETTING_DATA.TVMeterID2
                );
 
             updatetv(DataModel.Processmodel.TVTestTestModel2.Productinfo.SN,
                 res, DataModel.Processmodel.TVTestTestModel2.TVMaxVoltage,
                 r.Success,
                 DataModel.Processmodel.TVTestTestModel2.TVMaxCurrent,
-                DataModel.Processmodel.TVTestTestModel2.TVInfo,
+                localizedTvInfo2,
                 DataModel.Settingmodel.SETTING_DATA.TVMeterID2
 
                 );
+
+            if (!r.Success)
+            {
+                var failureStatus2 = GetLocalizedTvStatus(DataModel.Processmodel.TVTestTestModel2.Status);
+                DataModel.Settingmodel.Sqlserver.Save_TVProcessData(
+                    DataModel.Processmodel.TVTestTestModel2.Productinfo.WOCODE,
+                    DataModel.Processmodel.TVTestTestModel2.Productinfo.SN,
+                    DataModel.Settingmodel.SETTING_DATA.ProcedureName,
+                    failureStatus2,
+                    DataModel.Settingmodel.SETTING_DATA.WorkerID,
+                    DateTime.Now,
+                    DataModel.Settingmodel.SETTING_DATA.TVMeterID2,
+                    r.Recordstr
+                    );
+            }
 
             PLC_write((DataModel.Settingmodel.AddressStart + 9).ToString(), 1);
 
@@ -905,14 +1109,16 @@ namespace BusbarCompressionSystem.ViewModel
             {
                 writeLog($"耐压3产品编号读取错误:{s}");
             }
-            //DataModel.Processmodel.TVTestTestModel3.Productinfo.SN = s;
+
             float res = PLC_ReadFloat(DataModel.Settingmodel.AddressRes + 2 * 2);
             DataModel.Processmodel.TVTestTestModel3.Res = res;
+
             DataModel.Processmodel.TVTestTestModel3.TVMaxVoltage = 0;
             DataModel.Processmodel.TVTestTestModel3.TVMaxCurrent = 0;
 
             var r = DataModel.Settingmodel.AT9620_3.Start();
-
+            var localizedTvInfo3 = GetLocalizedTvStatus(DataModel.Processmodel.TVTestTestModel3.TVInfo);
+            DataModel.Processmodel.TVTestTestModel3.TVInfo = localizedTvInfo3;
 
             sqlite.UpdateTV(DataModel.Processmodel.TVTestTestModel3.Productinfo.WOCODE,
                DataModel.Processmodel.TVTestTestModel3.Productinfo.PartNOID,
@@ -920,9 +1126,9 @@ namespace BusbarCompressionSystem.ViewModel
                res,
                DataModel.Processmodel.TVTestTestModel2.TVMaxVoltage,
                r.Success,
-                DataModel.Processmodel.TVTestTestModel3.TVMaxCurrent,
-                DataModel.Processmodel.TVTestTestModel3.TVInfo,
-                DataModel.Settingmodel.SETTING_DATA.TVMeterID3
+               DataModel.Processmodel.TVTestTestModel3.TVMaxCurrent,
+               localizedTvInfo3,
+               DataModel.Settingmodel.SETTING_DATA.TVMeterID3
                );
 
             updatetv(DataModel.Processmodel.TVTestTestModel3.Productinfo.SN,
@@ -930,19 +1136,94 @@ namespace BusbarCompressionSystem.ViewModel
                 DataModel.Processmodel.TVTestTestModel3.TVMaxVoltage
                 , r.Success,
                 DataModel.Processmodel.TVTestTestModel3.TVMaxCurrent,
-                DataModel.Processmodel.TVTestTestModel3.TVInfo,
+                localizedTvInfo3,
                 DataModel.Settingmodel.SETTING_DATA.TVMeterID3
                 );
+
+            if (!r.Success)
+            {
+                var failureStatus3 = GetLocalizedTvStatus(DataModel.Processmodel.TVTestTestModel3.Status);
+                DataModel.Settingmodel.Sqlserver.Save_TVProcessData(
+                    DataModel.Processmodel.TVTestTestModel3.Productinfo.WOCODE,
+                    DataModel.Processmodel.TVTestTestModel3.Productinfo.SN,
+                    DataModel.Settingmodel.SETTING_DATA.ProcedureName,
+                    failureStatus3,
+                    DataModel.Settingmodel.SETTING_DATA.WorkerID,
+                    DateTime.Now,
+                    DataModel.Settingmodel.SETTING_DATA.TVMeterID3,
+                    r.Recordstr
+                    );
+            }
             PLC_write((DataModel.Settingmodel.AddressStart + 11).ToString(), 1);
 
         }
 
-        private void updatetv(string SN, float res, float maxvoltage, bool result, float maxcurrent, string tvinfo, string tvmeterid)
+        /// <summary>
+        /// 阻值1读取处理：从PLC读取阻值并保存到内存
+        /// 触发地址：M3035，读取地址：D1200
+        /// </summary>
+        public void Res1Process()
         {
             try
             {
+                float res = PLC_ReadFloat(DataModel.Settingmodel.AddressRes);
+                DataModel.Processmodel.TVTestTestModel1.Res = res;
+                writeLog($"阻值1读取完成 D{DataModel.Settingmodel.AddressRes}={res}");
+            }
+            catch (Exception ex)
+            {
+                writeLog($"[ERROR] 阻值1读取异常 M{DataModel.Settingmodel.Res1TrigAddress}/D{DataModel.Settingmodel.AddressRes}: {ex.Message}");
+            }
+        }
 
-                App.Current.Dispatcher.BeginInvoke(new Action(() =>
+        /// <summary>
+        /// 阻值2读取处理：从PLC读取阻值并保存到内存
+        /// 触发地址：M3036，读取地址：D1202
+        /// </summary>
+        public void Res2Process()
+        {
+            try
+            {
+                float res = PLC_ReadFloat(DataModel.Settingmodel.AddressRes + 1 * 2);
+                DataModel.Processmodel.TVTestTestModel2.Res = res;
+                writeLog($"阻值2读取完成 D{DataModel.Settingmodel.AddressRes + 2}={res}");
+            }
+            catch (Exception ex)
+            {
+                writeLog($"[ERROR] 阻值2读取异常 M{DataModel.Settingmodel.Res2TrigAddress}/D{DataModel.Settingmodel.AddressRes + 2}: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 阻值3读取处理：从PLC读取阻值并保存到内存
+        /// 触发地址：M3037，读取地址：D1204
+        /// </summary>
+        public void Res3Process()
+        {
+            try
+            {
+                float res = PLC_ReadFloat(DataModel.Settingmodel.AddressRes + 2 * 2);
+                DataModel.Processmodel.TVTestTestModel3.Res = res;
+                writeLog($"阻值3读取完成 D{DataModel.Settingmodel.AddressRes + 4}={res}");
+            }
+            catch (Exception ex)
+            {
+                writeLog($"[ERROR] 阻值3读取异常 M{DataModel.Settingmodel.Res3TrigAddress}/D{DataModel.Settingmodel.AddressRes + 4}: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 根据产品 SN 更新 DataModel.Recordmodel.ProductInfoRecords 中对应记录的耐压/阻值相关数据。
+        /// 业务含义：
+        /// - 在各 TV 测试工位完成后调用，将阻值、电压、电流、结果等写入内存记录；
+        /// - CHECK1 / CHECK2 以及点检 SN 的综合判定会直接使用这里更新过的数据。
+        /// </summary>
+        /// <param name="SN">产品序列号，用于在集合中定位记录</param>
+        private void updatetv(string SN, float res, float maxvoltage, bool result, float maxcurrent, string tvinfo, string tvmeterid)
+        {
+            App.Current.Dispatcher.BeginInvoke(new Action(() =>
+            {
+                try
                 {
                     foreach (var p in DataModel.Recordmodel.ProductInfoRecords)
                     {
@@ -957,16 +1238,25 @@ namespace BusbarCompressionSystem.ViewModel
                             break;
                         }
                     }
-                }));
-            }
-            catch (Exception ex) { }
+                }
+                catch (Exception ex)
+                {
+                    sqlite.WriteErrorLog("UPDATETV_EXCEPTION", $"更新耐压/阻值数据失败: {ex.Message}", SN);
+                }
+            }));
         }
+        /// <summary>
+        /// 根据产品 SN 更新 DataModel.Recordmodel.ProductInfoRecords 中对应记录的压力测试数据。
+        /// 业务含义：
+        /// - 在电测压力监控完成后调用，将平均值、最大值、最小值及判定结果写入内存记录；
+        /// - 这些压力数据会一并在 SaveBusBarData 报存到 MES，方便后续追溯。
+        /// </summary>
+        /// <param name="SN">产品序列号，用于在集合中定位记录</param>
         private void updatepressure(string SN, UInt16 Pressure_Average, UInt16 Pressure_Max, UInt16 Pressure_Min, bool Pressure_Result)
         {
-            try
+            App.Current.Dispatcher.BeginInvoke(new Action(() =>
             {
-
-                App.Current.Dispatcher.BeginInvoke(new Action(() =>
+                try
                 {
                     foreach (var p in DataModel.Recordmodel.ProductInfoRecords)
                     {
@@ -980,9 +1270,12 @@ namespace BusbarCompressionSystem.ViewModel
                             break;
                         }
                     }
-                }));
-            }
-            catch (Exception ex) { }
+                }
+                catch (Exception ex)
+                {
+                    sqlite.WriteErrorLog("UPDATEPRESSURE_EXCEPTION", $"更新压力数据失败: {ex.Message}", SN);
+                }
+            }));
         }
 
 
@@ -1001,12 +1294,18 @@ namespace BusbarCompressionSystem.ViewModel
 
 
 
+        /// <summary>
+        /// 根据产品 SN 更新 DataModel.Recordmodel.ProductInfoRecords 中对应记录的 AOI 外观检测结果。
+        /// 业务含义：
+        /// - AOI 工具完成判定后调用，将外观 OK/NG 结果及时间写入内存记录；
+        /// - CHECK2 以及点检 SN 的最终综合判定，会把 AppearanceInspection 作为外观工序的依据。
+        /// </summary>
+        /// <param name="SN">产品序列号，用于在集合中定位记录</param>
         private void updatetakephoto2(string SN, bool result, DateTime dt)
         {
-            try
+            App.Current.Dispatcher.BeginInvoke(new Action(() =>
             {
-
-                App.Current.Dispatcher.BeginInvoke(new Action(() =>
+                try
                 {
                     foreach (var p in DataModel.Recordmodel.ProductInfoRecords)
                     {
@@ -1017,9 +1316,12 @@ namespace BusbarCompressionSystem.ViewModel
                             break;
                         }
                     }
-                }));
-            }
-            catch (Exception ex) { }
+                }
+                catch (Exception ex)
+                {
+                    sqlite.WriteErrorLog("UPDATETAKEPHOTO2_EXCEPTION", $"更新AOI外观数据失败: {ex.Message}", SN);
+                }
+            }));
         }
 
 
@@ -1128,86 +1430,148 @@ namespace BusbarCompressionSystem.ViewModel
             return false;
         }
         public UInt16 PLC_ReadUint16(int address)
+{
+    ModbusTcpNet modbusTcp = new ModbusTcpNet();
+    int maxRetry = 3;
+    
+    for (int i = 0; i < maxRetry; i++)
+    {
+        try
         {
-            ModbusTcpNet modbusTcp = new ModbusTcpNet();
-            try
-            {
-                modbusTcp.ConnectTimeOut = 1;
-                modbusTcp.ReceiveTimeOut = 1;
-                modbusTcp.IpAddress = DataModel.Settingmodel.PLC_IP;
-                modbusTcp.Port = DataModel.Settingmodel.PLC_Port;
-                modbusTcp.DataFormat = HslCommunication.Core.DataFormat.CDAB;
-                var connectresult = modbusTcp.ConnectServer();
+            modbusTcp.ConnectTimeOut = 1000; // 优化超时设置
+            modbusTcp.ReceiveTimeOut = 1000;
+            modbusTcp.IpAddress = DataModel.Settingmodel.PLC_IP;
+            modbusTcp.Port = DataModel.Settingmodel.PLC_Port;
+            modbusTcp.DataFormat = HslCommunication.Core.DataFormat.CDAB;
 
-                if (connectresult.IsSuccess)
+            var connectresult = modbusTcp.ConnectServer();
+            if (connectresult.IsSuccess)
+            {
+                var r = modbusTcp.ReadUInt16(address.ToString(), 1);
+                modbusTcp.ConnectClose();
+                
+                if (r.IsSuccess)
+                { 
+                    return r.Content[0]; 
+                }
+                else
                 {
-                    var r = modbusTcp.ReadUInt16(address.ToString(), 1);
-                    modbusTcp.ConnectClose();
-                    if (r.IsSuccess)
-                    { return r.Content[0]; }
+                   // 若最后一次也失败，记录日志
+                   if (i == maxRetry - 1)
+                       writeLog($"[PLC通讯] 读取UInt16失败(D{address}): {r.Message}", false);
                 }
             }
-            catch
+            else
             {
-                ;
+                 if (i == maxRetry - 1)
+                       writeLog($"[PLC通讯] 连接失败(D{address}): {connectresult.Message}", false);
             }
-            return 0;
-
         }
+        catch (Exception ex)
+        {
+             if (i == maxRetry - 1)
+                  writeLog($"[PLC通讯] 读取UInt16异常(D{address}): {ex.Message}", false);
+        }
+        
+        // 简单延时重试
+        Thread.Sleep(50);
+    }
+    
+    return 0;
+}
         public float PLC_ReadFloat(int address)
-        {
-            ModbusTcpNet modbusTcp = new ModbusTcpNet();
-            try
-            {
-                modbusTcp.ConnectTimeOut = 1;
-                modbusTcp.ReceiveTimeOut = 1;
-                modbusTcp.IpAddress = DataModel.Settingmodel.PLC_IP;
-                modbusTcp.Port = DataModel.Settingmodel.PLC_Port;
-                modbusTcp.DataFormat = HslCommunication.Core.DataFormat.CDAB;
-                var connectresult = modbusTcp.ConnectServer();
+{
+    ModbusTcpNet modbusTcp = new ModbusTcpNet();
+    int maxRetry = 3;
 
-                if (connectresult.IsSuccess)
+    for (int i = 0; i < maxRetry; i++)
+    {
+        try
+        {
+            modbusTcp.ConnectTimeOut = 1000; // 优化超时
+            modbusTcp.ReceiveTimeOut = 1000;
+            modbusTcp.IpAddress = DataModel.Settingmodel.PLC_IP;
+            modbusTcp.Port = DataModel.Settingmodel.PLC_Port;
+            modbusTcp.DataFormat = HslCommunication.Core.DataFormat.CDAB;
+            
+            var connectresult = modbusTcp.ConnectServer();
+            if (connectresult.IsSuccess)
+            {
+                var r = modbusTcp.ReadFloat(address.ToString(), 1);
+                modbusTcp.ConnectClose();
+                
+                if (r.IsSuccess)
+                { 
+                    return r.Content[0]; 
+                }
+                else
                 {
-                    var r = modbusTcp.ReadFloat(address.ToString(), 1);
-                    modbusTcp.ConnectClose();
-                    if (r.IsSuccess)
-                    { return r.Content[0]; }
+                   if (i == maxRetry - 1)
+                       writeLog($"[PLC通讯] 读取Float失败(D{address}): {r.Message}", false);
                 }
             }
-            catch
+            else
             {
-                ;
+                 if (i == maxRetry - 1)
+                       writeLog($"[PLC通讯] 连接失败(D{address}): {connectresult.Message}", false);
             }
-            return float.NaN;
-
         }
+        catch (Exception ex)
+        {
+             if (i == maxRetry - 1)
+                 writeLog($"[PLC通讯] 读取Float异常(D{address}): {ex.Message}", false);
+        }
+        Thread.Sleep(50);
+    }
+
+    return float.NaN;
+}
         public string PLC_Readstring(int address)
+{
+    ModbusTcpNet modbusTcp = new ModbusTcpNet();
+    int maxRetry = 3;
+    
+    for(int i=0; i<maxRetry; i++)
+    {
+        try
         {
-            ModbusTcpNet modbusTcp = new ModbusTcpNet();
-            try
+            modbusTcp.ConnectTimeOut = 1000;
+            modbusTcp.ReceiveTimeOut = 1000;
+            modbusTcp.IpAddress = DataModel.Settingmodel.PLC_IP;
+            modbusTcp.Port = DataModel.Settingmodel.PLC_Port;
+            modbusTcp.DataFormat = HslCommunication.Core.DataFormat.CDAB;
+            
+            var connectresult = modbusTcp.ConnectServer();
+            if (connectresult.IsSuccess)
             {
-                modbusTcp.ConnectTimeOut = 1;
-                modbusTcp.ReceiveTimeOut = 1;
-                modbusTcp.IpAddress = DataModel.Settingmodel.PLC_IP;
-                modbusTcp.Port = DataModel.Settingmodel.PLC_Port;
-                modbusTcp.DataFormat = HslCommunication.Core.DataFormat.CDAB;
-                var connectresult = modbusTcp.ConnectServer();
-
-                if (connectresult.IsSuccess)
+                var r = modbusTcp.ReadString(address.ToString(), 25);
+                modbusTcp.ConnectClose();
+                if (r.IsSuccess)
+                { 
+                    return r.Content.Replace("\0", ""); 
+                }
+                else
                 {
-                    var r = modbusTcp.ReadString(address.ToString(), 25);
-                    modbusTcp.ConnectClose();
-                    if (r.IsSuccess)
-                    { return r.Content.Replace("\0", ""); }
+                   if (i == maxRetry - 1)
+                       writeLog($"[PLC通讯] 读取String失败(D{address}): {r.Message}", false);
                 }
             }
-            catch
+            else
             {
-                ;
+                if (i == maxRetry - 1)
+                       writeLog($"[PLC通讯] 连接失败(D{address}): {connectresult.Message}", false);
             }
-            return string.Empty;
-
         }
+        catch (Exception ex)
+        {
+             if (i == maxRetry - 1)
+                 writeLog($"[PLC通讯] 读取String异常(D{address}): {ex.Message}", false);
+        }
+        Thread.Sleep(50);
+    }
+
+    return string.Empty;
+}
         public bool PLC_Writestring(string address, string data)
         {
             ModbusTcpNet modbusTcp = new ModbusTcpNet();
@@ -1874,6 +2238,40 @@ namespace BusbarCompressionSystem.ViewModel
                                 GC.Collect();
                                 #endregion
                             }
+                            else if (tool.TestMode == TestModes.尺寸测量)
+                            {
+                                #region 尺寸测量
+
+                                try
+                                {
+                                    // 测量同时重绘，便于返回主界面直接看到叠加预览
+                                    double measureValue = MeasureDimension(Image, tool, hwindow, true);
+                                    // 追加一次预览，确保HALCON结果同步到WPF显示
+                                    PreviewDimensionMeasurement(Image, tool, hwindow);
+                                    tool.ActualMeasureValue = measureValue;
+
+                                    if (measureValue >= 0 && measureValue >= tool.MinMeasureValue && measureValue <= tool.MaxMeasureValue)
+                                    {
+                                        tool.ToolStatus = ToolStatus.OK;
+                                    }
+                                    else if (measureValue < 0)
+                                    {
+                                        tool.ToolStatus = ToolStatus.NG2; // 测量失败
+                                    }
+                                    else
+                                    {
+                                        tool.ToolStatus = ToolStatus.NG; // 测量值超出范围
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    tool.ToolStatus = ToolStatus.NG2;
+                                    writeLog($"尺寸测量失败: {ex.Message}", false);
+                                }
+
+                                GC.Collect();
+                                #endregion
+                            }
                         }
                         catch {; }
 
@@ -2193,6 +2591,32 @@ namespace BusbarCompressionSystem.ViewModel
             }
         }
 
+        /// <summary>
+        /// 机器人TCP服务端消息接收处理方法
+        /// 业务流程：机器人作为客户端连接本视觉系统，通过指令驱动各工位的检测流程
+        /// 
+        /// 指令类型说明：
+        /// 1. "A"开头指令 - 拍照触发指令（如A1、A2等）
+        ///    - 根据指令匹配视觉工具配置中的Command字段
+        ///    - 自动切换对应相机的曝光时间
+        ///    - 触发相机拍照并启动视觉检测流程
+        /// 
+        /// 2. "CHECK1" - 第一次数据校验（外观检测前）
+        ///    - 从PLC读取当前产品编号（SN）
+        ///    - 从PLC读取压力测试数据（平均值、最大值、最小值）
+        ///    - 调用sqlite.Check1校验拍照留底、耐压测试、阻值测试
+        ///    - 根据校验结果返回OK/NG1/NG2/NG3给机器人
+        ///    - 保存过程数据到MES服务器并报工
+        /// 
+        /// 3. "CHECK2" - 第二次数据校验（最终出站前）
+        ///    - 调用sqlite.Check2校验所有工序（包括外观检测）
+        ///    - 根据校验结果返回OK/NG1~NG4给机器人
+        ///    - 保存过程数据到MES服务器并报工（第二工站）
+        /// 
+        /// - 机器人控制产品流转节奏，视觉系统被动响应
+        /// - 通过两次CHECK实现分段校验：CHECK1拦截前工序不良品，CHECK2最终全检
+        /// - 所有结果通过TCP即时反馈给机器人，实现自动分拣
+        /// </summary>
         private void RobotTcpServer_MessageReceived(TCPServerH sender, object e)
         {
             try
@@ -2302,149 +2726,377 @@ namespace BusbarCompressionSystem.ViewModel
 
                     #endregion
 
+                    // 点检SN码特殊处理：跳过校验和报工，但保留其他流程
+                    // 这里的点检 SN 包含「耐压点检」和「AOI 点检」两类 SN 码
+                    bool isInspectionSN = ss.Length == 2 &&
+                        (ss[0] == DataModel.Settingmodel.SETTING_DATA.InspectionTVOKSN ||
+                         ss[0] == DataModel.Settingmodel.SETTING_DATA.InspectionTVNGSN ||
+                         ss[0] == DataModel.Settingmodel.SETTING_DATA.InspectionAOIOKSN ||
+                         ss[0] == DataModel.Settingmodel.SETTING_DATA.InspectionAOINGSN);
 
-                    #region 读取压力数据
-                    UInt16 AveragePressure = PLC_ReadUint16(DataModel.Settingmodel.AddressPressure);
-                    UInt16 MaxPressure = PLC_ReadUint16(DataModel.Settingmodel.AddressPressure + 2);
-                    UInt16 MinPressure = PLC_ReadUint16(DataModel.Settingmodel.AddressPressure + 4);
+                    // AOI 点检 SN：在 CHECK1 中无论实际测试结果如何，都强制返回 OK
+                    bool isAoiInspectionSN = ss.Length == 2 &&
+                        (ss[0] == DataModel.Settingmodel.SETTING_DATA.InspectionAOIOKSN ||
+                         ss[0] == DataModel.Settingmodel.SETTING_DATA.InspectionAOINGSN);
 
-                    bool PressureResult = MaxPressure <= DataModel.Processmodel.PressureParamter.Max_Pressure && MinPressure >= DataModel.Processmodel.PressureParamter.Min_Pressure;
-
-                    sqlite.UpdatePressure(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE,
-                        DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID,
-                        DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN,
-                       AveragePressure, MaxPressure, MinPressure, PressureResult);
-                    updatepressure(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, AveragePressure, MaxPressure, MinPressure, PressureResult);
-
-                    #endregion
-
-
-                    var r = sqlite.Check1(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN);
-                    string MSG = "NG1";
-                    string resultstr = "拍照留底不良";
-                    switch (r)
+                    if (isInspectionSN)
                     {
-                        case 0:
+                        // 从 ProductInfoRecords 取数并做综合判断的整体思路：
+                        // 1. 先用 SN 在集合中找到对应的 ProductInfoRecord；
+                        // 2. 使用记录中的拍照、耐压、阻值、压力等字段进行一次「内存级」综合判定；
+                        // 3. 不再调用 sqlite.Check1，避免重复访问数据库；
+                        // 4. 仅将最终判定结果连同过程数据一起 SaveBusBarData 到 MES，不做报工。
+                        // 点检SN码：和正常流程一样读取压力数据，但跳过数据库校验和报工
+                        #region 读取压力数据
+                        // 从PLC读取电测过程中的压力监控数据
+                        // AddressPressure: 平均压力, +2: 最大压力, +4: 最小压力
+                        UInt16 AveragePressure = PLC_ReadUint16(DataModel.Settingmodel.AddressPressure);
+                        UInt16 MaxPressure = PLC_ReadUint16(DataModel.Settingmodel.AddressPressure + 2);
+                        UInt16 MinPressure = PLC_ReadUint16(DataModel.Settingmodel.AddressPressure + 4);
+
+                        // 压力判定逻辑：最大值不超标 且 最小值达标（确保压接到位且不过压）
+                        bool PressureResult = MaxPressure <= DataModel.Processmodel.PressureParamter.Max_Pressure && MinPressure >= DataModel.Processmodel.PressureParamter.Min_Pressure;
+
+                        sqlite.UpdatePressure(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE,
+                            DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID,
+                            DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN,
+                           AveragePressure, MaxPressure, MinPressure, PressureResult);
+                        updatepressure(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, AveragePressure, MaxPressure, MinPressure, PressureResult);
+
+                        #endregion
+
+                        // 点检SN码：根据实际测试数据进行综合判断（不调用数据库校验）
+                        string MSG = "NG1";
+                        string resultstr = "拍照留底不良";
+                        
+                        // 从 ProductInfoRecords 中获取实际测试数据（拍照留底、耐压、阻值、压力等）
+                        ProductInfoRecord pi = null;
+                        foreach (var p in DataModel.Recordmodel.ProductInfoRecords)
+                        {
+                            if (DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN == p.Productinfo.SN)
                             {
+                                pi = p;
+                                break;
+                            }
+                        }
+
+                        if (pi != null)
+                        {
+                            if (isAoiInspectionSN)
+                            {
+                                // AOI 点检 SN：CHECK1 场景下直接视为 OK（不考虑耐压/阻值等结果）
                                 MSG = "OK";
                                 resultstr = "合格";
-                                break;
                             }
-                        case 1:
+                            else
                             {
-                                MSG = "NG1";
-                                resultstr = "拍照留底不良";
-                                break;
+                                // 非 AOI 点检 SN：根据实际测试数据综合判断（逻辑同 Check1）
+                                if (!pi.TakePhoto1)
+                                {
+                                    MSG = "NG1";
+                                    resultstr = "拍照留底不良";
+                                }
+                                // 先判断阻值，再判断耐压，阻值大于14为不合格
+                                else if (pi.Res > 14)
+                                {
+                                    MSG = "NG3";
+                                    resultstr = "阻值测试不合格";
+                                }
+                                else if (pi.TVMaxVoltage == 0 || pi.TVMaxVoltage == -1 || !pi.TVResult)
+                                {
+                                    MSG = "NG2";
+                                    resultstr = "耐压测试不合格";
+                                }
+                                else
+                                {
+                                    MSG = "OK";
+                                    resultstr = "合格";
+                                }
                             }
-                        case 2:
-                            {
-                                MSG = "NG2";
-                                resultstr = "耐压测试不合格";
-                                break;
-                            }
-                        case 3:
-                            {
-                                MSG = "NG3";
-                                resultstr = "阻值测试不合格";
-                                break;
-                            }
-                        case 4:
-                            {
-                                MSG = "NG4";
-                                resultstr = "AOI测试不合格";
-                                break;
-                            }
-                    }
+                        }
 
-                    //if (MSG != "OK")
-                    //{
-
-                    #region 保存过程数据到服务器
-
-                    foreach (var pi in DataModel.Recordmodel.ProductInfoRecords)
-                    {
-                        if (DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN == pi.Productinfo.SN)
+                        #region 保存过程数据到服务器
+                        // 这里仍然把 ProductInfoRecords 中汇总的过程数据保存到 MES，
+                        // 但不会触发报工，仅用于过程追溯和点检记录留档。
+                        if (pi != null)
                         {
+                            var persistedTvInfo = GetLocalizedTvStatus(pi.TVInfo);
                             MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.SaveBusBarData(
                                DataModel.Settingmodel.SETTING_DATA.StationCode, DataModel.Settingmodel.SETTING_DATA.MachineID, pi.Productinfo.PartNOID, pi.Productinfo.WOCODE, pi.Productinfo.SN,
-                                pi.TakePhoto1, pi.Res, pi.TVMaxVoltage, pi.TVMaxCurrent, pi.TVMeterID, pi.TVInfo, pi.TVResult,
+                                pi.TakePhoto1, pi.Res, pi.TVMaxVoltage, pi.TVMaxCurrent, pi.TVMeterID, persistedTvInfo, pi.TVResult,
                                 pi.Pressure_Max, pi.Pressure_Average, pi.Pressure_Min, pi.Pressure_Result, pi.AppearanceInspection, resultstr);
-                            break;
                         }
+                        #endregion
+                        // 点检SN码不进行报工，跳过 report 调用
+
+                        writeLog($"数据校验1->点检SN码->结果:{resultstr}");
+                        SendMsgRobot(MSG);
                     }
-                    #endregion
-                    #region 汇报结果数据
-                    report(ss[1], ss[0], resultstr);
-                    #endregion
+                    else
+                    {
+                        // 正常产品流程
+                        #region 读取压力数据
+                        // 从PLC读取电测过程中的压力监控数据
+                        // AddressPressure: 平均压力, +2: 最大压力, +4: 最小压力
+                        UInt16 AveragePressure = PLC_ReadUint16(DataModel.Settingmodel.AddressPressure);
+                        UInt16 MaxPressure = PLC_ReadUint16(DataModel.Settingmodel.AddressPressure + 2);
+                        UInt16 MinPressure = PLC_ReadUint16(DataModel.Settingmodel.AddressPressure + 4);
 
-                    //}
+                        // 压力判定逻辑：最大值不超标 且 最小值达标（确保压接到位且不过压）
+                        bool PressureResult = MaxPressure <= DataModel.Processmodel.PressureParamter.Max_Pressure && MinPressure >= DataModel.Processmodel.PressureParamter.Min_Pressure;
 
-                    writeLog($"数据校验1->结果:{resultstr}");
-                    SendMsgRobot(MSG);
+                        sqlite.UpdatePressure(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE,
+                            DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID,
+                            DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN,
+                           AveragePressure, MaxPressure, MinPressure, PressureResult);
+                        updatepressure(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, AveragePressure, MaxPressure, MinPressure, PressureResult);
+
+                        #endregion
+
+
+                        // 调用Check1进行第一次综合校验（拍照留底、耐压测试、阻值测试）
+                        var r = sqlite.Check1(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN);
+                        string MSG = "NG1";
+                        // 初始化resultstr为"拍照留底不良"作为默认值（兜底）
+                        // 实际会根据Check1返回值在switch中被覆盖
+                        string resultstr = "拍照留底不良";
+                        // 根据Check1返回的错误代码，映射为机器人可识别的消息和中文结果描述
+                        // Check1返回值：0=全部合格, 1=拍照不良, 2=耐压不良, 3=阻值不良
+                        // 注意：case 4(AOI不良)在Check1中不会出现，仅在Check2中才有
+                        switch (r)
+                        {
+                            case 0:
+                                {
+                                    MSG = "OK";
+                                    resultstr = "合格";
+                                    break;
+                                }
+                            case 1:
+                                {
+                                    MSG = "NG1";
+                                    resultstr = "拍照留底不良";
+                                    break;
+                                }
+                            case 2:
+                                {
+                                    MSG = "NG2";
+                                    resultstr = "耐压测试不合格";
+                                    break;
+                                }
+                            case 3:
+                                {
+                                    MSG = "NG3";
+                                    resultstr = "阻值测试不合格";
+                                    break;
+                                }
+                            case 4:
+                                {
+                                    MSG = "NG4";
+                                    resultstr = "AOI测试不合格";
+                                    break;
+                                }
+                        }
+
+                        //if (MSG != "OK")
+                        //{
+
+                        #region 保存过程数据到服务器
+
+                        // CHECK1 正常流程下，同样通过 SN 在 ProductInfoRecords 中找到对应记录，
+                        // 再将其中汇总好的过程数据一次性写入 MES。
+                        foreach (var pi in DataModel.Recordmodel.ProductInfoRecords)
+                        {
+                            if (DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN == pi.Productinfo.SN)
+                            {
+                                var persistedTvInfo = GetLocalizedTvStatus(pi.TVInfo);
+                                MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.SaveBusBarData(
+                                   DataModel.Settingmodel.SETTING_DATA.StationCode, DataModel.Settingmodel.SETTING_DATA.MachineID, pi.Productinfo.PartNOID, pi.Productinfo.WOCODE, pi.Productinfo.SN,
+                                    pi.TakePhoto1, pi.Res, pi.TVMaxVoltage, pi.TVMaxCurrent, pi.TVMeterID, persistedTvInfo, pi.TVResult,
+                                    pi.Pressure_Max, pi.Pressure_Average, pi.Pressure_Min, pi.Pressure_Result, pi.AppearanceInspection, resultstr);
+                                break;
+                            }
+                        }
+                        #endregion
+                        #region 汇报结果数据
+                        report(ss[1], ss[0], resultstr);
+                        #endregion
+
+                        //}
+
+                        writeLog($"数据校验1->结果:{resultstr}");
+                        SendMsgRobot(MSG);
+                    }
 
                 }
                 else if (cmd == "CHECK2")
                 {
                     // SendMsgRobot("OK");
 
-                    var r = sqlite.Check2(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN);
-                    string MSG = "NG1";
-                    string resultstr = "拍照留底不良";
-                    switch (r)
+                    // 点检SN码特殊处理：跳过校验和报工，但保留其他流程
+                    // 这里的点检 SN 同样包含「耐压点检」和「AOI 点检」两类 SN 码
+                    string currentSN = DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN;
+                    bool isInspectionSN = !string.IsNullOrEmpty(currentSN) &&
+                        (currentSN == DataModel.Settingmodel.SETTING_DATA.InspectionTVOKSN ||
+                         currentSN == DataModel.Settingmodel.SETTING_DATA.InspectionTVNGSN ||
+                         currentSN == DataModel.Settingmodel.SETTING_DATA.InspectionAOIOKSN ||
+                         currentSN == DataModel.Settingmodel.SETTING_DATA.InspectionAOINGSN);
+
+                    // 判断是否是 AOI 点检 SN（在 CHECK2 中只需检查 AOI 结果，不检查耐压、阻值）
+                    bool isAoiInspectionSN = !string.IsNullOrEmpty(currentSN) &&
+                        (currentSN == DataModel.Settingmodel.SETTING_DATA.InspectionAOIOKSN ||
+                         currentSN == DataModel.Settingmodel.SETTING_DATA.InspectionAOINGSN);
+
+                    if (isInspectionSN)
                     {
-                        case 0:
-                            {
-                                MSG = "OK";
-                                resultstr = "合格";
-                                break;
-                            }
-                        case 1:
-                            {
-                                MSG = "NG1";
-                                resultstr = "拍照留底不良";
-                                break;
-                            }
-                        case 2:
-                            {
-                                MSG = "NG2";
-                                resultstr = "耐压测试不合格";
-                                break;
-                            }
-                        case 3:
-                            {
-                                MSG = "NG3";
-                                resultstr = "阻值测试不合格";
-                                break;
-                            }
-                        case 4:
-                            {
-                                MSG = "NG4";
-                                resultstr = "AOI测试不合格";
-                                break;
-                            }
-                    }
-
-                    writeLog($"数据校验2->结果:{resultstr}");
-                    SendMsgRobot(MSG);
-
-                    #region 保存过程数据到服务器
-
-                    foreach (var pi in DataModel.Recordmodel.ProductInfoRecords)
-                    {
-                        if (DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN == pi.Productinfo.SN)
+                        // 从 ProductInfoRecords 取数并做综合判断的整体思路：
+                        // 1. 先用 SN 在集合中找到对应的 ProductInfoRecord；
+                        // 2. 使用记录中的拍照、耐压、阻值、AOI、压力等字段进行一次「内存级」综合判定；
+                        // 3. 不再调用 sqlite.Check2，避免重复访问数据库；
+                        // 4. 仅将最终判定结果连同过程数据一起 SaveBusBarData 到 MES，不做报工。
+                        // 点检SN码：根据实际测试数据（包括AOI结果）进行综合判断，跳过数据库校验和报工
+                        string MSG = "NG1";
+                        string resultstr = "拍照留底不良";
+                        
+                        // 从 ProductInfoRecords 中获取实际测试数据（拍照留底、耐压、阻值、AOI、压力等）
+                        ProductInfoRecord pi = null;
+                        foreach (var p in DataModel.Recordmodel.ProductInfoRecords)
                         {
-                            MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.SaveBusBarData(
-                            DataModel.Settingmodel.SETTING_DATA.StationCode, DataModel.Settingmodel.SETTING_DATA.MachineID, pi.Productinfo.PartNOID, pi.Productinfo.WOCODE, pi.Productinfo.SN,
-                            pi.TakePhoto1, pi.Res, pi.TVMaxVoltage, pi.TVMaxCurrent, pi.TVMeterID, pi.TVInfo, pi.TVResult,
-                            pi.Pressure_Max, pi.Pressure_Average, pi.Pressure_Min, pi.Pressure_Result, pi.AppearanceInspection, resultstr);
-                            break;
+                            if (DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN == p.Productinfo.SN)
+                            {
+                                pi = p;
+                                break;
+                            }
                         }
-                    }
 
-                    #endregion
-                    #region 汇报结果数据                    
-                    report2(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, resultstr);
-                    #endregion
+                        if (pi != null)
+                        {
+                            // 区分 AOI 点检和耐压点检的判断逻辑
+                            if (isAoiInspectionSN)
+                            {
+                                // AOI 点检 SN：只判断 AOI 结果，跳过拍照、耐压、阻值检查
+                                if (!pi.AppearanceInspection)
+                                {
+                                    MSG = "NG4";
+                                    resultstr = "AOI测试不合格";
+                                }
+                                else
+                                {
+                                    MSG = "OK";
+                                    resultstr = "合格";
+                                }
+                            }
+                            else
+                            {
+                                // 耐压点检 SN：完整判断拍照、耐压、阻值、AOI
+                                if (!pi.TakePhoto1)
+                                {
+                                    MSG = "NG1";
+                                    resultstr = "拍照留底不良";
+                                }
+                                // 先判断阻值，再判断耐压，阻值大于14为不合格
+                                else if (pi.Res > 14)
+                                {
+                                    MSG = "NG3";
+                                    resultstr = "阻值测试不合格";
+                                }
+                                else if (pi.TVMaxVoltage == 0 || pi.TVMaxVoltage == -1 || !pi.TVResult)
+                                {
+                                    MSG = "NG2";
+                                    resultstr = "耐压测试不合格";
+                                }
+                                else if (!pi.AppearanceInspection)
+                                {
+                                    MSG = "NG4";
+                                    resultstr = "AOI测试不合格";
+                                }
+                                else
+                                {
+                                    MSG = "OK";
+                                    resultstr = "合格";
+                                }
+                            }
+                        }
+
+                        #region 保存过程数据到服务器
+                        // 点检场景下，同样把综合判定后的一条完整过程数据写入 MES，
+                        // 便于区分「正式生产」与「点检」记录，且不触发报工。
+                        if (pi != null)
+                        {
+                            var persistedTvInfo = GetLocalizedTvStatus(pi.TVInfo);
+                            MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.SaveBusBarData(
+                            DataModel.Settingmodel.SETTING_DATA.StationCode2, DataModel.Settingmodel.SETTING_DATA.MachineID, pi.Productinfo.PartNOID, pi.Productinfo.WOCODE, pi.Productinfo.SN,
+                            pi.TakePhoto1, pi.Res, pi.TVMaxVoltage, pi.TVMaxCurrent, pi.TVMeterID, persistedTvInfo, pi.TVResult,
+                            pi.Pressure_Max, pi.Pressure_Average, pi.Pressure_Min, pi.Pressure_Result, pi.AppearanceInspection, resultstr);
+                        }
+                        #endregion
+                        // 点检SN码不进行报工，跳过 report2 调用
+
+                        writeLog($"数据校验2->点检SN码->结果:{resultstr}");
+                        SendMsgRobot(MSG);
+                    }
+                    else
+                    {
+                        // 正常产品流程
+                        var r = sqlite.Check2(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN);
+                        string MSG = "NG1";
+                        string resultstr = "拍照留底不良";
+                        switch (r)
+                        {
+                            case 0:
+                                {
+                                    MSG = "OK";
+                                    resultstr = "合格";
+                                    break;
+                                }
+                            case 1:
+                                {
+                                    MSG = "NG1";
+                                    resultstr = "拍照留底不良";
+                                    break;
+                                }
+                            case 2:
+                                {
+                                    MSG = "NG2";
+                                    resultstr = "耐压测试不合格";
+                                    break;
+                                }
+                            case 3:
+                                {
+                                    MSG = "NG3";
+                                    resultstr = "阻值测试不合格";
+                                    break;
+                                }
+                            case 4:
+                                {
+                                    MSG = "NG4";
+                                    resultstr = "AOI测试不合格";
+                                    break;
+                                }
+                        }
+
+                        writeLog($"数据校验2->结果:{resultstr}");
+                        SendMsgRobot(MSG);
+
+                        #region 保存过程数据到服务器
+
+                        foreach (var pi in DataModel.Recordmodel.ProductInfoRecords)
+                        {
+                            if (DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN == pi.Productinfo.SN)
+                            {
+                                var persistedTvInfo = GetLocalizedTvStatus(pi.TVInfo);
+                                MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.SaveBusBarData(
+                                DataModel.Settingmodel.SETTING_DATA.StationCode2, DataModel.Settingmodel.SETTING_DATA.MachineID, pi.Productinfo.PartNOID, pi.Productinfo.WOCODE, pi.Productinfo.SN,
+                                pi.TakePhoto1, pi.Res, pi.TVMaxVoltage, pi.TVMaxCurrent, pi.TVMeterID, persistedTvInfo, pi.TVResult,
+                                pi.Pressure_Max, pi.Pressure_Average, pi.Pressure_Min, pi.Pressure_Result, pi.AppearanceInspection, resultstr);
+                                break;
+                            }
+                        }
+
+                        #endregion
+                        #region 汇报结果数据                    
+                        report2(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, resultstr);
+                        #endregion
+                    }
 
                 }
 
@@ -2533,6 +3185,85 @@ namespace BusbarCompressionSystem.ViewModel
             if (!Directory.Exists(dir))
             { Directory.CreateDirectory(dir); }
             HOperatorSet.WriteImage(Image, "jpg", 0, savefilename);
+        }
+        #endregion
+
+        #region 性能日志
+        /// <summary>
+        /// 统一的性能诊断日志方法
+        /// 写入性能诊断日志到独立文件,不影响现有业务日志
+        /// 超过1秒的耗时会用特殊格式突出显示
+        /// </summary>
+        /// <param name="component">组件标识，如BUSINESS、UI等</param>
+        /// <param name="tag">日志标签,如 SCAN_SUCCESS、PROCESS_COMPLETE等</param>
+        /// <param name="message">日志消息</param>
+        /// <param name="elapsedMs">耗时(毫秒),可选</param>
+        /// <param name="extraInfo">额外信息,可选</param>
+        private void writePerfLog(string component, string tag, string message, long? elapsedMs = null, string extraInfo = null)
+        {
+            try
+            {
+                // 获取线程ID
+                int threadId = Thread.CurrentThread.ManagedThreadId;
+                string threadName = Thread.CurrentThread.Name ?? (threadId == 1 ? "UI-Thread" : $"Thread-{threadId}");
+
+                // 获取设备ID(从配置中读取)
+                string deviceId = DataModel.Settingmodel.SETTING_DATA?.MachineID ?? "Unknown";
+
+                // 检测是否为异常耗时（超过1秒）
+                bool isAbnormalTime = elapsedMs.HasValue && elapsedMs.Value > 1000;
+                string perfLevel = isAbnormalTime ? "PERF-异常" : "PERF";
+
+                // 构建日志内容
+                StringBuilder logBuilder = new StringBuilder();
+                logBuilder.Append($"[{DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff")}]");
+                logBuilder.Append($"[{threadName}]");
+                logBuilder.Append($"[{component}_{tag}]");
+                logBuilder.Append($"[{perfLevel}]");
+                logBuilder.Append($"[Device-{deviceId}] {message}");
+
+                if (elapsedMs.HasValue)
+                {
+                    string timeDisplay = isAbnormalTime ?
+                        $"耗时={elapsedMs.Value}ms[异常!!!]" :
+                        $"耗时={elapsedMs.Value}ms";
+                    logBuilder.Append($" | {timeDisplay}");
+                }
+
+                if (!string.IsNullOrEmpty(extraInfo))
+                {
+                    logBuilder.Append($" | {extraInfo}");
+                }
+
+                string logContent = logBuilder.ToString();
+
+                // 写入独立的性能日志文件
+                string filename = $"{Environment.CurrentDirectory}\\日志\\性能诊断\\{DateTime.Now.ToString("yyyyMMdd")}_performance.log";
+                string dir = Path.GetDirectoryName(filename);
+                if (!Directory.Exists(dir))
+                {
+                    Directory.CreateDirectory(dir);
+                }
+
+                // 使用文件锁确保多线程安全
+                lock (writeLog_Locker)
+                {
+                    using (StreamWriter sw = new StreamWriter(filename, true, Encoding.UTF8))
+                    {
+                        sw.WriteLine(logContent);
+                        sw.Close();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                // 性能日志失败不应影响业务,仅记录到错误日志
+                try
+                {
+                    writeError($"性能日志写入失败: {ex.Message}");
+                }
+                catch { }
+            }
         }
         #endregion
     }

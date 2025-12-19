@@ -155,6 +155,7 @@
     <Compile Include="Model\Setting1\SETTING_DATA.cs" />
     <Compile Include="Model\Setting1\TcpSetting.cs" />
     <Compile Include="Model\SettingModel.cs" />
+    <Compile Include="Utils\TvStatusTranslator.cs" />
     <Compile Include="SettingForm.xaml.cs">
       <DependentUpon>SettingForm.xaml</DependentUpon>
     </Compile>

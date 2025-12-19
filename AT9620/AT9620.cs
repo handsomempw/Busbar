@@ -137,11 +137,18 @@ namespace AT9620
 
         }
 
+        /// <summary>
+        /// 执行耐压测试的核心方法
+        /// 这是电测系统的核心执行逻辑，负责启动测试、实时监控测试过程、判断测试结果
+        /// </summary>
+        /// <returns>Result对象，包含测试结果和详细的错误信息或过程数据</returns>
         public Result _Start()
         {
-
+            // 初始化返回结果对象
             Result r = new Result();
 
+            // 步骤1：验证测试步骤数量
+            // AT9620设备支持多个测试步骤，这里确保只有一个步骤（简化模式）
             var r1 = Get_StepNum();
             if (!r1.Success)
             {
@@ -154,6 +161,9 @@ namespace AT9620
                 return r;
             }
 
+            // 步骤2：参数一致性验证
+            // 从设备回读当前设置的参数，与本地TVParameter对象进行对比
+            // 确保设备实际运行的参数与期望参数一致
             var r2 = Get_String("rp? 1\n");
             if (!r2.Success)
             {
@@ -167,53 +177,74 @@ namespace AT9620
                 return r;
             }
 
+            // 步骤3：启动耐压测试
+            // 向AT9620设备发送启动测试命令
             var r4 = Send("FUNCtion:STARt\n");
-            Thread.Sleep(delaytime);
+            Thread.Sleep(delaytime); // 等待设备响应
 
-            ResultTVProcess resultTVProcess = new ResultTVProcess();
-            DateTime dt = DateTime.Now;
+            // 初始化测试监控变量
+            ResultTVProcess resultTVProcess = new ResultTVProcess(); // 测试过程数据接收对象
+            DateTime dt = DateTime.Now; // 记录测试开始时间
+            // 计算理论测试总时间 = 上升时间 + 保持时间 + 下降时间
             float totaltime = TVParameter.TestTime + TVParameter.RiseTime + TVParameter.FallTime;
 
             #region 清空数据
+            // 清空历史测试记录，为新的测试过程做准备
             strrecord = string.Empty;
             #endregion
 
-
+            // 初始化停止标志
             stop = false;
+
+            // 步骤4：进入测试监控主循环
+            // 实时监控测试过程，直到测试完成或超时
             while (true)
             {
-
                 try
                 {
-
+                    // 检查是否有外部停止信号
                     if (stop)
                     {
-                        var stopr = Send("FUNCtion:STOP\n");
+                        var stopr = Send("FUNCtion:STOP\n"); // 发送停止测试命令
                     }
 
+                    // 获取实时测试过程数据
                     resultTVProcess = GetProcess();
                     if (resultTVProcess.Success)
                     {
+                        // 触发数据接收事件，通知上层应用更新界面显示
                         DataReceived.Invoke(this, new AT9620EventArgs()
                         {
                             ResultTVProcess = resultTVProcess
                         });
-                        if (resultTVProcess.Value.status != "Dwell" && resultTVProcess.Value.status != "Ramp Up" && resultTVProcess.Value.status != "Ramp Down")
+
+                        // 核心状态判断逻辑
+                        // AT9620设备在测试的不同阶段会返回不同的状态字符串：
+                        // "Ramp Up" - 电压上升阶段
+                        // "Dwell" - 电压保持阶段
+                        // "Ramp Down" - 电压下降阶段
+                        // "PASS" - 测试通过
+                        // 其他状态 - 测试失败（如"上升不良"、"电流超限"等）
+                        if (resultTVProcess.Value.status != "Dwell" &&
+                            resultTVProcess.Value.status != "Ramp Up" &&
+                            resultTVProcess.Value.status != "Ramp Down")
                         {
+                            // 收到非过程状态，表示测试已结束
                             if (resultTVProcess.Value.status == "PASS")
                             {
-                                r.Success = true;
-
+                                r.Success = true; // 测试通过
                             }
                             else
                             {
+                                // 测试失败，记录具体的失败原因
                                 r.Error = resultTVProcess.Value.status;
                             }
-                            break;
+                            break; // 退出监控循环
                         }
-
                     }
 
+                    // 超时检测机制
+                    // 如果测试时间超过理论总时间+2秒（缓冲时间），认为测试异常
                     if ((DateTime.Now - dt).TotalSeconds > totaltime + 2)
                     {
                         r.Error = "测试超时未完成";
@@ -222,16 +253,21 @@ namespace AT9620
                 }
                 catch
                 {
+                    // 捕获异常但不中断测试，继续监控
+                    // 这是为了防止网络波动等临时问题导致测试中断
                     continue;
                 }
             }
+
+            // 保存完整的测试过程原始数据记录
+            // 无论测试成功还是失败，都保存过程数据用于后续分析
             //if(!r.Success)
             //{
             r.Recordstr = strrecord;
             //}
+
+            // 返回测试结果
             return r;
-
-
         }
         public Result Get_String(string cmd)
         {

@@ -117,6 +117,13 @@ namespace BusbarCompressionSystem.Model
         [XmlElement("仪器3启用地址")]
         public int Meter3AvailableAddress { set; get; } = 3032;
 
+        [XmlElement("阻值1触发地址")]
+        public int Res1TrigAddress { set; get; } = 3035;
+        [XmlElement("阻值2触发地址")]
+        public int Res2TrigAddress { set; get; } = 3036;
+        [XmlElement("阻值3触发地址")]
+        public int Res3TrigAddress { set; get; } = 3037;
+
         [XmlElement("阻值上限地址")]
         public int Res_Max_Address { set; get; } = 2020;
         [XmlElement("阻值下限地址")]
@@ -157,7 +164,6 @@ namespace BusbarCompressionSystem.Model
         #region 设备配置参数
         public SETTING_DATA SETTING_DATA { set; get; } = new SETTING_DATA();
         #endregion
-
 
         [XmlIgnore]
         public F7DataBase.Sqlserver Sqlserver { set; get; } = new F7DataBase.Sqlserver();
@@ -234,5 +240,11 @@ namespace BusbarCompressionSystem.Model
 
             }
         }
+    }
+
+    public class TvStatusMapping
+    {
+        public string Code { get; set; }
+        public string Display { get; set; }
     }
 }
