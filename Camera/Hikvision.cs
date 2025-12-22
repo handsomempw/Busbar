@@ -778,6 +778,23 @@ namespace Camera
             }
         }
 
+        /// <summary>
+        /// 执行海康相机软触发拍照。
+        /// </summary>
+        /// <remarks>
+        /// 处理流程：
+        /// 1. 设置相机为触发模式（TriggerMode = ON）
+        /// 2. 设置触发源为软件触发（TriggerSource = SOFTWARE）
+        /// 3. 发送软触发命令（TriggerSoftware）
+        /// 
+        /// 调用时机：
+        /// - 在拍照留底工位，由 TakePhoto1Process() 同时触发三个相机
+        /// - 相机需要已经启动图像采集（调用过 bnStartGrab_Click）
+        /// 
+        /// 注意：
+        /// - 触发后图像采集在后台线程异步完成
+        /// - 完成标志位 finished 会在图像回调函数中设置
+        /// </remarks>
         public void bnTriggerExec_Click()
         {
             int nret = m_MyCamera.MV_CC_SetEnumValue_NET("TriggerMode", (uint)MyCamera.MV_CAM_TRIGGER_MODE.MV_TRIGGER_MODE_ON);

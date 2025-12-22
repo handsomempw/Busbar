@@ -709,77 +709,6 @@ namespace BusbarCompressionSystem.ViewModel
                             catch {; }
                             #endregion
 
-                            #region 阻值触发
-                            // 读取阻值触发信号（M地址，Bool类型）
-                            var res1TrigResult = modbusTcp.ReadCoil(DataModel.Settingmodel.Res1TrigAddress.ToString(), 1);
-                            if (!res1TrigResult.IsSuccess)
-                            {
-                                writeLog($"阻值1触发信号读取失败 M{DataModel.Settingmodel.Res1TrigAddress}, Err:{res1TrigResult.Message}");
-                            }
-                            var res2TrigResult = modbusTcp.ReadCoil(DataModel.Settingmodel.Res2TrigAddress.ToString(), 1);
-                            if (!res2TrigResult.IsSuccess)
-                            {
-                                writeLog($"阻值2触发信号读取失败 M{DataModel.Settingmodel.Res2TrigAddress}, Err:{res2TrigResult.Message}");
-                            }
-                            var res3TrigResult = modbusTcp.ReadCoil(DataModel.Settingmodel.Res3TrigAddress.ToString(), 1);
-                            if (!res3TrigResult.IsSuccess)
-                            {
-                                writeLog($"阻值3触发信号读取失败 M{DataModel.Settingmodel.Res3TrigAddress}, Err:{res3TrigResult.Message}");
-                            }
-                            
-                            // 判断读取阻值1触发信号（M地址，Bool类型）的结果，若通信成功且内容为true，则Res1Trig为1，否则为0
-                            int Res1Trig = res1TrigResult.IsSuccess && res1TrigResult.Content[0] ? 1 : 0;
-                            int Res2Trig = res2TrigResult.IsSuccess && res2TrigResult.Content[0] ? 1 : 0;
-                            int Res3Trig = res3TrigResult.IsSuccess && res3TrigResult.Content[0] ? 1 : 0;
-
-                            // 触发状态变更日志（避免刷屏，仅在状态变化时记录）
-                            if (Res1Trig != DataModel.Processmodel.Res1_Trig_IO.IOstatus)
-                            {
-                                writeLog($"阻值1触发状态 M{DataModel.Settingmodel.Res1TrigAddress} 变更为 {Res1Trig}");
-                            }
-                            if (Res2Trig != DataModel.Processmodel.Res2_Trig_IO.IOstatus)
-                            {
-                                writeLog($"阻值2触发状态 M{DataModel.Settingmodel.Res2TrigAddress} 变更为 {Res2Trig}");
-                            }
-                            if (Res3Trig != DataModel.Processmodel.Res3_Trig_IO.IOstatus)
-                            {
-                                writeLog($"阻值3触发状态 M{DataModel.Settingmodel.Res3TrigAddress} 变更为 {Res3Trig}");
-                            }
-
-                            // 阻值1触发
-                            try
-                            {
-                                if (Res1Trig == 1 & DataModel.Processmodel.Res1_Trig_IO.IOstatus == 0)
-                                {
-                                    writeLog($"阻值1触发=1(M{DataModel.Settingmodel.Res1TrigAddress}), 准备读取阻值地址D{DataModel.Settingmodel.AddressRes}");
-                                    new Thread(() => { Res1Process(); }).Start();
-                                }
-                            }
-                            catch {; }
-
-                            // 阻值2触发
-                            try
-                            {
-                                if (Res2Trig == 1 & DataModel.Processmodel.Res2_Trig_IO.IOstatus == 0)
-                                {
-                                    writeLog($"阻值2触发=1(M{DataModel.Settingmodel.Res2TrigAddress}), 准备读取阻值地址D{DataModel.Settingmodel.AddressRes + 2}");
-                                    new Thread(() => { Res2Process(); }).Start();
-                                }
-                            }
-                            catch {; }
-
-                            // 阻值3触发
-                            try
-                            {
-                                if (Res3Trig == 1 & DataModel.Processmodel.Res3_Trig_IO.IOstatus == 0)
-                                {
-                                    writeLog($"阻值3触发=1(M{DataModel.Settingmodel.Res3TrigAddress}), 准备读取阻值地址D{DataModel.Settingmodel.AddressRes + 4}");
-                                    new Thread(() => { Res3Process(); }).Start();
-                                }
-                            }
-                            catch {; }
-                            #endregion
-
                             #region 数据复制刷新
                             DataModel.Processmodel.Scan_Trig_IO.IOstatus = ScanTrig;
                             DataModel.Processmodel.SecondScan_Trig_IO.IOstatus = SecondScanTrig;
@@ -932,6 +861,24 @@ namespace BusbarCompressionSystem.ViewModel
                 }
             }
         }
+        /// <summary>
+        /// 拍照留底工位处理流程：触发三个相机同时拍照并等待完成。
+        /// </summary>
+        /// <remarks>
+        /// 触发条件：PLC拍照触发信号（M地址）由0变1时调用
+        /// 
+        /// 处理流程：
+        /// 1. 从PLC读取产品编码（格式：SN;WOCODE），解析出SN和工单号
+        /// 2. 重置三个相机的完成标志位
+        /// 3. 同时触发三个相机执行拍照
+        /// 4. 轮询等待三个相机全部完成（超时时间约3秒，每200ms检查一次，最多15次）
+        /// 5. 根据拍照结果更新数据库记录，并创建内存中的产品过程记录
+        /// 6. 向PLC写入完成信号：1=成功，2=超时失败
+        /// 
+        /// PLC交互地址：
+        /// - 读取：D{AddressSN} - 产品编码字符串
+        /// - 写入：D{AddressStart+3} - 拍照完成状态（1=OK, 2=NG）
+        /// </remarks>
         public void TakePhoto1Process()
         {
 
@@ -940,12 +887,15 @@ namespace BusbarCompressionSystem.ViewModel
             if (ss.Length == 2)
             {
                 DataModel.Processmodel.TakePhotoTestModel.Productinfo = new Model.Record.Productinfo() { SN = ss[0], WOCODE = ss[1], PartNOID = DataModel.Processmodel.PartNOID };
+                writeLog($"[拍照留底] 产品编码读取成功: SN={ss[0]}, WOCODE={ss[1]}");
             }
             else
             {
-
-                writeLog($"拍照留底产品编号读取错误:{s}");
-
+                writeLog($"[拍照留底] ❌ 产品编码读取错误! 原始值=[{s}], 期望格式=[SN;WOCODE], 实际分段数={ss.Length}", true);
+                //writeLog($"[拍照留底] PLC地址: D{DataModel.Settingmodel.AddressSN}, 请检查PLC寄存器值是否正确", true);
+                // 记录到数据库异常日志便于统计
+                SQLITEDATABASE.sqlite.WriteErrorLog("[PLC数据异常]TakePhoto1-产品编码格式错误", 
+                    $"原始值=[{s}], 分段数={ss.Length}, PLC地址=D{DataModel.Settingmodel.AddressSN}");
             }
 
 
@@ -969,10 +919,14 @@ namespace BusbarCompressionSystem.ViewModel
                 & DataModel.Settingmodel.camedata3.CameraModel.finished
                 ))
                 {
-                    SQLITEDATABASE.sqlite.UpdateTakePhoto1(
+                    bool updateResult = SQLITEDATABASE.sqlite.UpdateTakePhoto1(
                         DataModel.Processmodel.TakePhotoTestModel.Productinfo.WOCODE,
                         DataModel.Processmodel.TakePhotoTestModel.Productinfo.PartNOID,
                          DataModel.Processmodel.TakePhotoTestModel.Productinfo.SN, true);
+                    if (!updateResult)
+                    {
+                        writeLog($"[拍照留底] ⚠ UpdateTakePhoto1更新true失败! SN={DataModel.Processmodel.TakePhotoTestModel.Productinfo.SN}", true);
+                    }
                     newline(true);
                     PLC_write((DataModel.Settingmodel.AddressStart + 3).ToString(), 1);
                     break;
@@ -995,10 +949,14 @@ namespace BusbarCompressionSystem.ViewModel
                     {
                         writeLog("相机3拍照超时");
                     }
-                    SQLITEDATABASE.sqlite.UpdateTakePhoto1(
+                    bool updateResult = SQLITEDATABASE.sqlite.UpdateTakePhoto1(
                         DataModel.Processmodel.TakePhotoTestModel.Productinfo.WOCODE,
                         DataModel.Processmodel.TakePhotoTestModel.Productinfo.PartNOID,
                          DataModel.Processmodel.TakePhotoTestModel.Productinfo.SN, false);
+                    if (!updateResult)
+                    {
+                        writeLog($"[拍照留底] ⚠ UpdateTakePhoto1更新false(超时或者异常)失败! SN={DataModel.Processmodel.TakePhotoTestModel.Productinfo.SN}", true);
+                    }
                     newline(false);
                     PLC_write((DataModel.Settingmodel.AddressStart + 3).ToString(), 2);
 
@@ -1048,10 +1006,13 @@ namespace BusbarCompressionSystem.ViewModel
             {
                 //DataModel.Processmodel.TakePhotoTestModel.Productinfo = new Model.Record.Productinfo() { SN = ss[0], WOCODE = ss[1], PartNOID = "" };
                 DataModel.Processmodel.TVTestTestModel1.Productinfo = new Productinfo() { SN = ss[0], WOCODE = ss[1], PartNOID = DataModel.Processmodel.PartNOID };
+                writeLog($"[耐压1] 产品编码读取成功: SN={ss[0]}, WOCODE={ss[1]}");
             }
             else
             {
-                writeLog($"耐压1产品编号读取错误:{s}");
+                writeLog($"[耐压1] ❌ 产品编号读取错误! 原始值=[{s}], 期望格式=[SN;WOCODE], 分段数={ss.Length}", true);
+                SQLITEDATABASE.sqlite.WriteErrorLog("[PLC数据异常]TV1-产品编码格式错误", 
+                    $"原始值=[{s}], 分段数={ss.Length}, PLC地址=D{DataModel.Settingmodel.AddressSN + 25}");
             }
 
             float res = PLC_ReadFloat(DataModel.Settingmodel.AddressRes);
@@ -1065,7 +1026,7 @@ namespace BusbarCompressionSystem.ViewModel
             var localizedTvInfo1 = GetLocalizedTvStatus(DataModel.Processmodel.TVTestTestModel1.TVInfo);
             DataModel.Processmodel.TVTestTestModel1.TVInfo = localizedTvInfo1;
 
-            sqlite.UpdateTV(DataModel.Processmodel.TVTestTestModel1.Productinfo.WOCODE,
+            bool updateTvResult = sqlite.UpdateTV(DataModel.Processmodel.TVTestTestModel1.Productinfo.WOCODE,
                 DataModel.Processmodel.TVTestTestModel1.Productinfo.PartNOID,
                 DataModel.Processmodel.TVTestTestModel1.Productinfo.SN,
                 res,
@@ -1075,6 +1036,10 @@ namespace BusbarCompressionSystem.ViewModel
                 localizedTvInfo1,
                 DataModel.Settingmodel.SETTING_DATA.TVMeterID1
                 );
+            if (!updateTvResult)
+            {
+                writeLog($"[耐压1] ⚠ UpdateTV更新失败! SN={DataModel.Processmodel.TVTestTestModel1.Productinfo.SN}, RES={res}", true);
+            }
 
             updatetv(DataModel.Processmodel.TVTestTestModel1.Productinfo.SN,
                 res,
@@ -1113,10 +1078,15 @@ namespace BusbarCompressionSystem.ViewModel
             {
                 //DataModel.Processmodel.TakePhotoTestModel.Productinfo = new Model.Record.Productinfo() { SN = ss[0], WOCODE = ss[1], PartNOID = "" };
                 DataModel.Processmodel.TVTestTestModel2.Productinfo = new Productinfo() { SN = ss[0], WOCODE = ss[1], PartNOID = DataModel.Processmodel.PartNOID };
+                writeLog($"[耐压2] 产品编码读取成功: SN={ss[0]}, WOCODE={ss[1]}");
             }
             else
             {
-                writeLog($"耐压2产品编号读取错误:{s}");
+                //writeLog($"耐压2产品编号读取错误:{s}");
+                writeLog($"[耐压2] ❌ 产品编号读取错误! 原始值=[{s}], 期望格式=[SN;WOCODE], 分段数={ss.Length}", true);
+                writeLog($"[耐压2] PLC地址: D{DataModel.Settingmodel.AddressSN + 25 * 2}, 请检查PLC寄存器值", true);
+                SQLITEDATABASE.sqlite.WriteErrorLog("[PLC数据异常]TV2-产品编码格式错误", 
+                    $"原始值=[{s}], 分段数={ss.Length}, PLC地址=D{DataModel.Settingmodel.AddressSN + 25 * 2}");
             }
 
             float res = PLC_ReadFloat(DataModel.Settingmodel.AddressRes + 1 * 2);
@@ -1128,7 +1098,7 @@ namespace BusbarCompressionSystem.ViewModel
             var localizedTvInfo2 = GetLocalizedTvStatus(DataModel.Processmodel.TVTestTestModel2.TVInfo);
             DataModel.Processmodel.TVTestTestModel2.TVInfo = localizedTvInfo2;
 
-            sqlite.UpdateTV(DataModel.Processmodel.TVTestTestModel2.Productinfo.WOCODE,
+            bool updateTvResult = sqlite.UpdateTV(DataModel.Processmodel.TVTestTestModel2.Productinfo.WOCODE,
                DataModel.Processmodel.TVTestTestModel2.Productinfo.PartNOID,
                DataModel.Processmodel.TVTestTestModel2.Productinfo.SN,
                res,
@@ -1138,6 +1108,10 @@ namespace BusbarCompressionSystem.ViewModel
                localizedTvInfo2,
                DataModel.Settingmodel.SETTING_DATA.TVMeterID2
                );
+            if (!updateTvResult)
+            {
+                writeLog($"[耐压2] ⚠ UpdateTV更新失败! SN={DataModel.Processmodel.TVTestTestModel2.Productinfo.SN}, RES={res}", true);
+            }
 
             updatetv(DataModel.Processmodel.TVTestTestModel2.Productinfo.SN,
                 res, DataModel.Processmodel.TVTestTestModel2.TVMaxVoltage,
@@ -1175,10 +1149,14 @@ namespace BusbarCompressionSystem.ViewModel
             {
                 //DataModel.Processmodel.TakePhotoTestModel.Productinfo = new Model.Record.Productinfo() { SN = ss[0], WOCODE = ss[1], PartNOID = "" };
                 DataModel.Processmodel.TVTestTestModel3.Productinfo = new Productinfo() { SN = ss[0], WOCODE = ss[1], PartNOID = DataModel.Processmodel.PartNOID };
+                writeLog($"[耐压3] 产品编码读取成功: SN={ss[0]}, WOCODE={ss[1]}");
             }
             else
             {
-                writeLog($"耐压3产品编号读取错误:{s}");
+                //writeLog($"耐压3产品编号读取错误:{s}");
+                writeLog($"[耐压3] ❌ 产品编号读取错误! 原始值=[{s}], 期望格式=[SN;WOCODE], 分段数={ss.Length}", true);
+                SQLITEDATABASE.sqlite.WriteErrorLog("[PLC数据异常]TV3-产品编码格式错误", 
+                    $"原始值=[{s}], 分段数={ss.Length}, PLC地址=D{DataModel.Settingmodel.AddressSN + 25 * 3}");
             }
 
             float res = PLC_ReadFloat(DataModel.Settingmodel.AddressRes + 2 * 2);
@@ -1191,7 +1169,7 @@ namespace BusbarCompressionSystem.ViewModel
             var localizedTvInfo3 = GetLocalizedTvStatus(DataModel.Processmodel.TVTestTestModel3.TVInfo);
             DataModel.Processmodel.TVTestTestModel3.TVInfo = localizedTvInfo3;
 
-            sqlite.UpdateTV(DataModel.Processmodel.TVTestTestModel3.Productinfo.WOCODE,
+            bool updateTvResult = sqlite.UpdateTV(DataModel.Processmodel.TVTestTestModel3.Productinfo.WOCODE,
                DataModel.Processmodel.TVTestTestModel3.Productinfo.PartNOID,
                DataModel.Processmodel.TVTestTestModel3.Productinfo.SN,
                res,
@@ -1201,6 +1179,10 @@ namespace BusbarCompressionSystem.ViewModel
                localizedTvInfo3,
                DataModel.Settingmodel.SETTING_DATA.TVMeterID3
                );
+            if (!updateTvResult)
+            {
+                writeLog($"[耐压3] ⚠ UpdateTV更新失败! SN={DataModel.Processmodel.TVTestTestModel3.Productinfo.SN}, RES={res}", true);
+            }
 
             updatetv(DataModel.Processmodel.TVTestTestModel3.Productinfo.SN,
                 res,
@@ -1850,6 +1832,18 @@ namespace BusbarCompressionSystem.ViewModel
 
 
         #region 拍照留底
+        /// <summary>
+        /// 初始化拍照留底和AOI检测的相机事件订阅。
+        /// </summary>
+        /// <remarks>
+        /// 订阅5个相机的图像接收事件：
+        /// - 相机1-3：拍照留底工位使用，接收到图像后保存并设置完成标志
+        /// - 相机4：AOI外观检测工位使用，接收到图像后进行视觉识别
+        /// - 相机5：预留相机（如有需要）
+        /// 
+        /// 调用时机：
+        /// - 系统初始化时调用一次，建立相机与事件处理函数的绑定关系
+        /// </remarks>
         public void start()
         {
             DataModel.Settingmodel.camedata1.CameraModel.camera.ImageReceived += OnCamera1Receive;
@@ -1918,6 +1912,24 @@ namespace BusbarCompressionSystem.ViewModel
             }
         }
 
+        /// <summary>
+        /// 相机3图像接收事件处理函数（拍照留底工位）。
+        /// </summary>
+        /// <remarks>
+        /// 处理流程：
+        /// 1. 接收相机3传来的图像数据（MyEventArgs包含图像、宽度、高度）
+        /// 2. 在UI线程中显示图像到HWindow3窗口
+        /// 3. 保存图像到本地文件系统（文件名包含SN、工位、相机编号）
+        /// 4. 设置相机3完成标志位（finished = true）
+        /// 5. 触发垃圾回收释放内存
+        /// 
+        /// 调用时机：
+        /// - 相机3执行软触发拍照后，图像采集完成时自动触发
+        /// - 在 TakePhoto1Process() 中会轮询检查此完成标志位
+        /// 
+        /// 注意：
+        /// - 此方法在相机回调线程中执行，需要通过Dispatcher切换到UI线程操作界面
+        /// </remarks>
         private void OnCamera3Receive(object sender, EventArgs e)
         {
             try
@@ -2014,6 +2026,28 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
 
+        /// <summary>
+        /// 处理相机接收到的图像并显示到指定窗口（拍照留底工位）。
+        /// </summary>
+        /// <param name="hwindow">Halcon显示窗口对象</param>
+        /// <param name="Image">相机采集的图像对象（HObject）</param>
+        /// <param name="H">图像高度（像素）</param>
+        /// <param name="W">图像宽度（像素）</param>
+        /// <param name="Index">相机编号（1-5）</param>
+        /// <remarks>
+        /// 处理流程：
+        /// 1. 检查图像通道数（CountChannels）
+        /// 2. 如果是单通道灰度图，转换为三通道RGB图（Compose3）
+        /// 3. 清空显示窗口（ClearWindow）
+        /// 4. 在窗口中显示图像（DispObj）
+        /// 
+        /// 用途：
+        /// - 拍照留底工位的三个相机（1-3）接收图像后调用
+        /// - 仅用于图像显示，不进行视觉识别
+        /// 
+        /// 注意：
+        /// - 单通道图像会被转换为三通道后释放原图像，避免内存泄漏
+        /// </remarks>
         public void OnReceiveProcess(HWindow hwindow, HObject Image, int H, int W, int Index)
         {
             #region 图片接收
@@ -2030,6 +2064,37 @@ namespace BusbarCompressionSystem.ViewModel
             #endregion
         }
 
+        /// <summary>
+        /// AOI外观检测工位的图像接收和视觉识别处理（相机4）。
+        /// </summary>
+        /// <param name="Image">相机采集的图像对象（HObject）</param>
+        /// <param name="H">图像高度（像素）</param>
+        /// <param name="W">图像宽度（像素）</param>
+        /// <remarks>
+        /// 处理流程：
+        /// 1. 图像预处理：单通道转三通道，显示到AOI窗口
+        /// 2. 遍历所有配置的视觉工具（Tools），执行对应的检测算法：
+        ///    - 二维码识别：读取二维码并可选上报给扫码汇报软件
+        ///    - 模板匹配：检测产品位置、角度偏移是否在允许范围内
+        ///    - 面积检测：计算区域面积是否在阈值范围内
+        ///    - 尺寸测量：测量产品尺寸是否符合规格
+        /// 3. 根据检测结果保存图像到OK/NG目录
+        /// 4. 综合判断所有工具的结果：
+        ///    - 全部OK → 状态=OK
+        ///    - 有NG2（缺件/测量失败）→ 状态=NG2
+        ///    - 有NG（不合格）→ 状态=NG
+        /// 5. 更新数据库中的外观检测结果（UpdateTakePhoto2）
+        /// 6. 可选发送结果给机器人（SendMsgRobot）
+        /// 
+        /// 调用时机：
+        /// - 相机4（AOI工位）接收到图像后自动触发
+        /// - 在 OnCamera4Receive() 事件处理函数中调用
+        /// 
+        /// 注意：
+        /// - 此方法包含复杂的视觉算法，执行时间较长（通常几百毫秒）
+        /// - 需要在UI线程中执行，以便更新界面显示
+        /// - 内存管理：及时释放Bitmap和HObject，避免GDI句柄泄漏
+        /// </remarks>
         public void OnReceiveProcessAOI(HObject Image, int H, int W)
         {
             try
