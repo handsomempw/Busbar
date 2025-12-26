@@ -1811,6 +1811,64 @@ namespace BusbarCompressionSystem.ViewModel
             }));
         }
 
+        /// <summary>
+        /// 检查所有AOI工具是否都为NG状态
+        /// 用于AOI NG点检：只有所有工具都为NG才算点检通过
+        /// </summary>
+        /// <returns>true: 所有工具都为NG; false: 存在非NG工具</returns>
+        private bool CheckAllAOIToolsNG()
+        {
+            try
+            {
+                if (DataModel.FaraVisionDataModel.Processmodel.Tools.Count == 0)
+                {
+                    writeLog("AOI_NG点检->无工具配置，返回false");
+                    return false;
+                }
+
+                foreach (var tool in DataModel.FaraVisionDataModel.Processmodel.Tools)
+                {
+                    if (tool.ToolStatus != ToolStatus.NG)
+                    {
+                        writeLog($"AOI_NG点检->工具[{tool.Name}]状态为{tool.ToolStatus}，不是NG");
+                        return false;
+                    }
+                }
+
+                writeLog($"AOI_NG点检->所有{DataModel.FaraVisionDataModel.Processmodel.Tools.Count}个工具均为NG");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                writeLog($"AOI_NG点检->检查工具状态异常: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 向PLC写入AOI NG点检信号
+        /// </summary>
+        /// <param name="value">1: 点检通过; 0: 点检失败</param>
+        private void WriteAOI_NG_InspectionSignal(UInt16 value)
+        {
+            try
+            {
+                bool success = PLC_write(DataModel.Settingmodel.AOI_NG_InspectionAddress.ToString(), value);
+                if (success)
+                {
+                    writeLog($"AOI_NG点检->向PLC地址M{DataModel.Settingmodel.AOI_NG_InspectionAddress}写入{value}成功");
+                }
+                else
+                {
+                    writeLog($"AOI_NG点检->向PLC地址M{DataModel.Settingmodel.AOI_NG_InspectionAddress}写入{value}失败");
+                }
+            }
+            catch (Exception ex)
+            {
+                writeLog($"AOI_NG点检->写入PLC信号异常: {ex.Message}");
+            }
+        }
+
 
         private bool PLC_write(float result)
         {
@@ -3544,15 +3602,42 @@ namespace BusbarCompressionSystem.ViewModel
                             if (isAoiInspectionSN)
                             {
                                 // AOI 点检 SN：只判断 AOI 结果，跳过拍照、耐压、阻值检查
-                                if (!pi.AppearanceInspection)
+                                // 特殊逻辑：AOI NG点检需要所有工具都为NG才算通过
+                                bool isAoiNGInspection = currentSN == DataModel.Settingmodel.SETTING_DATA.InspectionAOINGSN;
+
+                                if (isAoiNGInspection)
                                 {
-                                    MSG = "NG4";
-                                    resultstr = "AOI测试不合格";
+                                    // AOI NG点检：检查所有工具是否都为NG
+                                    bool allToolsNG = CheckAllAOIToolsNG();
+
+                                    if (allToolsNG)
+                                    {
+                                        MSG = "OK";
+                                        resultstr = "AOI_NG点检合格(所有工具均为NG)";
+                                        // 向PLC写入点检通过信号
+                                        WriteAOI_NG_InspectionSignal(1);
+                                    }
+                                    else
+                                    {
+                                        MSG = "NG4";
+                                        resultstr = "AOI_NG点检不合格(存在工具非NG)";
+                                        // 向PLC写入点检失败信号
+                                        WriteAOI_NG_InspectionSignal(0);
+                                    }
                                 }
                                 else
                                 {
-                                    MSG = "OK";
-                                    resultstr = "合格";
+                                    // AOI OK点检：正常判断AOI结果
+                                    if (!pi.AppearanceInspection)
+                                    {
+                                        MSG = "NG4";
+                                        resultstr = "AOI测试不合格";
+                                    }
+                                    else
+                                    {
+                                        MSG = "OK";
+                                        resultstr = "合格";
+                                    }
                                 }
                             }
                             else

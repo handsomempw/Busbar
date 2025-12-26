@@ -330,6 +330,15 @@ namespace BusbarCompressionSystem.Model
         public int ShankHandAddress { set; get; } = 1622;
 
         /// <summary>
+        /// AOI NG点检通过信号地址（M寄存器，Bool类型）
+        /// </summary>
+        /// <remarks>
+        /// 用于AOI NG点检场景：当所有AOI工具均为NG时，向此地址写入1表示点检通过
+        /// </remarks>
+        [XmlElement("AOI_NG点检通过信号地址")]
+        public int AOI_NG_InspectionAddress { set; get; } = 3040;
+
+        /// <summary>
         /// 下料位扫码触发地址
         /// </summary>
         [XmlElement("下料扫码触发地址")]
