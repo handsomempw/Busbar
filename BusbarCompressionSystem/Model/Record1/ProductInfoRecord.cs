@@ -38,6 +38,12 @@ namespace BusbarCompressionSystem.Model.Record
         public string TVMeterID { set; get; }
         public string TVInfo { set; get; }
 
+        /// <summary>
+        /// 测试模式标识（ACW/DCW）
+        /// 用于区分交流耐压测试和直流耐压测试
+        /// </summary>
+        public string TestMode { set; get; } = "ACW";
+
 
         public bool Report { set; get; } = false;
 

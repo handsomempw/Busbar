@@ -1087,7 +1087,7 @@ namespace BusbarCompressionSystem.ViewModel
         /// <summary>
         /// TV1耐压测试核心逻辑（ACW/DCW共用）
         /// </summary>
-        /// <param name="testType">测试类型标识，用于日志区分</param>
+        /// <param name="testType">测试类型标识，用于日志区分（"ACW"或"DCW"）</param>
         private void TV1Process_Core(string testType)
         {
             string s = PLC_Readstring(DataModel.Settingmodel.AddressSN + 25);
@@ -1112,32 +1112,59 @@ namespace BusbarCompressionSystem.ViewModel
             DataModel.Processmodel.TVTestTestModel1.TVMaxCurrent = 0;
 
             var r = DataModel.Settingmodel.AT9620_1.Start();
-            var localizedTvInfo1 = GetLocalizedTvStatus(DataModel.Processmodel.TVTestTestModel1.TVInfo);
+            
+            // 获取翻译后的状态并添加测试模式前缀
+            var rawTvInfo = DataModel.Processmodel.TVTestTestModel1.TVInfo;
+            var translatedTvInfo = GetLocalizedTvStatus(rawTvInfo);
+            bool isACW = testType == "ACW";
+            var localizedTvInfo1 = Utils.TvStatusTranslator.AddTestModePrefix(translatedTvInfo, isACW);
             DataModel.Processmodel.TVTestTestModel1.TVInfo = localizedTvInfo1;
 
-            bool updateTvResult = sqlite.UpdateTV(DataModel.Processmodel.TVTestTestModel1.Productinfo.WOCODE,
-                DataModel.Processmodel.TVTestTestModel1.Productinfo.PartNOID,
-                DataModel.Processmodel.TVTestTestModel1.Productinfo.SN,
-                res,
-                DataModel.Processmodel.TVTestTestModel1.TVMaxVoltage,
-                r.Success,
-                DataModel.Processmodel.TVTestTestModel1.TVMaxCurrent,
-                localizedTvInfo1,
-                DataModel.Settingmodel.SETTING_DATA.TVMeterID1
-                );
+            string wocode = DataModel.Processmodel.TVTestTestModel1.Productinfo.WOCODE;
+            string partnoid = DataModel.Processmodel.TVTestTestModel1.Productinfo.PartNOID;
+            string sn = DataModel.Processmodel.TVTestTestModel1.Productinfo.SN;
+
+            // 判断是否为双测模式的第二次测试
+            bool isSecondTest = CheckIsSecondTest(wocode, partnoid, sn, isACW, testType);
+
+            bool updateTvResult;
+            if (isSecondTest)
+            {
+                // 双测模式第二次测试：插入新记录
+                updateTvResult = sqlite.InsertTV_SecondTest(wocode, partnoid, sn,
+                    DataModel.Settingmodel.SETTING_DATA.StationCode,
+                    DataModel.Settingmodel.SETTING_DATA.MachineID,
+                    res,
+                    DataModel.Processmodel.TVTestTestModel1.TVMaxVoltage,
+                    r.Success,
+                    DataModel.Processmodel.TVTestTestModel1.TVMaxCurrent,
+                    localizedTvInfo1,
+                    DataModel.Settingmodel.SETTING_DATA.TVMeterID1);
+                writeLog($"[耐压1-{testType}] 双测模式第二次测试，插入新记录");
+            }
+            else
+            {
+                // 单测模式或双测模式第一次测试：更新现有记录
+                updateTvResult = sqlite.UpdateTV(wocode, partnoid, sn,
+                    res,
+                    DataModel.Processmodel.TVTestTestModel1.TVMaxVoltage,
+                    r.Success,
+                    DataModel.Processmodel.TVTestTestModel1.TVMaxCurrent,
+                    localizedTvInfo1,
+                    DataModel.Settingmodel.SETTING_DATA.TVMeterID1);
+            }
+            
             if (!updateTvResult)
             {
-                writeLog($"[耐压1-{testType}] ⚠ UpdateTV更新失败! SN={DataModel.Processmodel.TVTestTestModel1.Productinfo.SN}, RES={res}", true);
+                writeLog($"[耐压1-{testType}] ⚠ 数据库更新失败! SN={sn}, RES={res}", true);
             }
 
-            updatetv(DataModel.Processmodel.TVTestTestModel1.Productinfo.SN,
-                res,
+            updatetv(sn, res,
                 DataModel.Processmodel.TVTestTestModel1.TVMaxVoltage,
                 r.Success,
                 DataModel.Processmodel.TVTestTestModel1.TVMaxCurrent,
                 localizedTvInfo1,
-                DataModel.Settingmodel.SETTING_DATA.TVMeterID1
-                );
+                DataModel.Settingmodel.SETTING_DATA.TVMeterID1);
 
             if (!r.Success)
             {
@@ -1156,6 +1183,37 @@ namespace BusbarCompressionSystem.ViewModel
 
             writeLog($"[耐压1-{testType}] 测试完成，结果: {(r.Success ? "PASS" : "FAIL")}");
             PLC_write((DataModel.Settingmodel.AddressStart + 7).ToString(), 1);
+        }
+
+        /// <summary>
+        /// 检查当前测试是否为双测模式的第二次测试
+        /// </summary>
+        private bool CheckIsSecondTest(string wocode, string partnoid, string sn, bool isACW, string testType)
+        {
+            try
+            {
+                string connstr = sqlite.CheckDataBase(wocode, partnoid, sn);
+                if (!string.IsNullOrEmpty(connstr))
+                {
+                    string checkSql = $"SELECT TVInfo FROM BusbarCompressionData WHERE sn='{sn}' ORDER BY id DESC LIMIT 1";
+                    var dt = sqlite.Read(checkSql, connstr);
+                    if (dt != null && dt.Rows.Count > 0)
+                    {
+                        string existingTvInfo = dt.Rows[0]["TVInfo"]?.ToString() ?? "";
+                        // 如果已有记录带有另一种模式的前缀，则当前是第二次测试
+                        if ((isACW && existingTvInfo.StartsWith("[DCW]")) || (!isACW && existingTvInfo.StartsWith("[ACW]")))
+                        {
+                            writeLog($"[耐压-{testType}] 检测到双测模式，当前为第二次测试，已有记录TVInfo={existingTvInfo}");
+                            return true;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                writeLog($"[耐压-{testType}] 检查双测模式时异常: {ex.Message}", true);
+            }
+            return false;
         }
 
         /// <summary>
@@ -1298,7 +1356,7 @@ namespace BusbarCompressionSystem.ViewModel
         /// <summary>
         /// TV2耐压测试核心逻辑（ACW/DCW共用）
         /// </summary>
-        /// <param name="testType">测试类型标识，用于日志区分</param>
+        /// <param name="testType">测试类型标识，用于日志区分（"ACW"或"DCW"）</param>
         private void TV2Process_Core(string testType)
         {
             string s = PLC_Readstring(DataModel.Settingmodel.AddressSN + 25 * 2);
@@ -1322,31 +1380,59 @@ namespace BusbarCompressionSystem.ViewModel
             DataModel.Processmodel.TVTestTestModel2.TVMaxVoltage = 0;
             DataModel.Processmodel.TVTestTestModel2.TVMaxCurrent = 0;
             var r = DataModel.Settingmodel.AT9620_2.Start();
-            var localizedTvInfo2 = GetLocalizedTvStatus(DataModel.Processmodel.TVTestTestModel2.TVInfo);
+            
+            // 获取翻译后的状态并添加测试模式前缀
+            var rawTvInfo = DataModel.Processmodel.TVTestTestModel2.TVInfo;
+            var translatedTvInfo = GetLocalizedTvStatus(rawTvInfo);
+            bool isACW = testType == "ACW";
+            var localizedTvInfo2 = Utils.TvStatusTranslator.AddTestModePrefix(translatedTvInfo, isACW);
             DataModel.Processmodel.TVTestTestModel2.TVInfo = localizedTvInfo2;
 
-            bool updateTvResult = sqlite.UpdateTV(DataModel.Processmodel.TVTestTestModel2.Productinfo.WOCODE,
-               DataModel.Processmodel.TVTestTestModel2.Productinfo.PartNOID,
-               DataModel.Processmodel.TVTestTestModel2.Productinfo.SN,
-               res,
-               DataModel.Processmodel.TVTestTestModel2.TVMaxVoltage,
-               r.Success,
-               DataModel.Processmodel.TVTestTestModel2.TVMaxCurrent,
-               localizedTvInfo2,
-               DataModel.Settingmodel.SETTING_DATA.TVMeterID2
-               );
+            string wocode = DataModel.Processmodel.TVTestTestModel2.Productinfo.WOCODE;
+            string partnoid = DataModel.Processmodel.TVTestTestModel2.Productinfo.PartNOID;
+            string sn = DataModel.Processmodel.TVTestTestModel2.Productinfo.SN;
+
+            // 判断是否为双测模式的第二次测试
+            bool isSecondTest = CheckIsSecondTest(wocode, partnoid, sn, isACW, testType);
+
+            bool updateTvResult;
+            if (isSecondTest)
+            {
+                // 双测模式第二次测试：插入新记录
+                updateTvResult = sqlite.InsertTV_SecondTest(wocode, partnoid, sn,
+                    DataModel.Settingmodel.SETTING_DATA.StationCode,
+                    DataModel.Settingmodel.SETTING_DATA.MachineID,
+                    res,
+                    DataModel.Processmodel.TVTestTestModel2.TVMaxVoltage,
+                    r.Success,
+                    DataModel.Processmodel.TVTestTestModel2.TVMaxCurrent,
+                    localizedTvInfo2,
+                    DataModel.Settingmodel.SETTING_DATA.TVMeterID2);
+                writeLog($"[耐压2-{testType}] 双测模式第二次测试，插入新记录");
+            }
+            else
+            {
+                // 单测模式或双测模式第一次测试：更新现有记录
+                updateTvResult = sqlite.UpdateTV(wocode, partnoid, sn,
+                    res,
+                    DataModel.Processmodel.TVTestTestModel2.TVMaxVoltage,
+                    r.Success,
+                    DataModel.Processmodel.TVTestTestModel2.TVMaxCurrent,
+                    localizedTvInfo2,
+                    DataModel.Settingmodel.SETTING_DATA.TVMeterID2);
+            }
+            
             if (!updateTvResult)
             {
-                writeLog($"[耐压2-{testType}] ⚠ UpdateTV更新失败! SN={DataModel.Processmodel.TVTestTestModel2.Productinfo.SN}, RES={res}", true);
+                writeLog($"[耐压2-{testType}] ⚠ 数据库更新失败! SN={sn}, RES={res}", true);
             }
 
-            updatetv(DataModel.Processmodel.TVTestTestModel2.Productinfo.SN,
-                res, DataModel.Processmodel.TVTestTestModel2.TVMaxVoltage,
+            updatetv(sn, res,
+                DataModel.Processmodel.TVTestTestModel2.TVMaxVoltage,
                 r.Success,
                 DataModel.Processmodel.TVTestTestModel2.TVMaxCurrent,
                 localizedTvInfo2,
-                DataModel.Settingmodel.SETTING_DATA.TVMeterID2
-                );
+                DataModel.Settingmodel.SETTING_DATA.TVMeterID2);
 
             if (!r.Success)
             {

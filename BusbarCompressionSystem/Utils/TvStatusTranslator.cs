@@ -49,6 +49,12 @@ namespace BusbarCompressionSystem.Utils
             _runtimeMappings = map;
         }
 
+        /// <summary>
+        /// 测试模式前缀常量
+        /// </summary>
+        public const string ACW_PREFIX = "[ACW]";
+        public const string DCW_PREFIX = "[DCW]";
+
         public static string Translate(string rawStatus)
         {
             if (string.IsNullOrWhiteSpace(rawStatus))
@@ -59,6 +65,111 @@ namespace BusbarCompressionSystem.Utils
             return _runtimeMappings.TryGetValue(rawStatus.Trim(), out var display)
                 ? display
                 : rawStatus;
+        }
+
+        /// <summary>
+        /// 带测试模式前缀的翻译方法
+        /// 先提取前缀（如[ACW]或[DCW]），翻译状态码后再拼接前缀
+        /// </summary>
+        /// <param name="rawStatus">原始状态（可能带前缀）</param>
+        /// <returns>翻译后的状态（保留前缀）</returns>
+        public static string TranslateWithPrefix(string rawStatus)
+        {
+            if (string.IsNullOrWhiteSpace(rawStatus))
+            {
+                return rawStatus;
+            }
+
+            string prefix = string.Empty;
+            string statusCode = rawStatus.Trim();
+
+            // 提取前缀
+            if (statusCode.StartsWith(ACW_PREFIX))
+            {
+                prefix = ACW_PREFIX;
+                statusCode = statusCode.Substring(ACW_PREFIX.Length);
+            }
+            else if (statusCode.StartsWith(DCW_PREFIX))
+            {
+                prefix = DCW_PREFIX;
+                statusCode = statusCode.Substring(DCW_PREFIX.Length);
+            }
+
+            // 翻译状态码
+            string translated = Translate(statusCode);
+
+            // 拼接前缀和翻译结果
+            return prefix + translated;
+        }
+
+        /// <summary>
+        /// 为状态添加测试模式前缀
+        /// </summary>
+        /// <param name="status">原始状态</param>
+        /// <param name="isACW">是否为ACW模式（false则为DCW）</param>
+        /// <returns>带前缀的状态</returns>
+        public static string AddTestModePrefix(string status, bool isACW)
+        {
+            if (string.IsNullOrWhiteSpace(status))
+            {
+                return status;
+            }
+
+            // 如果已有前缀则不重复添加
+            if (status.StartsWith(ACW_PREFIX) || status.StartsWith(DCW_PREFIX))
+            {
+                return status;
+            }
+
+            return (isACW ? ACW_PREFIX : DCW_PREFIX) + status;
+        }
+
+        /// <summary>
+        /// 从状态中提取测试模式
+        /// </summary>
+        /// <param name="status">带前缀的状态</param>
+        /// <returns>"ACW"、"DCW"或空字符串（无前缀）</returns>
+        public static string ExtractTestMode(string status)
+        {
+            if (string.IsNullOrWhiteSpace(status))
+            {
+                return string.Empty;
+            }
+
+            if (status.StartsWith(ACW_PREFIX))
+            {
+                return "ACW";
+            }
+            else if (status.StartsWith(DCW_PREFIX))
+            {
+                return "DCW";
+            }
+
+            return string.Empty;
+        }
+
+        /// <summary>
+        /// 从状态中移除测试模式前缀，获取纯状态码
+        /// </summary>
+        /// <param name="status">带前缀的状态</param>
+        /// <returns>不带前缀的状态</returns>
+        public static string RemoveTestModePrefix(string status)
+        {
+            if (string.IsNullOrWhiteSpace(status))
+            {
+                return status;
+            }
+
+            if (status.StartsWith(ACW_PREFIX))
+            {
+                return status.Substring(ACW_PREFIX.Length);
+            }
+            else if (status.StartsWith(DCW_PREFIX))
+            {
+                return status.Substring(DCW_PREFIX.Length);
+            }
+
+            return status;
         }
 
         /// <summary>

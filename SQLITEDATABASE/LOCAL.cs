@@ -267,6 +267,166 @@ namespace SQLITEDATABASE
             }
             return false;
         }
+
+        /// <summary>
+        /// 为双测模式的第二次测试插入新记录
+        /// 业务逻辑：当产品需要进行两次电测（先ACW后DCW或先DCW后ACW）时，
+        /// 第二次测试需要插入新记录而不是更新现有记录，以保留两次测试的完整数据
+        /// </summary>
+        /// <param name="WOCODE">工单号</param>
+        /// <param name="PARTNOID">产品料号</param>
+        /// <param name="SN">产品序列号</param>
+        /// <param name="STATIONCODE">工站代码</param>
+        /// <param name="EQUIPMENTID">设备ID</param>
+        /// <param name="RES">电阻值</param>
+        /// <param name="MaxVoltage">最大电压</param>
+        /// <param name="TVResult">测试结果</param>
+        /// <param name="MaxCurrent">最大电流</param>
+        /// <param name="TVInfo">测试状态信息（应带[DCW]前缀）</param>
+        /// <param name="TVMeterID">测试仪器编号</param>
+        /// <returns>插入成功返回true</returns>
+        public static bool InsertTV_SecondTest(string WOCODE, string PARTNOID, string SN, string STATIONCODE, string EQUIPMENTID,
+            float RES, float MaxVoltage, bool TVResult, float MaxCurrent, string TVInfo, string TVMeterID)
+        {
+            try
+            {
+                string _connstr = CheckDataBase(WOCODE, PARTNOID, SN);
+
+                if (string.IsNullOrEmpty(_connstr))
+                {
+                    WriteErrorLog("[追踪]InsertTV_SecondTest-连接串为空", "CheckDataBase返回空", SN, WOCODE);
+                    return false;
+                }
+
+                // 先从第一条记录复制基础信息（TakePhoto1等），然后插入新记录
+                string sqlSelect = $"SELECT TAKEPHOTO1, PRESSURE_MAX, PRESSURE_AVERAGE, PRESSURE_MIN, PRESSURE_RESULT FROM BusbarCompressionData WHERE id=(SELECT max(id) from BusbarCompressionData WHERE sn='{SN}')";
+                DataTable dt = Read(sqlSelect, _connstr);
+
+                bool takePhoto1 = false;
+                float pressureMax = 0, pressureAvg = 0, pressureMin = 0;
+                bool pressureResult = false;
+
+                if (dt != null && dt.Rows.Count > 0)
+                {
+                    bool.TryParse(dt.Rows[0]["TAKEPHOTO1"]?.ToString(), out takePhoto1);
+                    float.TryParse(dt.Rows[0]["PRESSURE_MAX"]?.ToString(), out pressureMax);
+                    float.TryParse(dt.Rows[0]["PRESSURE_AVERAGE"]?.ToString(), out pressureAvg);
+                    float.TryParse(dt.Rows[0]["PRESSURE_MIN"]?.ToString(), out pressureMin);
+                    bool.TryParse(dt.Rows[0]["PRESSURE_RESULT"]?.ToString(), out pressureResult);
+                }
+
+                // 插入新记录
+                string sqlInsert = $"INSERT INTO BusbarCompressionData(PARTNOID,WOCODE,SN,EQUIPMENTID,STATIONCODE,DATETIME,TAKEPHOTO1,RES,TVMAXVOLTAGE,TVMAXCURRENT,TVRESULT,TVMeterID,TVInfo,PRESSURE_MAX,PRESSURE_AVERAGE,PRESSURE_MIN,PRESSURE_RESULT) " +
+                    $"VALUES('{PARTNOID}','{WOCODE}','{SN}','{EQUIPMENTID}','{STATIONCODE}','{DateTime.Now}',{(takePhoto1 ? 1 : 0)},{RES},{MaxVoltage},{MaxCurrent},{(TVResult ? 1 : 0)},'{TVMeterID}','{TVInfo}',{pressureMax},{pressureAvg},{pressureMin},{(pressureResult ? 1 : 0)})";
+
+                int c = excute_sql(sqlInsert, _connstr);
+                if (c > 0)
+                {
+                    WriteErrorLog("[双测模式]InsertTV_SecondTest-插入成功", $"TVInfo={TVInfo}", SN, WOCODE);
+                }
+                return c > 0;
+            }
+            catch (Exception ex)
+            {
+                WriteErrorLog("[数据库异常]InsertTV_SecondTest失败", $"异常: {ex.Message}", SN, WOCODE);
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// 检查产品是否为双测模式（同一SN有两条记录，分别带[ACW]和[DCW]前缀）
+        /// </summary>
+        /// <param name="WOCODE">工单号</param>
+        /// <param name="PARTNOID">产品料号</param>
+        /// <param name="SN">产品序列号</param>
+        /// <returns>是否为双测模式</returns>
+        public static bool IsDualTestMode(string WOCODE, string PARTNOID, string SN)
+        {
+            try
+            {
+                string _connstr = CheckDataBase(WOCODE, PARTNOID, SN);
+                if (string.IsNullOrEmpty(_connstr)) return false;
+
+                // 查询最近两条记录的TVInfo
+                string sql = $"SELECT TVInfo FROM BusbarCompressionData WHERE sn='{SN}' ORDER BY id DESC LIMIT 2";
+                DataTable dt = Read(sql, _connstr);
+
+                if (dt != null && dt.Rows.Count >= 2)
+                {
+                    string tvInfo1 = dt.Rows[0]["TVInfo"]?.ToString() ?? "";
+                    string tvInfo2 = dt.Rows[1]["TVInfo"]?.ToString() ?? "";
+
+                    // 检查是否一条是ACW一条是DCW
+                    bool hasACW = tvInfo1.StartsWith("[ACW]") || tvInfo2.StartsWith("[ACW]");
+                    bool hasDCW = tvInfo1.StartsWith("[DCW]") || tvInfo2.StartsWith("[DCW]");
+
+                    return hasACW && hasDCW;
+                }
+            }
+            catch (Exception ex)
+            {
+                WriteErrorLog("[数据库异常]IsDualTestMode检查失败", $"异常: {ex.Message}", SN, WOCODE);
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// 获取双测模式下的综合测试结果
+        /// 只有ACW和DCW都合格时才返回合格
+        /// </summary>
+        /// <param name="WOCODE">工单号</param>
+        /// <param name="PARTNOID">产品料号</param>
+        /// <param name="SN">产品序列号</param>
+        /// <param name="acwResult">输出：ACW测试结果</param>
+        /// <param name="dcwResult">输出：DCW测试结果</param>
+        /// <returns>综合结果：0=全部合格，2=耐压不合格</returns>
+        public static int GetDualTestResult(string WOCODE, string PARTNOID, string SN, out bool acwResult, out bool dcwResult)
+        {
+            acwResult = false;
+            dcwResult = false;
+
+            try
+            {
+                string _connstr = CheckDataBase(WOCODE, PARTNOID, SN);
+                if (string.IsNullOrEmpty(_connstr)) return 2;
+
+                // 查询最近两条记录
+                string sql = $"SELECT TVInfo, TVRESULT, TVMAXVOLTAGE FROM BusbarCompressionData WHERE sn='{SN}' ORDER BY id DESC LIMIT 2";
+                DataTable dt = Read(sql, _connstr);
+
+                if (dt != null && dt.Rows.Count >= 2)
+                {
+                    for (int i = 0; i < dt.Rows.Count; i++)
+                    {
+                        string tvInfo = dt.Rows[i]["TVInfo"]?.ToString() ?? "";
+                        bool tvResult = false;
+                        bool.TryParse(dt.Rows[i]["TVRESULT"]?.ToString(), out tvResult);
+                        float tvMaxVoltage = 0;
+                        float.TryParse(dt.Rows[i]["TVMAXVOLTAGE"]?.ToString(), out tvMaxVoltage);
+
+                        bool isPass = tvResult && tvMaxVoltage > 0 && tvMaxVoltage != -1;
+
+                        if (tvInfo.StartsWith("[ACW]"))
+                        {
+                            acwResult = isPass;
+                        }
+                        else if (tvInfo.StartsWith("[DCW]"))
+                        {
+                            dcwResult = isPass;
+                        }
+                    }
+                }
+
+                // 双测模式下，两个都合格才算合格
+                return (acwResult && dcwResult) ? 0 : 2;
+            }
+            catch (Exception ex)
+            {
+                WriteErrorLog("[数据库异常]GetDualTestResult失败", $"异常: {ex.Message}", SN, WOCODE);
+                return 2;
+            }
+        }
+
         /// <summary>
         /// 更新产品的第二次拍照（外观检测/AOI）结果
         /// 业务逻辑：在外观检测工位完成后，记录AOI视觉检测是否合格
@@ -492,6 +652,20 @@ namespace SQLITEDATABASE
                             return 2;
                         }
 
+                        // 6. 检查是否为双测模式，如果是则需要综合判断ACW和DCW结果
+                        if (IsDualTestMode(WOCODE, PARTNOID, SN))
+                        {
+                            bool acwResult, dcwResult;
+                            int dualResult = GetDualTestResult(WOCODE, PARTNOID, SN, out acwResult, out dcwResult);
+                            if (dualResult != 0)
+                            {
+                                WriteErrorLog("[双测模式]CHECK1-综合判断",
+                                    $"ACW结果={acwResult}, DCW结果={dcwResult}, 综合结果={dualResult}",
+                                    SN, WOCODE);
+                                return dualResult;
+                            }
+                        }
+
                         return 0;
                     }
                 }
@@ -676,6 +850,20 @@ namespace SQLITEDATABASE
                         if (!_takephoto2)
                         {
                             return 4;
+                        }
+
+                        // 7. 检查是否为双测模式，如果是则需要综合判断ACW和DCW结果
+                        if (IsDualTestMode(WOCODE, PARTNOID, SN))
+                        {
+                            bool acwResult, dcwResult;
+                            int dualResult = GetDualTestResult(WOCODE, PARTNOID, SN, out acwResult, out dcwResult);
+                            if (dualResult != 0)
+                            {
+                                WriteErrorLog("[双测模式]CHECK2-综合判断",
+                                    $"ACW结果={acwResult}, DCW结果={dcwResult}, 综合结果={dualResult}",
+                                    SN, WOCODE);
+                                return dualResult;
+                            }
                         }
 
                         return 0;
