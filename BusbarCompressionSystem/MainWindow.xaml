@@ -490,6 +490,12 @@
             <TextBlock Text="{Binding Processmodel.TV1_Trig_IO.IOstatus}"  Background="{Binding Processmodel.TV1_Trig_IO.IOstatusBackGround}" Foreground="{Binding Processmodel.TV1_Trig_IO.IOStatusForeGround}" Padding="10,2" ToolTip="耐压1触发信号"/>
             <TextBlock Text="{Binding Processmodel.TV2_Trig_IO.IOstatus}"  Background="{Binding Processmodel.TV2_Trig_IO.IOstatusBackGround}" Foreground="{Binding Processmodel.TV2_Trig_IO.IOStatusForeGround}" Padding="10,2" ToolTip="耐压2触发信号"/>
             <TextBlock Text="{Binding Processmodel.TV3_Trig_IO.IOstatus}"  Background="{Binding Processmodel.TV3_Trig_IO.IOstatusBackGround}" Foreground="{Binding Processmodel.TV3_Trig_IO.IOStatusForeGround}" Padding="10,2" ToolTip="耐压3触发信号"/>
+            
+            <!-- 测试模式显示 -->
+            <TextBlock Text="{Binding Processmodel.CurrentTV1TestModeDisplay, StringFormat=TV1:{0}}" Padding="10,2" Background="LightBlue" Margin="5,0" ToolTip="耐压1当前测试模式(ACW/DCW)"/>
+            <TextBlock Text="{Binding Processmodel.CurrentTV2TestModeDisplay, StringFormat=TV2:{0}}" Padding="10,2" Background="LightBlue" Margin="5,0" ToolTip="耐压2当前测试模式(ACW/DCW)"/>
+            <TextBlock Text="{Binding Settingmodel.CurrentTestModeDisplay, StringFormat=模式:{0}}" Padding="10,2" Background="Orange" Foreground="White" Margin="5,0" ToolTip="当前系统测试模式配置"/>
+
 
 
             <TextBlock Text="{Binding Processmodel.CMD,StringFormat=命令:{0}}" Margin="20,0"/>

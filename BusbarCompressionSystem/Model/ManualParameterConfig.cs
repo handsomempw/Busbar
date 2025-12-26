@@ -43,6 +43,15 @@ namespace BusbarCompressionSystem.Model
         /// 压力测试参数配置
         /// </summary>
         public PressureParameterConfig PressureParameter { get; set; } = new PressureParameterConfig();
+
+        /// <summary>
+        /// 电测测试模式值（用于PLC信号D1012）
+        /// 0=只测交流, 1=只测直流, 2=先交后直, 3=先直后交
+        /// </summary>
+        /// <remarks>
+        /// 使用int类型便于JSON序列化，实际使用时会转换为AT9620.ElectricalTestMode枚举
+        /// </remarks>
+        public int ElectricalTestModeValue { get; set; } = 0;
     }
 
     /// <summary>

@@ -37,7 +37,92 @@ namespace BusbarCompressionSystem.Model
 
         #region 耐压测试参数
 
+        /// <summary>
+        /// 当前耐压测试参数（兼容旧逻辑，保留）
+        /// </summary>
         public AT9620.TVParameter TVParameter { set; get; } = new AT9620.TVParameter();
+
+        /// <summary>
+        /// ACW交流耐压测试参数
+        /// </summary>
+        /// <remarks>
+        /// 独立的交流耐压参数对象，TestMode固定为ACW。
+        /// 当TV1Trig=1时使用此参数。
+        /// </remarks>
+        public AT9620.TVParameter ACWParameter { set; get; } = new AT9620.TVParameter() { TestMode = AT9620.TestMode.ACW };
+
+        /// <summary>
+        /// DCW直流耐压测试参数
+        /// </summary>
+        /// <remarks>
+        /// 独立的直流耐压参数对象，TestMode固定为DCW。
+        /// 当TV1Trig=2时使用此参数。
+        /// </remarks>
+        public AT9620.TVParameter DCWParameter { set; get; } = new AT9620.TVParameter() { TestMode = AT9620.TestMode.DCW };
+
+        /// <summary>
+        /// 上次执行的测试模式（用于判断是否需要重新下发参数）
+        /// </summary>
+        /// <remarks>
+        /// 当测试模式切换时（ACW→DCW或DCW→ACW），需要重新下发参数到AT9620设备。
+        /// 此字段记录上次执行的模式，用于判断是否需要切换。
+        /// </remarks>
+        [XmlIgnore]
+        private AT9620.TestMode _lastTV1TestMode = AT9620.TestMode.ACW;
+        
+        [XmlIgnore]
+        public AT9620.TestMode LastTV1TestMode 
+        { 
+            get { return _lastTV1TestMode; }
+            set 
+            { 
+                _lastTV1TestMode = value;
+                RaisePropertyChanged(() => LastTV1TestMode);
+                RaisePropertyChanged(() => CurrentTV1TestModeDisplay);
+            }
+        }
+
+        /// <summary>
+        /// 耐压仪2上次执行的测试模式
+        /// </summary>
+        [XmlIgnore]
+        private AT9620.TestMode _lastTV2TestMode = AT9620.TestMode.ACW;
+        
+        [XmlIgnore]
+        public AT9620.TestMode LastTV2TestMode 
+        { 
+            get { return _lastTV2TestMode; }
+            set 
+            { 
+                _lastTV2TestMode = value;
+                RaisePropertyChanged(() => LastTV2TestMode);
+                RaisePropertyChanged(() => CurrentTV2TestModeDisplay);
+            }
+        }
+
+        /// <summary>
+        /// 当前TV1测试模式显示文本（用于界面绑定）
+        /// </summary>
+        [XmlIgnore]
+        public string CurrentTV1TestModeDisplay
+        {
+            get
+            {
+                return LastTV1TestMode == AT9620.TestMode.ACW ? "ACW" : "DCW";
+            }
+        }
+
+        /// <summary>
+        /// 当前TV2测试模式显示文本（用于界面绑定）
+        /// </summary>
+        [XmlIgnore]
+        public string CurrentTV2TestModeDisplay
+        {
+            get
+            {
+                return LastTV2TestMode == AT9620.TestMode.ACW ? "ACW" : "DCW";
+            }
+        }
 
         public PressureParamter PressureParamter { set; get; } = new PressureParamter();
 

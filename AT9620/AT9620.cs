@@ -17,6 +17,8 @@ namespace AT9620
     public class AT9620 : ObservableObject
     {
         public event EventHandler DataReceived;
+        public event EventHandler<LogEventArgs> LogMessage; // 新增日志事件
+        
         public TVParameter TVParameter { get; set; } = new TVParameter();
         public int delaytime { set; get; } = 1000;
         public int intervaltime { set; get; } = 30;
@@ -34,6 +36,12 @@ namespace AT9620
 
         [XmlIgnore]
         public bool isconnected = false;
+
+        // 日志方法
+        private void WriteLog(string message)
+        {
+            LogMessage?.Invoke(this, new LogEventArgs { Message = message });
+        }
 
         public bool connect(string _IPaddress, int _Port, int _receivetimeout = 5000)
         {
@@ -105,29 +113,91 @@ namespace AT9620
             Result r = new Result();
 
             var r1 = Send("FUNC:SOUR:STEP:NEW\n");
+            if (!r1.Success)
+            {
+                WriteLog($"[参数下发] ❌ 创建新步骤失败: {r1.Error}");
+                r.Error = r1.Error;
+                return r;
+            }
+            WriteLog($"[参数下发] ✓ 成功创建新步骤");
             Thread.Sleep(intervaltime);
 
-            string wp = $"WP 1,{TVParameter.TestMode},{TVParameter.Voltage},{TVParameter.TestTime},{TVParameter.RiseTime},{TVParameter.FallTime},{TVParameter.High},{TVParameter.Low},{TVParameter.Arc},{(TVParameter.Freq == 50 ? 0 : 1)}\n";
+            // 根据测试模式使用不同的命令格式
+            string wp;
+
+            if (TVParameter.TestMode == TestMode.ACW)
+            {
+                // ACW命令格式: WP <STEP,ACW,VOLT,TIME,RISETIME,FALLTIME,HIGH,LOW,ARC,FREQ>
+                // FREQ: 0=50Hz, 1=60Hz
+                wp = $"WP 1,{TVParameter.TestMode},{TVParameter.Voltage},{TVParameter.TestTime},{TVParameter.RiseTime},{TVParameter.FallTime},{TVParameter.High},{TVParameter.Low},{TVParameter.Arc},{(TVParameter.Freq == 50 ? 0 : 1)}\n";
+                WriteLog($"[参数下发] ACW模式参数:");
+                WriteLog($"  - 电压: {TVParameter.Voltage}V");
+                WriteLog($"  - 测试时间: {TVParameter.TestTime}s");
+                WriteLog($"  - 上升时间: {TVParameter.RiseTime}s");
+                WriteLog($"  - 下降时间: {TVParameter.FallTime}s");
+                WriteLog($"  - 电流上限: {TVParameter.High}mA");
+                WriteLog($"  - 电流下限: {TVParameter.Low}mA");
+                WriteLog($"  - 电弧侦测: {TVParameter.Arc}");
+                WriteLog($"  - 频率: {TVParameter.Freq}Hz ({(TVParameter.Freq == 50 ? 0 : 1)})");
+                WriteLog($"[参数下发] 发送命令: {wp.Replace("\n", "\\n")}");
+            }
+            else if (TVParameter.TestMode == TestMode.DCW)
+            {
+                // DCW命令格式: WP <STEP,DCW,VOLT,TIME,RISETIME,FALLTIME,HIGH,LOW,ARC,CHG,RUPPER>
+                // CHG: 充电参数（通常为0）
+                // RUPPER: 缓升上限
+                wp = $"WP 1,{TVParameter.TestMode},{TVParameter.Voltage},{TVParameter.TestTime},{TVParameter.RiseTime},{TVParameter.FallTime},{TVParameter.High},{TVParameter.Low},{TVParameter.Arc},0,0\n";
+                WriteLog($"[参数下发] DCW模式参数:");
+                WriteLog($"  - 电压: {TVParameter.Voltage}V");
+                WriteLog($"  - 测试时间: {TVParameter.TestTime}s");
+                WriteLog($"  - 上升时间: {TVParameter.RiseTime}s");
+                WriteLog($"  - 下降时间: {TVParameter.FallTime}s");
+                WriteLog($"  - 电流上限: {TVParameter.High}mA");
+                WriteLog($"  - 电流下限: {TVParameter.Low}mA");
+                WriteLog($"  - 电弧侦测: {TVParameter.Arc}");
+                WriteLog($"  - 充电参数: 0");
+                WriteLog($"  - 上限电阻: 0");
+                WriteLog($"[参数下发] 发送命令: {wp.Replace("\n", "\\n")}");
+            }
+            else
+            {
+                // IR或其他模式（暂不支持）
+                WriteLog($"[参数下发] ❌ 不支持的测试模式: {TVParameter.TestMode}");
+                r.Error = $"不支持的测试模式: {TVParameter.TestMode}";
+                return r;
+            }
+            
             var r2 = Send(wp);
             if (!r2.Success)
             {
+                WriteLog($"[参数下发] ❌ 参数下发失败: {r2.Error}");
                 r.Error = r2.Error;
                 return r;
             }
+            WriteLog($"[参数下发] ✓ 参数下发成功");
             Thread.Sleep(intervaltime);
 
+            WriteLog($"[参数下发] 开始回读参数验证...");
             var r3 = Get_String("rp? 1\n");
             if (!r3.Success)
             {
+                WriteLog($"[参数下发] ❌ 回读参数失败: {r3.Error}");
                 r.Error = r3.Error;
                 return r;
             }
+            WriteLog($"[参数下发] ✓ 回读参数成功: {r3.Value}");
+            
+            WriteLog($"[参数下发] 开始参数对比验证...");
             var r4 = TVParameter.compare(r3.Value);
             if (!r4.Success)
             {
+                WriteLog($"[参数下发] ❌ 参数验证失败:");
+                WriteLog($"{r4.Error}");
                 r.Error = $"测试工艺参数不一致，请重新下发工艺参数\r\n{r4.Error}";
                 return r;
             }
+            WriteLog($"[参数下发] ✓ 参数验证成功，所有参数一致");
+            WriteLog($"[参数下发] ========== 参数下发流程完成 ==========");
 
             r.Success = true;
 
@@ -466,7 +536,14 @@ namespace AT9620
             {
                 string[] ss = cmd.Split(',');
 
-                float _voltage, _testtime, _risetime, _falltime, _high, _low, _arc, _freq;
+                // 验证测试模式
+                if (TestMode.ToString() != ss[0])
+                {
+                    result.Error += $"\r\n测试模式不匹配: 期望{TestMode}，实际{ss[0]}";
+                }
+
+                // 解析通用参数（ACW和DCW都有的参数）
+                float _voltage, _testtime, _risetime, _falltime, _high, _low, _arc;
                 var r1 = float.TryParse(ss[1], out _voltage);
                 var r2 = float.TryParse(ss[2], out _testtime);
                 var r3 = float.TryParse(ss[3], out _risetime);
@@ -474,8 +551,13 @@ namespace AT9620
                 var r5 = float.TryParse(ss[5], out _high);
                 var r6 = float.TryParse(ss[6], out _low);
                 var r7 = float.TryParse(ss[7], out _arc);
-                var r8 = float.TryParse(ss[8], out _freq);
-                _freq = (_freq == 0 ? 50 : 60);
+
+                // DCW模式下，仪器回读的电流单位是微安(μA)，需要转换为毫安(mA)
+                if (TestMode == TestMode.DCW)
+                {
+                    _high = _high / 1000.0f;  // μA → mA
+                    _low = _low / 1000.0f;    // μA → mA
+                }
 
                 if (!r1)
                 {
@@ -505,48 +587,66 @@ namespace AT9620
                 {
                     result.Error += $"\r\n回读电弧侦测数据格式错误";
                 }
-                if (!r8)
-                {
-                    result.Error += $"\r\n回读频率数据格式错误";
-                }
 
-                if (TestMode.ToString() != ss[0])
-                {
-                    result.Error += $"\r\n测试模式不匹配";
-                }
+                // 验证通用参数值
                 if (Voltage != _voltage)
                 {
-                    result.Error += $"\r\n回读电压与测试工艺不符合";
+                    result.Error += $"\r\n回读电压与测试工艺不符合: 期望{Voltage}V，实际{_voltage}V";
                 }
-
                 if (TestTime != _testtime)
                 {
-                    result.Error += $"\r\n回读测试时间与测试工艺不符合";
+                    result.Error += $"\r\n回读测试时间与测试工艺不符合: 期望{TestTime}s，实际{_testtime}s";
                 }
                 if (RiseTime != _risetime)
                 {
-                    result.Error += $"\r\n回读上升时间与测试工艺不符合";
+                    result.Error += $"\r\n回读上升时间与测试工艺不符合: 期望{RiseTime}s，实际{_risetime}s";
                 }
                 if (FallTime != _falltime)
                 {
-                    result.Error += $"\r\n回读下降时间与测试工艺不符合";
+                    result.Error += $"\r\n回读下降时间与测试工艺不符合: 期望{FallTime}s，实际{_falltime}s";
                 }
                 if (High != _high)
                 {
-                    result.Error += $"\r\n回读电流上限与测试工艺不符合";
+                    result.Error += $"\r\n回读电流上限与测试工艺不符合: 期望{High}mA，实际{_high}mA";
                 }
                 if (Low != _low)
                 {
-                    result.Error += $"\r\n回读电流下限与测试工艺不符合";
+                    result.Error += $"\r\n回读电流下限与测试工艺不符合: 期望{Low}mA，实际{_low}mA";
                 }
                 if (Arc != _arc)
                 {
-                    result.Error += $"\r\n回读电弧与测试工艺不符合";
+                    result.Error += $"\r\n回读电弧与测试工艺不符合: 期望{Arc}，实际{_arc}";
                 }
-                if (Freq != _freq)
+
+                // 根据测试模式验证特定参数
+                if (TestMode == TestMode.ACW)
                 {
-                    result.Error += $"\r\n回读电压与测试工艺不符合";
+                    // ACW模式：验证频率参数（第9个参数，索引8）
+                    if (ss.Length > 8)
+                    {
+                        float _freq;
+                        var r8 = float.TryParse(ss[8], out _freq);
+                        if (!r8)
+                        {
+                            result.Error += $"\r\n回读频率数据格式错误";
+                        }
+                        else
+                        {
+                            _freq = (_freq == 0 ? 50 : 60);
+                            if (Freq != _freq)
+                            {
+                                result.Error += $"\r\n回读频率与测试工艺不符合: 期望{Freq}Hz，实际{_freq}Hz";
+                            }
+                        }
+                    }
                 }
+                else if (TestMode == TestMode.DCW)
+                {
+                    // DCW模式：验证CHG和RUPPER参数（第9、10个参数，索引8、9）
+                    // 注意：DCW模式不验证这两个参数，因为它们通常为0且不影响测试
+                    // 如果需要验证，可以在这里添加逻辑
+                }
+
                 if (string.IsNullOrEmpty(result.Error))
                 {
                     result.Success = true;
@@ -554,7 +654,7 @@ namespace AT9620
             }
             catch (Exception ex)
             {
-                result.Error += "\r\n" + ex.Message;
+                result.Error += "\r\n参数对比异常: " + ex.Message;
             }
             return result;
         }
@@ -590,8 +690,36 @@ namespace AT9620
         DCW,
         IR
     }
+
+    /// <summary>
+    /// 电测测试模式枚举（用于PLC信号D1012）
+    /// </summary>
+    /// <remarks>
+    /// 定义上位机向PLC写入的测试模式值，PLC根据此值控制测试顺序。
+    /// 值类型为ushort，对应PLC D寄存器的uint16格式。
+    /// </remarks>
+    public enum ElectricalTestMode : ushort
+    {
+        /// <summary>只测交流 (ACW Only) - 仅执行ACW交流耐压测试</summary>
+        ACWOnly = 0,
+        /// <summary>只测直流 (DCW Only) - 仅执行DCW直流耐压测试</summary>
+        DCWOnly = 1,
+        /// <summary>先交后直 (ACW then DCW) - 先执行ACW，再执行DCW</summary>
+        ACWThenDCW = 2,
+        /// <summary>先直后交 (DCW then ACW) - 先执行DCW，再执行ACW</summary>
+        DCWThenACW = 3
+    }
+
     public class AT9620EventArgs : EventArgs
     {
         public ResultTVProcess ResultTVProcess { set; get; } = new ResultTVProcess();
+    }
+
+    /// <summary>
+    /// 日志事件参数
+    /// </summary>
+    public class LogEventArgs : EventArgs
+    {
+        public string Message { get; set; }
     }
 }

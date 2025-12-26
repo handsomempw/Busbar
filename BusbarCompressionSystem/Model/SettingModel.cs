@@ -347,6 +347,64 @@ namespace BusbarCompressionSystem.Model
         [XmlElement("下料位SN地址")]
         public int SecondScanSNAddress { set; get; } = 1150;
 
+        /// <summary>
+        /// 测试模式信号地址（D寄存器，uint16类型）
+        /// </summary>
+        /// <remarks>
+        /// 上位机向PLC写入测试模式值：
+        /// - 0: 只测交流(ACW Only)
+        /// - 1: 只测直流(DCW Only)
+        /// - 2: 先交后直(ACW then DCW)
+        /// - 3: 先直后交(DCW then ACW)
+        /// 默认地址D1012
+        /// </remarks>
+        [XmlElement("测试模式地址")]
+        public int TestModeAddress { set; get; } = 1012;
+
+        /// <summary>
+        /// 当前测试模式配置
+        /// </summary>
+        /// <remarks>
+        /// 系统启动或配置变更时，将此值写入PLC TestModeAddress地址
+        /// </remarks>
+        private AT9620.ElectricalTestMode _currentTestMode = AT9620.ElectricalTestMode.ACWOnly;
+
+        [XmlElement("当前测试模式")]
+        public AT9620.ElectricalTestMode CurrentTestMode 
+        { 
+            get { return _currentTestMode; }
+            set 
+            { 
+                _currentTestMode = value;
+                RaisePropertyChanged(() => CurrentTestMode);
+                RaisePropertyChanged(() => CurrentTestModeDisplay);
+            }
+        }
+
+        /// <summary>
+        /// 当前测试模式的中文显示名称（用于界面绑定）
+        /// </summary>
+        [XmlIgnore]
+        public string CurrentTestModeDisplay
+        {
+            get
+            {
+                switch (CurrentTestMode)
+                {
+                    case AT9620.ElectricalTestMode.ACWOnly:
+                        return "只测交流";
+                    case AT9620.ElectricalTestMode.DCWOnly:
+                        return "只测直流";
+                    case AT9620.ElectricalTestMode.ACWThenDCW:
+                        return "先交后直";
+                    case AT9620.ElectricalTestMode.DCWThenACW:
+                        return "先直后交";
+                    default:
+                        return "未知模式";
+                }
+            }
+        }
+
         #endregion
 
         #region ==================== 机器人通信配置 ====================

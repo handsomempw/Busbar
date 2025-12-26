@@ -202,6 +202,11 @@ namespace BusbarCompressionSystem.ViewModel
                 // 加载独立的耐压状态映射配置文件
                 LoadTvStatusMappings();
             }
+            
+            // 订阅AT9620日志事件，将设备日志转发到应用日志
+            DataModel.Settingmodel.AT9620_1.LogMessage += (s, e) => writeLog($"[耐压1] {e.Message}");
+            DataModel.Settingmodel.AT9620_2.LogMessage += (s, e) => writeLog($"[耐压2] {e.Message}");
+            DataModel.Settingmodel.AT9620_3.LogMessage += (s, e) => writeLog($"[耐压3] {e.Message}");
         }
         #endregion
 
@@ -586,11 +591,21 @@ namespace BusbarCompressionSystem.ViewModel
                             #region 耐压1触发
                             try
                             {
-                                if ((TV1Trig == 1 || TV1Trig == 2) & DataModel.Processmodel.TV1_Trig_IO.IOstatus == 0)
+                                // TV1Trig=1: ACW交流耐压测试
+                                // TV1Trig=2: DCW直流耐压测试
+                                // TV1Trig=3: 停止测试
+                                if (TV1Trig == 1 & DataModel.Processmodel.TV1_Trig_IO.IOstatus == 0)
                                 {
                                     new Thread(() =>
                                     {
-                                        TV1Process();
+                                        TV1Process_ACW();
+                                    }).Start();
+                                }
+                                else if (TV1Trig == 2 & DataModel.Processmodel.TV1_Trig_IO.IOstatus == 0)
+                                {
+                                    new Thread(() =>
+                                    {
+                                        TV1Process_DCW();
                                     }).Start();
                                 }
                                 if ((TV1Trig == 3) & DataModel.Processmodel.TV1_Trig_IO.IOstatus != TV1Trig)
@@ -604,11 +619,21 @@ namespace BusbarCompressionSystem.ViewModel
                             #region 耐压2触发
                             try
                             {
-                                if ((TV2Trig == 1 || TV2Trig == 2) & DataModel.Processmodel.TV2_Trig_IO.IOstatus == 0)
+                                // TV2Trig=1: ACW交流耐压测试
+                                // TV2Trig=2: DCW直流耐压测试
+                                // TV2Trig=3: 停止测试
+                                if (TV2Trig == 1 & DataModel.Processmodel.TV2_Trig_IO.IOstatus == 0)
                                 {
                                     new Thread(() =>
                                     {
-                                        TV2Process();
+                                        TV2Process_ACW();
+                                    }).Start();
+                                }
+                                else if (TV2Trig == 2 & DataModel.Processmodel.TV2_Trig_IO.IOstatus == 0)
+                                {
+                                    new Thread(() =>
+                                    {
+                                        TV2Process_DCW();
                                     }).Start();
                                 }
                                 if ((TV2Trig == 3) & DataModel.Processmodel.TV2_Trig_IO.IOstatus != TV2Trig)
@@ -997,6 +1022,145 @@ namespace BusbarCompressionSystem.ViewModel
 
 
 
+        /// <summary>
+        /// 执行ACW交流耐压测试（TV1工位）
+        /// </summary>
+        /// <remarks>
+        /// 当TV1Trig=1时调用此方法。
+        /// 如果上次执行的是DCW测试，会先重新下发ACW参数到AT9620设备。
+        /// </remarks>
+        public void TV1Process_ACW()
+        {
+            writeLog($"[耐压1-ACW] 开始ACW交流耐压测试");
+            
+            // 检查是否需要切换参数（从DCW切换到ACW）
+            if (DataModel.Processmodel.LastTV1TestMode != AT9620.TestMode.ACW)
+            {
+                writeLog($"[耐压1-ACW] 检测到模式切换 {DataModel.Processmodel.LastTV1TestMode} → ACW，重新下发参数");
+                DataModel.Settingmodel.AT9620_1.TVParameter = DataModel.Processmodel.ACWParameter;
+                var downloadResult = DataModel.Settingmodel.AT9620_1.Download();
+                if (!downloadResult.Success)
+                {
+                    writeLog($"[耐压1-ACW] ❌ ACW参数下发失败: {downloadResult.Error}", true);
+                    PLC_write((DataModel.Settingmodel.AddressStart + 7).ToString(), (UInt16)2);
+                    return;
+                }
+                DataModel.Processmodel.LastTV1TestMode = AT9620.TestMode.ACW;
+                writeLog($"[耐压1-ACW] ACW参数下发成功");
+            }
+            
+            // 执行测试（复用现有逻辑）
+            TV1Process_Core("ACW");
+        }
+
+        /// <summary>
+        /// 执行DCW直流耐压测试（TV1工位）
+        /// </summary>
+        /// <remarks>
+        /// 当TV1Trig=2时调用此方法。
+        /// 如果上次执行的是ACW测试，会先重新下发DCW参数到AT9620设备。
+        /// </remarks>
+        public void TV1Process_DCW()
+        {
+            writeLog($"[耐压1-DCW] 开始DCW直流耐压测试");
+            
+            // 检查是否需要切换参数（从ACW切换到DCW）
+            if (DataModel.Processmodel.LastTV1TestMode != AT9620.TestMode.DCW)
+            {
+                writeLog($"[耐压1-DCW] 检测到模式切换 {DataModel.Processmodel.LastTV1TestMode} → DCW，重新下发参数");
+                DataModel.Settingmodel.AT9620_1.TVParameter = DataModel.Processmodel.DCWParameter;
+                var downloadResult = DataModel.Settingmodel.AT9620_1.Download();
+                if (!downloadResult.Success)
+                {
+                    writeLog($"[耐压1-DCW] ❌ DCW参数下发失败: {downloadResult.Error}", true);
+                    PLC_write((DataModel.Settingmodel.AddressStart + 7).ToString(), (UInt16)2);
+                    return;
+                }
+                DataModel.Processmodel.LastTV1TestMode = AT9620.TestMode.DCW;
+                writeLog($"[耐压1-DCW] DCW参数下发成功");
+            }
+            
+            // 执行测试（复用现有逻辑）
+            TV1Process_Core("DCW");
+        }
+
+        /// <summary>
+        /// TV1耐压测试核心逻辑（ACW/DCW共用）
+        /// </summary>
+        /// <param name="testType">测试类型标识，用于日志区分</param>
+        private void TV1Process_Core(string testType)
+        {
+            string s = PLC_Readstring(DataModel.Settingmodel.AddressSN + 25);
+
+            string[] ss = s.Split(';');
+            if (ss.Length == 2)
+            {
+                DataModel.Processmodel.TVTestTestModel1.Productinfo = new Productinfo() { SN = ss[0], WOCODE = ss[1], PartNOID = DataModel.Processmodel.PartNOID };
+                writeLog($"[耐压1-{testType}] 产品编码读取成功: SN={ss[0]}, WOCODE={ss[1]}");
+            }
+            else
+            {
+                writeLog($"[耐压1-{testType}] ❌ 产品编号读取错误! 原始值=[{s}], 期望格式=[SN;WOCODE], 分段数={ss.Length}", true);
+                SQLITEDATABASE.sqlite.WriteErrorLog($"[PLC数据异常]TV1-{testType}-产品编码格式错误", 
+                    $"原始值=[{s}], 分段数={ss.Length}, PLC地址=D{DataModel.Settingmodel.AddressSN + 25}");
+            }
+
+            float res = PLC_ReadFloat(DataModel.Settingmodel.AddressRes);
+            DataModel.Processmodel.TVTestTestModel1.Res = res;
+
+            DataModel.Processmodel.TVTestTestModel1.TVMaxVoltage = 0;
+            DataModel.Processmodel.TVTestTestModel1.TVMaxCurrent = 0;
+
+            var r = DataModel.Settingmodel.AT9620_1.Start();
+            var localizedTvInfo1 = GetLocalizedTvStatus(DataModel.Processmodel.TVTestTestModel1.TVInfo);
+            DataModel.Processmodel.TVTestTestModel1.TVInfo = localizedTvInfo1;
+
+            bool updateTvResult = sqlite.UpdateTV(DataModel.Processmodel.TVTestTestModel1.Productinfo.WOCODE,
+                DataModel.Processmodel.TVTestTestModel1.Productinfo.PartNOID,
+                DataModel.Processmodel.TVTestTestModel1.Productinfo.SN,
+                res,
+                DataModel.Processmodel.TVTestTestModel1.TVMaxVoltage,
+                r.Success,
+                DataModel.Processmodel.TVTestTestModel1.TVMaxCurrent,
+                localizedTvInfo1,
+                DataModel.Settingmodel.SETTING_DATA.TVMeterID1
+                );
+            if (!updateTvResult)
+            {
+                writeLog($"[耐压1-{testType}] ⚠ UpdateTV更新失败! SN={DataModel.Processmodel.TVTestTestModel1.Productinfo.SN}, RES={res}", true);
+            }
+
+            updatetv(DataModel.Processmodel.TVTestTestModel1.Productinfo.SN,
+                res,
+                DataModel.Processmodel.TVTestTestModel1.TVMaxVoltage,
+                r.Success,
+                DataModel.Processmodel.TVTestTestModel1.TVMaxCurrent,
+                localizedTvInfo1,
+                DataModel.Settingmodel.SETTING_DATA.TVMeterID1
+                );
+
+            if (!r.Success)
+            {
+                var failureStatus1 = GetLocalizedTvStatus(DataModel.Processmodel.TVTestTestModel1.Status);
+                DataModel.Settingmodel.Sqlserver.Save_TVProcessData(
+                    DataModel.Processmodel.TVTestTestModel1.Productinfo.WOCODE,
+                    DataModel.Processmodel.TVTestTestModel1.Productinfo.SN,
+                    DataModel.Settingmodel.SETTING_DATA.ProcedureName,
+                    failureStatus1,
+                    DataModel.Settingmodel.SETTING_DATA.WorkerID,
+                    DateTime.Now,
+                    DataModel.Settingmodel.SETTING_DATA.TVMeterID1,
+                    r.Recordstr
+                    );
+            }
+
+            writeLog($"[耐压1-{testType}] 测试完成，结果: {(r.Success ? "PASS" : "FAIL")}");
+            PLC_write((DataModel.Settingmodel.AddressStart + 7).ToString(), 1);
+        }
+
+        /// <summary>
+        /// 原TV1Process方法（保留兼容，内部调用TV1Process_ACW）
+        /// </summary>
         public void TV1Process()
         {
             string s = PLC_Readstring(DataModel.Settingmodel.AddressSN + 25);
@@ -1069,6 +1233,143 @@ namespace BusbarCompressionSystem.ViewModel
             PLC_write((DataModel.Settingmodel.AddressStart + 7).ToString(), 1);
         }
 
+        /// <summary>
+        /// 执行ACW交流耐压测试（TV2工位）
+        /// </summary>
+        /// <remarks>
+        /// 当TV2Trig=1时调用此方法。
+        /// 如果上次执行的是DCW测试，会先重新下发ACW参数到AT9620设备。
+        /// </remarks>
+        public void TV2Process_ACW()
+        {
+            writeLog($"[耐压2-ACW] 开始ACW交流耐压测试");
+            
+            // 检查是否需要切换参数（从DCW切换到ACW）
+            if (DataModel.Processmodel.LastTV2TestMode != AT9620.TestMode.ACW)
+            {
+                writeLog($"[耐压2-ACW] 检测到模式切换 {DataModel.Processmodel.LastTV2TestMode} → ACW，重新下发参数");
+                DataModel.Settingmodel.AT9620_2.TVParameter = DataModel.Processmodel.ACWParameter;
+                var downloadResult = DataModel.Settingmodel.AT9620_2.Download();
+                if (!downloadResult.Success)
+                {
+                    writeLog($"[耐压2-ACW] ❌ ACW参数下发失败: {downloadResult.Error}", true);
+                    PLC_write((DataModel.Settingmodel.AddressStart + 9).ToString(), (UInt16)2);
+                    return;
+                }
+                DataModel.Processmodel.LastTV2TestMode = AT9620.TestMode.ACW;
+                writeLog($"[耐压2-ACW] ACW参数下发成功");
+            }
+            
+            // 执行测试（复用现有逻辑）
+            TV2Process_Core("ACW");
+        }
+
+        /// <summary>
+        /// 执行DCW直流耐压测试（TV2工位）
+        /// </summary>
+        /// <remarks>
+        /// 当TV2Trig=2时调用此方法。
+        /// 如果上次执行的是ACW测试，会先重新下发DCW参数到AT9620设备。
+        /// </remarks>
+        public void TV2Process_DCW()
+        {
+            writeLog($"[耐压2-DCW] 开始DCW直流耐压测试");
+            
+            // 检查是否需要切换参数（从ACW切换到DCW）
+            if (DataModel.Processmodel.LastTV2TestMode != AT9620.TestMode.DCW)
+            {
+                writeLog($"[耐压2-DCW] 检测到模式切换 {DataModel.Processmodel.LastTV2TestMode} → DCW，重新下发参数");
+                DataModel.Settingmodel.AT9620_2.TVParameter = DataModel.Processmodel.DCWParameter;
+                var downloadResult = DataModel.Settingmodel.AT9620_2.Download();
+                if (!downloadResult.Success)
+                {
+                    writeLog($"[耐压2-DCW] ❌ DCW参数下发失败: {downloadResult.Error}", true);
+                    PLC_write((DataModel.Settingmodel.AddressStart + 9).ToString(), (UInt16)2);
+                    return;
+                }
+                DataModel.Processmodel.LastTV2TestMode = AT9620.TestMode.DCW;
+                writeLog($"[耐压2-DCW] DCW参数下发成功");
+            }
+            
+            // 执行测试（复用现有逻辑）
+            TV2Process_Core("DCW");
+        }
+
+        /// <summary>
+        /// TV2耐压测试核心逻辑（ACW/DCW共用）
+        /// </summary>
+        /// <param name="testType">测试类型标识，用于日志区分</param>
+        private void TV2Process_Core(string testType)
+        {
+            string s = PLC_Readstring(DataModel.Settingmodel.AddressSN + 25 * 2);
+
+            string[] ss = s.Split(';');
+            if (ss.Length == 2)
+            {
+                DataModel.Processmodel.TVTestTestModel2.Productinfo = new Productinfo() { SN = ss[0], WOCODE = ss[1], PartNOID = DataModel.Processmodel.PartNOID };
+                writeLog($"[耐压2-{testType}] 产品编码读取成功: SN={ss[0]}, WOCODE={ss[1]}");
+            }
+            else
+            {
+                writeLog($"[耐压2-{testType}] ❌ 产品编号读取错误! 原始值=[{s}], 期望格式=[SN;WOCODE], 分段数={ss.Length}", true);
+                SQLITEDATABASE.sqlite.WriteErrorLog($"[PLC数据异常]TV2-{testType}-产品编码格式错误", 
+                    $"原始值=[{s}], 分段数={ss.Length}, PLC地址=D{DataModel.Settingmodel.AddressSN + 25 * 2}");
+            }
+
+            float res = PLC_ReadFloat(DataModel.Settingmodel.AddressRes + 1 * 2);
+            DataModel.Processmodel.TVTestTestModel2.Res = res;
+
+            DataModel.Processmodel.TVTestTestModel2.TVMaxVoltage = 0;
+            DataModel.Processmodel.TVTestTestModel2.TVMaxCurrent = 0;
+            var r = DataModel.Settingmodel.AT9620_2.Start();
+            var localizedTvInfo2 = GetLocalizedTvStatus(DataModel.Processmodel.TVTestTestModel2.TVInfo);
+            DataModel.Processmodel.TVTestTestModel2.TVInfo = localizedTvInfo2;
+
+            bool updateTvResult = sqlite.UpdateTV(DataModel.Processmodel.TVTestTestModel2.Productinfo.WOCODE,
+               DataModel.Processmodel.TVTestTestModel2.Productinfo.PartNOID,
+               DataModel.Processmodel.TVTestTestModel2.Productinfo.SN,
+               res,
+               DataModel.Processmodel.TVTestTestModel2.TVMaxVoltage,
+               r.Success,
+               DataModel.Processmodel.TVTestTestModel2.TVMaxCurrent,
+               localizedTvInfo2,
+               DataModel.Settingmodel.SETTING_DATA.TVMeterID2
+               );
+            if (!updateTvResult)
+            {
+                writeLog($"[耐压2-{testType}] ⚠ UpdateTV更新失败! SN={DataModel.Processmodel.TVTestTestModel2.Productinfo.SN}, RES={res}", true);
+            }
+
+            updatetv(DataModel.Processmodel.TVTestTestModel2.Productinfo.SN,
+                res, DataModel.Processmodel.TVTestTestModel2.TVMaxVoltage,
+                r.Success,
+                DataModel.Processmodel.TVTestTestModel2.TVMaxCurrent,
+                localizedTvInfo2,
+                DataModel.Settingmodel.SETTING_DATA.TVMeterID2
+                );
+
+            if (!r.Success)
+            {
+                var failureStatus2 = GetLocalizedTvStatus(DataModel.Processmodel.TVTestTestModel2.Status);
+                DataModel.Settingmodel.Sqlserver.Save_TVProcessData(
+                    DataModel.Processmodel.TVTestTestModel2.Productinfo.WOCODE,
+                    DataModel.Processmodel.TVTestTestModel2.Productinfo.SN,
+                    DataModel.Settingmodel.SETTING_DATA.ProcedureName,
+                    failureStatus2,
+                    DataModel.Settingmodel.SETTING_DATA.WorkerID,
+                    DateTime.Now,
+                    DataModel.Settingmodel.SETTING_DATA.TVMeterID2,
+                    r.Recordstr
+                    );
+            }
+
+            writeLog($"[耐压2-{testType}] 测试完成，结果: {(r.Success ? "PASS" : "FAIL")}");
+            PLC_write((DataModel.Settingmodel.AddressStart + 9).ToString(), 1);
+        }
+
+        /// <summary>
+        /// 原TV2Process方法（保留兼容，内部调用TV2Process_ACW）
+        /// </summary>
         public void TV2Process()
         {
             string s = PLC_Readstring(DataModel.Settingmodel.AddressSN + 25 * 2);
@@ -1343,6 +1644,53 @@ namespace BusbarCompressionSystem.ViewModel
             }
             catch {; }
             return false;
+        }
+
+        /// <summary>
+        /// 将测试模式写入PLC地址D1012
+        /// </summary>
+        /// <remarks>
+        /// 测试模式值：
+        /// - 0: 只测交流(ACW Only)
+        /// - 1: 只测直流(DCW Only)
+        /// - 2: 先交后直(ACW then DCW)
+        /// - 3: 先直后交(DCW then ACW)
+        /// </remarks>
+        /// <returns>true: 写入成功; false: 写入失败</returns>
+        public bool WriteTestModeToPLC()
+        {
+            try
+            {
+                ushort modeValue = (ushort)DataModel.Settingmodel.CurrentTestMode;
+                string address = DataModel.Settingmodel.TestModeAddress.ToString();
+                
+                writeLog($"[测试模式] 写入PLC地址D{address}, 值={modeValue} ({DataModel.Settingmodel.CurrentTestMode})");
+                
+                bool result = PLC_write(address, modeValue);
+                
+                if (!result)
+                {
+                    writeLog($"[测试模式] ❌ 写入PLC失败! 地址=D{address}, 值={modeValue}", true);
+                }
+                
+                return result;
+            }
+            catch (Exception ex)
+            {
+                writeLog($"[测试模式] ❌ 写入PLC异常: {ex.Message}", true);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 将指定测试模式写入PLC
+        /// </summary>
+        /// <param name="testMode">要写入的测试模式</param>
+        /// <returns>true: 写入成功; false: 写入失败</returns>
+        public bool WriteTestModeToPLC(AT9620.ElectricalTestMode testMode)
+        {
+            DataModel.Settingmodel.CurrentTestMode = testMode;
+            return WriteTestModeToPLC();
         }
 
 
@@ -2829,7 +3177,7 @@ namespace BusbarCompressionSystem.ViewModel
                     string s_75 = PLC_Readstring(DataModel.Settingmodel.AddressSN + 75);
                     string s_100 = PLC_Readstring(DataModel.Settingmodel.AddressSN + 100); // 这是 target
 
-                    writeLog($"[CHECK1 Debug] 全地址数据读取详情:");
+                    writeLog($"[CHECK1 Debug] 全地址数据读取详情:",false);
                     writeLog($"  AddressSN+0   (地址{DataModel.Settingmodel.AddressSN}) : [{s_base}]", false);
                     writeLog($"  AddressSN+25  (地址{DataModel.Settingmodel.AddressSN + 25}) : [{s_25}]", false);
                     writeLog($"  AddressSN+50  (地址{DataModel.Settingmodel.AddressSN + 50}) : [{s_50}]", false);

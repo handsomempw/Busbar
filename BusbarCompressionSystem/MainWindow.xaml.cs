@@ -145,6 +145,21 @@ namespace BusbarCompressionSystem
 
         private void inittvparameter()
         {
+            // 初始化ACW参数（默认使用TVParameter的值）
+            vml.Main.DataModel.Processmodel.ACWParameter.TestMode = AT9620.TestMode.ACW;
+            
+            // 初始化DCW参数（默认使用TVParameter的值，TestMode设为DCW）
+            vml.Main.DataModel.Processmodel.DCWParameter.TestMode = AT9620.TestMode.DCW;
+            
+            // 默认使用ACW参数关联到AT9620设备
+            // 实际测试时会根据TV1Trig/TV2Trig的值动态切换
+            vml.Main.DataModel.Settingmodel.AT9620_1.TVParameter = vml.Main.DataModel.Processmodel.ACWParameter;
+            vml.Main.DataModel.Settingmodel.AT9620_2.TVParameter = vml.Main.DataModel.Processmodel.ACWParameter;
+            vml.Main.DataModel.Settingmodel.AT9620_3.TVParameter = vml.Main.DataModel.Processmodel.ACWParameter;
+            
+            // 初始化上次测试模式为ACW
+            vml.Main.DataModel.Processmodel.LastTV1TestMode = AT9620.TestMode.ACW;
+            vml.Main.DataModel.Processmodel.LastTV2TestMode = AT9620.TestMode.ACW;
 
             //vml.Main.DataModel.Processmodel.TVParameter.RiseTime = 5;
             //vml.Main.DataModel.Processmodel.TVParameter.FallTime = 5;
@@ -152,9 +167,10 @@ namespace BusbarCompressionSystem
             //vml.Main.DataModel.Processmodel.TVParameter.Voltage = 50;
             //vml.Main.DataModel.Processmodel.TVParameter.High = 10;
             //vml.Main.DataModel.Processmodel.TVParameter.Low = 0;
-            vml.Main.DataModel.Settingmodel.AT9620_1.TVParameter = vml.Main.DataModel.Processmodel.TVParameter;
-            vml.Main.DataModel.Settingmodel.AT9620_2.TVParameter = vml.Main.DataModel.Processmodel.TVParameter;
-            vml.Main.DataModel.Settingmodel.AT9620_3.TVParameter = vml.Main.DataModel.Processmodel.TVParameter;
+            // 旧逻辑
+            // vml.Main.DataModel.Settingmodel.AT9620_1.TVParameter = vml.Main.DataModel.Processmodel.TVParameter;
+            // vml.Main.DataModel.Settingmodel.AT9620_2.TVParameter = vml.Main.DataModel.Processmodel.TVParameter;
+            // vml.Main.DataModel.Settingmodel.AT9620_3.TVParameter = vml.Main.DataModel.Processmodel.TVParameter;
         }
 
         private void Button_Click_1(object sender, RoutedEventArgs e)
