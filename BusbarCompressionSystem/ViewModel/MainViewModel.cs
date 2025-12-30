@@ -59,6 +59,13 @@ namespace BusbarCompressionSystem.ViewModel
     /// </summary>
     public partial class MainViewModel : ViewModelBase
     {
+        #region 静态锁对象
+        /// <summary>
+        /// 尺寸测量日志写入锁
+        /// </summary>
+        private static readonly object _measurementLogLock = new object();
+        #endregion
+
         /// <summary>
         /// Initializes a new instance of the MainViewModel class.
         /// </summary>
@@ -2270,6 +2277,77 @@ namespace BusbarCompressionSystem.ViewModel
             //}
         }
 
+        #region 尺寸测量日志
+        /// <summary>
+        /// 写入尺寸测量结果到日志文件（线程安全）
+        /// 文件路径：日志\尺寸测量结果\{yyyyMMdd}.txt
+        /// 格式：[时间戳] 规格|批号|SN码|工具名称|测量类型|测量范围|真实尺寸|结果
+        /// </summary>
+        /// <param name="tool">测量工具模型</param>
+        /// <param name="productInfo">产品信息</param>
+        /// <param name="measureTime">测量时间</param>
+        private void WriteMeasurementLog(ToolModel tool, Productinfo productInfo, DateTime measureTime)
+        {
+            lock (_measurementLogLock)  // 确保线程安全
+            {
+                try
+                {
+                    // 构建日志内容（单行记录）
+                    string logContent = $"[{measureTime:yyyy-MM-dd HH:mm:ss.fff}] " +
+                        $"{productInfo.PartNOID}|" +
+                        $"{productInfo.WOCODE}|" +
+                        $"{productInfo.SN}|" +
+                        $"{tool.Name}|" +
+                        $"{tool.MeasureType}|" +
+                        $"{tool.MinMeasureValue:F3}~{tool.MaxMeasureValue:F3}|" +
+                        $"{tool.ActualMeasureValue:F3}|" +
+                        $"{GetMeasurementStatusText(tool.ToolStatus)}";
+
+                    // 确定文件路径（按日期分文件）
+                    string filename = $"{Environment.CurrentDirectory}\\日志\\尺寸测量结果\\{measureTime:yyyyMMdd}.txt";
+                    string dir = Path.GetDirectoryName(filename);
+
+                    // 创建目录（如果不存在）
+                    if (!Directory.Exists(dir))
+                    {
+                        Directory.CreateDirectory(dir);
+                    }
+
+                    // 追加写入日志
+                    using (StreamWriter sw = new StreamWriter(filename, true, Encoding.UTF8))
+                    {
+                        sw.WriteLine(logContent);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // 写入失败时记录到错误日志，不影响主流程
+                    writeError($"写入尺寸测量日志失败: {ex.Message}\r\n{ex.StackTrace}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// 获取测量状态的文本描述
+        /// </summary>
+        /// <param name="status">工具状态</param>
+        /// <returns>状态文本（OK/NG/NG2）</returns>
+        private string GetMeasurementStatusText(ToolStatus status)
+        {
+            switch (status)
+            {
+                case ToolStatus.OK:
+                    return "OK";
+                case ToolStatus.NG:
+                    return "NG";
+                case ToolStatus.NG2:
+                    return "NG2";
+                default:
+                    return status.ToString();
+            }
+        }
+        #endregion
+
         internal void writeError(string Content)
         {
 
@@ -2971,6 +3049,48 @@ namespace BusbarCompressionSystem.ViewModel
                             writeLog($"视觉->保存照片:保存失败：{ex.ToString()}", false);
                         }
 
+                        #endregion
+
+                        #region 保存尺寸测量日志
+                        // 仅当测试模式为尺寸测量时，记录测量结果到日志文件
+                        if (tool.TestMode == TestModes.尺寸测量)
+                        {
+                            try
+                            {
+                                // 直接使用AOI工位的产品信息（扫码时已填充，包含完整的SN、WOCODE、PartNOID）
+                                Productinfo productInfo = DataModel.Processmodel.TakePhotoTestMode2.Productinfo;
+                                
+                                // 安全检查：如果产品信息为空或SN为空，使用备用方案
+                                if (productInfo == null || string.IsNullOrEmpty(productInfo.SN))
+                                {
+                                    // 备用方案：从SNList获取SN
+                                    string sn = "";
+                                    try
+                                    {
+                                        sn = DataModel.FaraVisionDataModel.Processmodel.SNList[tool.ProductPositionNO];
+                                    }
+                                    catch
+                                    {
+                                        sn = DataModel.FaraVisionDataModel.Processmodel.BarcodeStr ?? "UNKNOWN";
+                                    }
+                                    
+                                    productInfo = new Productinfo
+                                    {
+                                        SN = sn,
+                                        WOCODE = "",
+                                        PartNOID = ""
+                                    };
+                                }
+
+                                // 写入测量日志
+                                WriteMeasurementLog(tool, productInfo, DateTime.Now);
+                            }
+                            catch (Exception ex)
+                            {
+                                // 日志写入失败不影响主流程，仅记录错误
+                                writeLog($"保存尺寸测量日志异常: {ex.Message}", false);
+                            }
+                        }
                         #endregion
 
                         if (tool.SendStatus)
