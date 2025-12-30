@@ -1853,14 +1853,33 @@ namespace BusbarCompressionSystem.ViewModel
         {
             try
             {
-                bool success = PLC_write(DataModel.Settingmodel.AOI_NG_InspectionAddress.ToString(), value);
-                if (success)
+                ModbusTcpNet modbusTcp = new ModbusTcpNet();
+                modbusTcp.ConnectTimeOut = 1;
+                modbusTcp.ReceiveTimeOut = 1;
+                modbusTcp.IpAddress = DataModel.Settingmodel.PLC_IP;
+                modbusTcp.Port = DataModel.Settingmodel.PLC_Port;
+                modbusTcp.DataFormat = HslCommunication.Core.DataFormat.CDAB;
+                
+                var connectresult = modbusTcp.ConnectServer();
+                if (connectresult.IsSuccess)
                 {
-                    writeLog($"AOI_NG点检->向PLC地址M{DataModel.Settingmodel.AOI_NG_InspectionAddress}写入{value}成功");
+                    // M寄存器是线圈（Coil），使用WriteCoil方法写入Bool值
+                    bool boolValue = (value == 1);
+                    var writeResult = modbusTcp.WriteCoil(DataModel.Settingmodel.AOI_NG_InspectionAddress.ToString(), boolValue);
+                    modbusTcp.ConnectClose();
+                    
+                    if (writeResult.IsSuccess)
+                    {
+                        writeLog($"AOI_NG点检->向PLC地址M{DataModel.Settingmodel.AOI_NG_InspectionAddress}写入{value}成功");
+                    }
+                    else
+                    {
+                        writeLog($"AOI_NG点检->向PLC地址M{DataModel.Settingmodel.AOI_NG_InspectionAddress}写入{value}失败: {writeResult.Message}");
+                    }
                 }
                 else
                 {
-                    writeLog($"AOI_NG点检->向PLC地址M{DataModel.Settingmodel.AOI_NG_InspectionAddress}写入{value}失败");
+                    writeLog($"AOI_NG点检->PLC连接失败: {connectresult.Message}");
                 }
             }
             catch (Exception ex)
@@ -3612,15 +3631,15 @@ namespace BusbarCompressionSystem.ViewModel
 
                                     if (allToolsNG)
                                     {
-                                        MSG = "OK";
-                                        resultstr = "AOI_NG点检合格(所有工具均为NG)";
+                                        MSG = "NG4";
+                                        resultstr = "AOI_NG点检通过(所有工具均为NG)";
                                         // 向PLC写入点检通过信号
                                         WriteAOI_NG_InspectionSignal(1);
                                     }
                                     else
                                     {
                                         MSG = "NG4";
-                                        resultstr = "AOI_NG点检不合格(存在工具非NG)";
+                                        resultstr = "AOI_NG点检不通过(存在工具非NG)";
                                         // 向PLC写入点检失败信号
                                         WriteAOI_NG_InspectionSignal(0);
                                     }

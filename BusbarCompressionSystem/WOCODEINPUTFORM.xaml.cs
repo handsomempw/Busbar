@@ -107,117 +107,129 @@ namespace BusbarCompressionSystem
                 var dcw8 = ps.Where(p => p.ParameterName == "直流极壳压力上限");
                 var dcw9 = ps.Where(p => p.ParameterName == "直流极壳压力下限");
 
+                // 首先检查测试模式参数是否存在
+                if (r2.Count() == 0)
+                {
+                    MessageBoxX.Show("缺少测试模式参数，无法继续", MessageBoxIcon.Error);
+                    return;
+                }
+
+                // 解析测试模式，决定需要检查哪些参数
+                int testModeValue = Convert.ToInt16(r2.First().TargetValue);
+                bool needACW = (testModeValue == 0 || testModeValue == 2 || testModeValue == 3); // 只测交流、先交后直、先直后交
+                bool needDCW = (testModeValue == 1 || testModeValue == 2 || testModeValue == 3); // 只测直流、先交后直、先直后交
+
                 string error = "缺少以下工艺参数:\r\n";
                 bool r = true;
                 
-                // 检查ACW交流参数
-                if (r1.Count() == 0)
+                // 根据测试模式检查ACW交流参数
+                if (needACW)
                 {
-                    error += "测试电压\r\n";
-                    r = false;
-                }
-                if (r2.Count() == 0)
-                {
-                    error += "测试模式\r\n";
-                    r = false;
-                }
-                if (r3.Count() == 0)
-                {
-                    error += "上升时间\r\n";
-                    r = false;
-                }
-                if (r4.Count() == 0)
-                {
-                    error += "测试时间\r\n";
-                    r = false;
-                }
-                if (r5.Count() == 0)
-                {
-                    error += "下降时间\r\n";
-                    r = false;
-                }
-                if (r6.Count() == 0)
-                {
-                    error += "测试电流\r\n";
-                    r = false;
-                }
-                if (r7.Count() == 0)
-                {
-                    error += "充电电流下限\r\n";
-                    r = false;
-                }
-                if (r8.Count() == 0)
-                {
-                    error += "测试频率\r\n";
-                    r = false;
-                }
-                if (r9.Count() == 0)
-                {
-                    error += "极壳压力上限\r\n";
-                    r = false;
-                }
-                if (r10.Count() == 0)
-                {
-                    error += "极壳压力下限\r\n";
-                    r = false;
-                }
-                if (r11.Count() == 0)
-                {
-                    error += "极壳压力\r\n";
-                    r = false;
+                    if (r1.Count() == 0)
+                    {
+                        error += "测试电压\r\n";
+                        r = false;
+                    }
+                    if (r3.Count() == 0)
+                    {
+                        error += "上升时间\r\n";
+                        r = false;
+                    }
+                    if (r4.Count() == 0)
+                    {
+                        error += "测试时间\r\n";
+                        r = false;
+                    }
+                    if (r5.Count() == 0)
+                    {
+                        error += "下降时间\r\n";
+                        r = false;
+                    }
+                    if (r6.Count() == 0)
+                    {
+                        error += "测试电流\r\n";
+                        r = false;
+                    }
+                    if (r7.Count() == 0)
+                    {
+                        error += "充电电流下限\r\n";
+                        r = false;
+                    }
+                    if (r8.Count() == 0)
+                    {
+                        error += "测试频率\r\n";
+                        r = false;
+                    }
+                    if (r9.Count() == 0)
+                    {
+                        error += "极壳压力上限\r\n";
+                        r = false;
+                    }
+                    if (r10.Count() == 0)
+                    {
+                        error += "极壳压力下限\r\n";
+                        r = false;
+                    }
+                    if (r11.Count() == 0)
+                    {
+                        error += "极壳压力\r\n";
+                        r = false;
+                    }
                 }
                 
-                // 检查DCW直流参数（MES总是提供完整的26个参数）
-                if (dcw1.Count() == 0)
+                // 根据测试模式检查DCW直流参数
+                if (needDCW)
                 {
-                    error += "直流测试电压\r\n";
-                    r = false;
-                }
-                if (dcw2.Count() == 0)
-                {
-                    error += "直流上升时间\r\n";
-                    r = false;
-                }
-                if (dcw3.Count() == 0)
-                {
-                    error += "直流测试时间\r\n";
-                    r = false;
-                }
-                if (dcw4.Count() == 0)
-                {
-                    error += "直流下降时间\r\n";
-                    r = false;
-                }
-                if (dcw5.Count() == 0)
-                {
-                    error += "直流测试电流\r\n";
-                    r = false;
-                }
-                if (dcw6.Count() == 0)
-                {
-                    error += "直流充电电流下限\r\n";
-                    r = false;
-                }
-                if (dcw7.Count() == 0)
-                {
-                    error += "直流极壳压力\r\n";
-                    r = false;
-                }
-                if (dcw8.Count() == 0)
-                {
-                    error += "直流极壳压力上限\r\n";
-                    r = false;
-                }
-                if (dcw9.Count() == 0)
-                {
-                    error += "直流极壳压力下限\r\n";
-                    r = false;
+                    if (dcw1.Count() == 0)
+                    {
+                        error += "直流测试电压\r\n";
+                        r = false;
+                    }
+                    if (dcw2.Count() == 0)
+                    {
+                        error += "直流上升时间\r\n";
+                        r = false;
+                    }
+                    if (dcw3.Count() == 0)
+                    {
+                        error += "直流测试时间\r\n";
+                        r = false;
+                    }
+                    if (dcw4.Count() == 0)
+                    {
+                        error += "直流下降时间\r\n";
+                        r = false;
+                    }
+                    if (dcw5.Count() == 0)
+                    {
+                        error += "直流测试电流\r\n";
+                        r = false;
+                    }
+                    if (dcw6.Count() == 0)
+                    {
+                        error += "直流充电电流下限\r\n";
+                        r = false;
+                    }
+                    if (dcw7.Count() == 0)
+                    {
+                        error += "直流极壳压力\r\n";
+                        r = false;
+                    }
+                    if (dcw8.Count() == 0)
+                    {
+                        error += "直流极壳压力上限\r\n";
+                        r = false;
+                    }
+                    if (dcw9.Count() == 0)
+                    {
+                        error += "直流极壳压力下限\r\n";
+                        r = false;
+                    }
                 }
 
                 if (r)
                 {
-                    // 解析测试模式
-                    int testModeValue = Convert.ToInt16(r2.First().TargetValue);
+                    // 使用前面已声明的 testModeValue
                     AT9620.ElectricalTestMode electricalTestMode = (AT9620.ElectricalTestMode)testModeValue;
                     
                     // 写入测试模式到PLC地址D1012
@@ -442,7 +454,7 @@ namespace BusbarCompressionSystem
                 }
 
                 // 创建示例配置文件（如果不存在）
-                string exampleConfigPath = $"{configDir}\\手动下发工艺参数配置.json";
+                string exampleConfigPath = $"{configDir}\\手动下发工艺参数配置（弃用）.json";
                 if (!System.IO.File.Exists(exampleConfigPath))
                 {
                     CreateExampleConfigFile(exampleConfigPath);
