@@ -1652,9 +1652,32 @@ namespace BusbarCompressionSystem.ViewModel
         {
             try
             {
+                // 1. 读取阻值并保存到临时模型
                 float res = PLC_ReadFloat(DataModel.Settingmodel.AddressRes);
                 DataModel.Processmodel.TVTestTestModel1.Res = res;
                 writeLog($"阻值1读取完成 D{DataModel.Settingmodel.AddressRes}={res}");
+                
+                // 2. 从PLC读取SN，立即更新到ProductInfoRecord
+                // 这样即使阻值NG导致PLC跳过耐压测试，CHECK阶段也能获取到正确的阻值数据
+                try
+                {
+                    string s = PLC_Readstring(DataModel.Settingmodel.AddressSN + 25); // TV1工位SN地址
+                    string[] ss = s.Split(';');
+                    if (ss.Length == 2)
+                    {
+                        string sn = ss[0];
+                        UpdateResValue(sn, res);
+                        writeLog($"阻值1已更新到记录 SN={sn}, Res={res}");
+                    }
+                    else
+                    {
+                        writeLog($"[阻值1] SN读取格式错误，原始值=[{s}]，跳过ProductInfoRecord更新", false);
+                    }
+                }
+                catch (Exception exSN)
+                {
+                    writeLog($"[阻值1] 读取SN异常: {exSN.Message}，ProductInfoRecord未更新", false);
+                }
             }
             catch (Exception ex)
             {
@@ -1670,9 +1693,32 @@ namespace BusbarCompressionSystem.ViewModel
         {
             try
             {
+                // 1. 读取阻值并保存到临时模型
                 float res = PLC_ReadFloat(DataModel.Settingmodel.AddressRes + 1 * 2);
                 DataModel.Processmodel.TVTestTestModel2.Res = res;
                 writeLog($"阻值2读取完成 D{DataModel.Settingmodel.AddressRes + 2}={res}");
+                
+                // 2. 从PLC读取SN，立即更新到ProductInfoRecord
+                // 这样即使阻值NG导致PLC跳过耐压测试，CHECK阶段也能获取到正确的阻值数据
+                try
+                {
+                    string s = PLC_Readstring(DataModel.Settingmodel.AddressSN + 25 * 2); // TV2工位SN地址
+                    string[] ss = s.Split(';');
+                    if (ss.Length == 2)
+                    {
+                        string sn = ss[0];
+                        UpdateResValue(sn, res);
+                        writeLog($"阻值2已更新到记录 SN={sn}, Res={res}");
+                    }
+                    else
+                    {
+                        writeLog($"[阻值2] SN读取格式错误，原始值=[{s}]，跳过ProductInfoRecord更新", false);
+                    }
+                }
+                catch (Exception exSN)
+                {
+                    writeLog($"[阻值2] 读取SN异常: {exSN.Message}，ProductInfoRecord未更新", false);
+                }
             }
             catch (Exception ex)
             {
@@ -1688,9 +1734,32 @@ namespace BusbarCompressionSystem.ViewModel
         {
             try
             {
+                // 1. 读取阻值并保存到临时模型
                 float res = PLC_ReadFloat(DataModel.Settingmodel.AddressRes + 2 * 2);
                 DataModel.Processmodel.TVTestTestModel3.Res = res;
                 writeLog($"阻值3读取完成 D{DataModel.Settingmodel.AddressRes + 4}={res}");
+                
+                // 2. 从PLC读取SN，立即更新到ProductInfoRecord
+                // 这样即使阻值NG导致PLC跳过耐压测试，CHECK阶段也能获取到正确的阻值数据
+                try
+                {
+                    string s = PLC_Readstring(DataModel.Settingmodel.AddressSN + 25 * 3); // TV3工位SN地址
+                    string[] ss = s.Split(';');
+                    if (ss.Length == 2)
+                    {
+                        string sn = ss[0];
+                        UpdateResValue(sn, res);
+                        writeLog($"阻值3已更新到记录 SN={sn}, Res={res}");
+                    }
+                    else
+                    {
+                        writeLog($"[阻值3] SN读取格式错误，原始值=[{s}]，跳过ProductInfoRecord更新", false);
+                    }
+                }
+                catch (Exception exSN)
+                {
+                    writeLog($"[阻值3] 读取SN异常: {exSN.Message}，ProductInfoRecord未更新", false);
+                }
             }
             catch (Exception ex)
             {
@@ -1731,6 +1800,37 @@ namespace BusbarCompressionSystem.ViewModel
                 }
             }));
         }
+
+        /// <summary>
+        /// 根据产品 SN 仅更新阻值字段到 ProductInfoRecord
+        /// 业务含义：
+        /// - 在阻值测试完成后立即调用，确保阻值数据及时更新到内存记录；
+        /// - 即使后续阻值NG导致PLC跳过耐压测试，CHECK阶段也能获取到正确的阻值进行判断。
+        /// </summary>
+        /// <param name="SN">产品序列号，用于在集合中定位记录</param>
+        /// <param name="res">阻值测量值</param>
+        private void UpdateResValue(string SN, float res)
+        {
+            App.Current.Dispatcher.BeginInvoke(new Action(() =>
+            {
+                try
+                {
+                    foreach (var p in DataModel.Recordmodel.ProductInfoRecords)
+                    {
+                        if (p.Productinfo.SN == SN)
+                        {
+                            p.Res = res;
+                            break;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    sqlite.WriteErrorLog("UPDATERES_EXCEPTION", $"更新阻值数据失败: {ex.Message}", SN);
+                }
+            }));
+        }
+
         /// <summary>
         /// 根据产品 SN 更新 DataModel.Recordmodel.ProductInfoRecords 中对应记录的压力测试数据。
         /// 业务含义：
