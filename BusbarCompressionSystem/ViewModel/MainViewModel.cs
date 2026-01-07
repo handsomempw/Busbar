@@ -1194,21 +1194,52 @@ namespace BusbarCompressionSystem.ViewModel
 
         /// <summary>
         /// 检查当前测试是否为双测模式的第二次测试
+        ///
+        /// 业务逻辑说明：
+        /// 在双测模式下，同一个产品需要进行交流(ACW)和直流(DCW)两种耐压测试。
+        /// 系统会在TVInfo字段中添加测试模式前缀([ACW]或[DCW])来区分测试类型。
+        /// 当检测到已有记录使用另一种测试模式时，说明当前是第二次测试。
+        ///
+        /// 处理逻辑：
+        /// 1. 检查数据库中该SN的最新测试记录
+        /// 2. 如果当前是ACW测试但数据库中有DCW记录，则为第二次测试
+        /// 3. 如果当前是DCW测试但数据库中有ACW记录，则为第二次测试
+        /// 4. 第二次测试时会插入新记录，而不是更新现有记录
+        ///
+        /// 设计考虑：
+        /// - 通过TVInfo前缀标识测试模式，避免修改数据库结构
+        /// - 确保双测模式下每种测试都有独立记录，便于数据追溯
+        /// - 异常处理确保方法失败时不影响主测试流程
         /// </summary>
+        /// <param name="wocode">工单号</param>
+        /// <param name="partnoid">规格ID</param>
+        /// <param name="sn">产品序列号</param>
+        /// <param name="isACW">当前是否为交流测试</param>
+        /// <param name="testType">测试类型标识("ACW"或"DCW")</param>
+        /// <returns>true=第二次测试，false=第一次测试</returns>
         private bool CheckIsSecondTest(string wocode, string partnoid, string sn, bool isACW, string testType)
         {
             try
             {
+                // 获取数据库连接字符串（按工单、规格、SN生成独立的数据库文件）
                 string connstr = sqlite.CheckDataBase(wocode, partnoid, sn);
                 if (!string.IsNullOrEmpty(connstr))
                 {
+                    // 查询该SN产品最新的测试记录，只获取TVInfo字段用于判断测试模式
+                    // 使用ORDER BY id DESC LIMIT 1确保获取最新的记录
                     string checkSql = $"SELECT TVInfo FROM BusbarCompressionData WHERE sn='{sn}' ORDER BY id DESC LIMIT 1";
                     var dt = sqlite.Read(checkSql, connstr);
                     if (dt != null && dt.Rows.Count > 0)
                     {
+                        // 获取最新记录的TVInfo信息，包含测试模式前缀
                         string existingTvInfo = dt.Rows[0]["TVInfo"]?.ToString() ?? "";
-                        // 如果已有记录带有另一种模式的前缀，则当前是第二次测试
-                        if ((isACW && existingTvInfo.StartsWith("[DCW]")) || (!isACW && existingTvInfo.StartsWith("[ACW]")))
+
+                        // 双测模式判断逻辑：
+                        // 如果当前是ACW测试但数据库中已有DCW记录 → 第二次测试
+                        // 如果当前是DCW测试但数据库中已有ACW记录 → 第二次测试
+                        // 这种设计确保每种测试模式都有独立的记录
+                        if ((isACW && existingTvInfo.StartsWith("[DCW]")) ||
+                            (!isACW && existingTvInfo.StartsWith("[ACW]")))
                         {
                             writeLog($"[耐压-{testType}] 检测到双测模式，当前为第二次测试，已有记录TVInfo={existingTvInfo}");
                             return true;
@@ -1218,6 +1249,7 @@ namespace BusbarCompressionSystem.ViewModel
             }
             catch (Exception ex)
             {
+                // 记录异常但不影响主流程，双测模式检查失败时按第一次测试处理
                 writeLog($"[耐压-{testType}] 检查双测模式时异常: {ex.Message}", true);
             }
             return false;

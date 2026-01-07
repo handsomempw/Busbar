@@ -243,38 +243,59 @@ namespace BusbarCompressionSystem
                         vml.Main.writeLog($"[测试模式参数] ⚠️ 写入PLC失败: {GetTestModeDisplayName(electricalTestMode)} (值={testModeValue})", true);
                     }
 
-                    // 解析ACW交流参数
-                    vml.Main.DataModel.Processmodel.ACWParameter.Voltage = Convert.ToSingle(r1.First().TargetValue);
-                    vml.Main.DataModel.Processmodel.ACWParameter.TestMode = TestMode.ACW;
-                    vml.Main.DataModel.Processmodel.ACWParameter.RiseTime = Convert.ToSingle(r3.First().TargetValue);
-                    vml.Main.DataModel.Processmodel.ACWParameter.TestTime = Convert.ToSingle(r4.First().TargetValue);
-                    vml.Main.DataModel.Processmodel.ACWParameter.FallTime = Convert.ToSingle(r5.First().TargetValue);
-                    vml.Main.DataModel.Processmodel.ACWParameter.High = Convert.ToSingle(r6.First().TargetValue);
-                    vml.Main.DataModel.Processmodel.ACWParameter.Low = Convert.ToSingle(r7.First().TargetValue);
-                    vml.Main.DataModel.Processmodel.ACWParameter.Freq = Convert.ToSingle(r8.First().TargetValue);
-                    vml.Main.DataModel.Processmodel.ACWParameter.Arc = 0; // 使用默认值
+                    // 解析ACW交流参数（仅当测试模式需要交流时）
+                    if (needACW)
+                    {
+                        vml.Main.DataModel.Processmodel.ACWParameter.Voltage = Convert.ToSingle(r1.First().TargetValue);
+                        vml.Main.DataModel.Processmodel.ACWParameter.TestMode = TestMode.ACW;
+                        vml.Main.DataModel.Processmodel.ACWParameter.RiseTime = Convert.ToSingle(r3.First().TargetValue);
+                        vml.Main.DataModel.Processmodel.ACWParameter.TestTime = Convert.ToSingle(r4.First().TargetValue);
+                        vml.Main.DataModel.Processmodel.ACWParameter.FallTime = Convert.ToSingle(r5.First().TargetValue);
+                        vml.Main.DataModel.Processmodel.ACWParameter.High = Convert.ToSingle(r6.First().TargetValue);
+                        vml.Main.DataModel.Processmodel.ACWParameter.Low = Convert.ToSingle(r7.First().TargetValue);
+                        vml.Main.DataModel.Processmodel.ACWParameter.Freq = Convert.ToSingle(r8.First().TargetValue);
+                        vml.Main.DataModel.Processmodel.ACWParameter.Arc = 0; // 使用默认值
+                    }
+                
+                    // 解析DCW直流参数（仅当测试模式需要直流时）
+                    if (needDCW)
+                    {
+                        vml.Main.DataModel.Processmodel.DCWParameter.Voltage = Convert.ToSingle(dcw1.First().TargetValue);
+                        vml.Main.DataModel.Processmodel.DCWParameter.TestMode = TestMode.DCW;
+                        vml.Main.DataModel.Processmodel.DCWParameter.RiseTime = Convert.ToSingle(dcw2.First().TargetValue);
+                        vml.Main.DataModel.Processmodel.DCWParameter.TestTime = Convert.ToSingle(dcw3.First().TargetValue);
+                        vml.Main.DataModel.Processmodel.DCWParameter.FallTime = Convert.ToSingle(dcw4.First().TargetValue);
+                        vml.Main.DataModel.Processmodel.DCWParameter.High = Convert.ToSingle(dcw5.First().TargetValue);
+                        vml.Main.DataModel.Processmodel.DCWParameter.Low = Convert.ToSingle(dcw6.First().TargetValue);
+                        vml.Main.DataModel.Processmodel.DCWParameter.Freq = 0; // DCW不需要频率
+                        vml.Main.DataModel.Processmodel.DCWParameter.Arc = 0; // MES未提供，使用默认值
+                    }
 
-                    // 解析DCW直流参数
-                    vml.Main.DataModel.Processmodel.DCWParameter.Voltage = Convert.ToSingle(dcw1.First().TargetValue);
-                    vml.Main.DataModel.Processmodel.DCWParameter.TestMode = TestMode.DCW;
-                    vml.Main.DataModel.Processmodel.DCWParameter.RiseTime = Convert.ToSingle(dcw2.First().TargetValue);
-                    vml.Main.DataModel.Processmodel.DCWParameter.TestTime = Convert.ToSingle(dcw3.First().TargetValue);
-                    vml.Main.DataModel.Processmodel.DCWParameter.FallTime = Convert.ToSingle(dcw4.First().TargetValue);
-                    vml.Main.DataModel.Processmodel.DCWParameter.High = Convert.ToSingle(dcw5.First().TargetValue);
-                    vml.Main.DataModel.Processmodel.DCWParameter.Low = Convert.ToSingle(dcw6.First().TargetValue);
-                    vml.Main.DataModel.Processmodel.DCWParameter.Freq = 0; // DCW不需要频率
-                    vml.Main.DataModel.Processmodel.DCWParameter.Arc = 0; // MES未提供，使用默认值
-
-                    // 兼容旧代码：同步设置TVParameter（使用ACW参数）
-                    vml.Main.DataModel.Processmodel.TVParameter.Voltage = vml.Main.DataModel.Processmodel.ACWParameter.Voltage;
-                    vml.Main.DataModel.Processmodel.TVParameter.TestMode = TestMode.ACW;
-                    vml.Main.DataModel.Processmodel.TVParameter.RiseTime = vml.Main.DataModel.Processmodel.ACWParameter.RiseTime;
-                    vml.Main.DataModel.Processmodel.TVParameter.TestTime = vml.Main.DataModel.Processmodel.ACWParameter.TestTime;
-                    vml.Main.DataModel.Processmodel.TVParameter.FallTime = vml.Main.DataModel.Processmodel.ACWParameter.FallTime;
-                    vml.Main.DataModel.Processmodel.TVParameter.High = vml.Main.DataModel.Processmodel.ACWParameter.High;
-                    vml.Main.DataModel.Processmodel.TVParameter.Low = vml.Main.DataModel.Processmodel.ACWParameter.Low;
-                    vml.Main.DataModel.Processmodel.TVParameter.Freq = vml.Main.DataModel.Processmodel.ACWParameter.Freq;
-                    vml.Main.DataModel.Processmodel.TVParameter.Arc = vml.Main.DataModel.Processmodel.ACWParameter.Arc;
+                    // 兼容旧代码：同步设置TVParameter（根据当前需要的参数来源）
+                    if (needACW)
+                    {
+                        vml.Main.DataModel.Processmodel.TVParameter.Voltage = vml.Main.DataModel.Processmodel.ACWParameter.Voltage;
+                        vml.Main.DataModel.Processmodel.TVParameter.TestMode = TestMode.ACW;
+                        vml.Main.DataModel.Processmodel.TVParameter.RiseTime = vml.Main.DataModel.Processmodel.ACWParameter.RiseTime;
+                        vml.Main.DataModel.Processmodel.TVParameter.TestTime = vml.Main.DataModel.Processmodel.ACWParameter.TestTime;
+                        vml.Main.DataModel.Processmodel.TVParameter.FallTime = vml.Main.DataModel.Processmodel.ACWParameter.FallTime;
+                        vml.Main.DataModel.Processmodel.TVParameter.High = vml.Main.DataModel.Processmodel.ACWParameter.High;
+                        vml.Main.DataModel.Processmodel.TVParameter.Low = vml.Main.DataModel.Processmodel.ACWParameter.Low;
+                        vml.Main.DataModel.Processmodel.TVParameter.Freq = vml.Main.DataModel.Processmodel.ACWParameter.Freq;
+                        vml.Main.DataModel.Processmodel.TVParameter.Arc = vml.Main.DataModel.Processmodel.ACWParameter.Arc;
+                    }
+                    else if (needDCW)
+                    {
+                        vml.Main.DataModel.Processmodel.TVParameter.Voltage = vml.Main.DataModel.Processmodel.DCWParameter.Voltage;
+                        vml.Main.DataModel.Processmodel.TVParameter.TestMode = TestMode.DCW;
+                        vml.Main.DataModel.Processmodel.TVParameter.RiseTime = vml.Main.DataModel.Processmodel.DCWParameter.RiseTime;
+                        vml.Main.DataModel.Processmodel.TVParameter.TestTime = vml.Main.DataModel.Processmodel.DCWParameter.TestTime;
+                        vml.Main.DataModel.Processmodel.TVParameter.FallTime = vml.Main.DataModel.Processmodel.DCWParameter.FallTime;
+                        vml.Main.DataModel.Processmodel.TVParameter.High = vml.Main.DataModel.Processmodel.DCWParameter.High;
+                        vml.Main.DataModel.Processmodel.TVParameter.Low = vml.Main.DataModel.Processmodel.DCWParameter.Low;
+                        vml.Main.DataModel.Processmodel.TVParameter.Freq = vml.Main.DataModel.Processmodel.DCWParameter.Freq;
+                        vml.Main.DataModel.Processmodel.TVParameter.Arc = vml.Main.DataModel.Processmodel.DCWParameter.Arc;
+                    }
 
                     // 根据测试模式选择压力参数（交流或直流）
                     // 测试模式: 0=只测交流, 1=只测直流, 2=先交后直, 3=先直后交
