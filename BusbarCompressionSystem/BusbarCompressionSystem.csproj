@@ -44,6 +44,9 @@
     <Reference Include="CommonServiceLocator, Version=2.0.2.0, Culture=neutral, PublicKeyToken=489b6accfaf20ef0, processorArchitecture=MSIL">
       <HintPath>..\packages\CommonServiceLocator.2.0.2\lib\net47\CommonServiceLocator.dll</HintPath>
     </Reference>
+    <Reference Include="Faratronic.EquipUtils.Authentication">
+      <HintPath>..\Faratronic.EquipUtils.Authentication 2.0.0\Release\net462\Faratronic.EquipUtils.Authentication.dll</HintPath>
+    </Reference>
     <Reference Include="GalaSoft.MvvmLight, Version=5.4.1.0, Culture=neutral, PublicKeyToken=e7570ab207bcb616, processorArchitecture=MSIL">
       <HintPath>..\packages\MvvmLightLibs.5.4.1.1\lib\net45\GalaSoft.MvvmLight.dll</HintPath>
     </Reference>
@@ -64,6 +67,9 @@
     </Reference>
     <Reference Include="Kcommon">
       <HintPath>dll\Kcommon.dll</HintPath>
+    </Reference>
+    <Reference Include="log4net">
+      <HintPath>..\Faratronic.EquipUtils.Authentication 2.0.0\Release\net462\log4net.dll</HintPath>
     </Reference>
     <Reference Include="MESAutoLineClient">
       <HintPath>..\oracletest20250506\MESAutoLineClient.dll</HintPath>
@@ -301,8 +307,6 @@
   </Target>
   <!-- 复制SQLite.Interop.dll到输出目录（64位） -->
   <Target Name="CopySQLiteInteropFiles" AfterTargets="Build">
-    <Copy SourceFiles="..\packages\Stub.System.Data.SQLite.Core.NetFramework.1.0.119.0\build\net46\x64\SQLite.Interop.dll" 
-          DestinationFolder="$(OutDir)" 
-          SkipUnchangedFiles="true" />
+    <Copy SourceFiles="..\packages\Stub.System.Data.SQLite.Core.NetFramework.1.0.119.0\build\net46\x64\SQLite.Interop.dll" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
   </Target>
 </Project>
