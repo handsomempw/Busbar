@@ -337,10 +337,17 @@ namespace BusbarCompressionSystem.ViewModel
                 snstr == DataModel.Settingmodel.SETTING_DATA.InspectionAOIOKSN ||
                 snstr == DataModel.Settingmodel.SETTING_DATA.InspectionAOINGSN)
             {
+                writeLog($"点检扫码原始数据: {snstr}");
                 string wocode = MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.get_WO_CODE(snstr);
                 string partnoid = MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.get_PartNO_ID(snstr);
+
                 PLC_Writestring(DataModel.Settingmodel.AddressSN.ToString(), $"{snstr};{wocode}");
+                writeLog($"写入PLC地址 {DataModel.Settingmodel.AddressSN}: {snstr};{wocode}");
+
                 sqlite.CREATENEWLINE(wocode, partnoid, snstr, DataModel.Settingmodel.SETTING_DATA.StationCode, DataModel.Settingmodel.SETTING_DATA.MachineID, DateTime.Now);
+                writeLog($"创建数据库记录: wocode={wocode}, partnoid={partnoid}, SN={snstr}, 工位={DataModel.Settingmodel.SETTING_DATA.StationCode}, 设备={DataModel.Settingmodel.SETTING_DATA.MachineID}");
+
+                writeLog($"✓ 点检扫码处理成功！");
                 return string.Empty;
             }
 
