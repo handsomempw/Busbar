@@ -517,7 +517,11 @@ namespace BusbarCompressionSystem.ViewModel
         #endregion
         #region PLC通讯
 
-
+        /// <summary>
+        /// 用于跟踪PLC连接状态，避免重复记录日志
+        /// true表示上次循环时PLC已连接，false表示上次循环时PLC未连接
+        /// </summary>
+        private bool _lastPLCConnectedStatus = false;
 
         public void PLC_Start()
         {
@@ -545,6 +549,14 @@ namespace BusbarCompressionSystem.ViewModel
 
                     if (connectresult.IsSuccess)
                     {
+                        // 如果上次连接失败，现在连接成功，记录一次恢复日志
+                        if (!_lastPLCConnectedStatus)
+                        {
+                            writeLog("PLC通讯已恢复，重新连接成功", true);
+                        }
+                        // 更新连接状态为已连接
+                        _lastPLCConnectedStatus = true;
+                        
                         #region 读取数据
                         var readresult = modbusTcp.ReadUInt16(DataModel.Settingmodel.AddressStart.ToString(), 20);
                         var secondScanResult = modbusTcp.ReadUInt16(DataModel.Settingmodel.SecondScanTrigAddress.ToString(), 1);
@@ -777,7 +789,14 @@ namespace BusbarCompressionSystem.ViewModel
                         DataModel.Processmodel.Res1_Trig_IO.IOstatus = -1;
                         DataModel.Processmodel.Res2_Trig_IO.IOstatus = -1;
                         DataModel.Processmodel.Res3_Trig_IO.IOstatus = -1;
-                        writeLog("PLC通讯失败，所有触发信号置为-1", true);
+                        
+                        // 只在状态从连接成功变为失败时记录一次日志，避免重复刷屏
+                        if (_lastPLCConnectedStatus)
+                        {
+                            writeLog("PLC通讯失败，所有触发信号置为-1", true);
+                        }
+                        // 更新连接状态为未连接
+                        _lastPLCConnectedStatus = false;
                         #endregion
                     }
                     //modbusTcp?.ConnectClose();
@@ -942,9 +961,6 @@ namespace BusbarCompressionSystem.ViewModel
             DataModel.Settingmodel.camedata2.CameraModel.finished = false;
             DataModel.Settingmodel.camedata3.CameraModel.finished = false;
 
-
-
-
             DataModel.Settingmodel.camedata1.CameraModel.camera.bnTriggerExec_Click();
             DataModel.Settingmodel.camedata2.CameraModel.camera.bnTriggerExec_Click();
             DataModel.Settingmodel.camedata3.CameraModel.camera.bnTriggerExec_Click();
@@ -997,6 +1013,7 @@ namespace BusbarCompressionSystem.ViewModel
                         writeLog($"[拍照留底] ⚠ UpdateTakePhoto1更新false(超时或者异常)失败! SN={DataModel.Processmodel.TakePhotoTestModel.Productinfo.SN}", true);
                     }
                     newline(false);
+
                     PLC_write((DataModel.Settingmodel.AddressStart + 3).ToString(), 2);
 
                     break;
@@ -1061,6 +1078,7 @@ namespace BusbarCompressionSystem.ViewModel
                 }
                 DataModel.Processmodel.LastTV1TestMode = AT9620.TestMode.ACW;
                 writeLog($"[耐压1-ACW] ACW参数下发成功");
+                Thread.Sleep(500);
             }
             
             // 执行测试（复用现有逻辑）
@@ -1093,7 +1111,8 @@ namespace BusbarCompressionSystem.ViewModel
                 DataModel.Processmodel.LastTV1TestMode = AT9620.TestMode.DCW;
                 writeLog($"[耐压1-DCW] DCW参数下发成功");
             }
-            
+            Thread.Sleep(500);
+
             // 执行测试（复用现有逻辑）
             TV1Process_Core("DCW");
         }
@@ -1363,7 +1382,8 @@ namespace BusbarCompressionSystem.ViewModel
                 DataModel.Processmodel.LastTV2TestMode = AT9620.TestMode.ACW;
                 writeLog($"[耐压2-ACW] ACW参数下发成功");
             }
-            
+            Thread.Sleep(500);
+
             // 执行测试（复用现有逻辑）
             TV2Process_Core("ACW");
         }
@@ -1394,7 +1414,8 @@ namespace BusbarCompressionSystem.ViewModel
                 DataModel.Processmodel.LastTV2TestMode = AT9620.TestMode.DCW;
                 writeLog($"[耐压2-DCW] DCW参数下发成功");
             }
-            
+            Thread.Sleep(500);
+
             // 执行测试（复用现有逻辑）
             TV2Process_Core("DCW");
         }
@@ -1997,50 +2018,50 @@ namespace BusbarCompressionSystem.ViewModel
         /// <param name="value">1: 点检通过; 0: 点检失败</param>
         private void WriteAOI_NG_InspectionSignal(UInt16 value)
         {
-            try
-            {
-                ModbusTcpNet modbusTcp = new ModbusTcpNet();
-                modbusTcp.ConnectTimeOut = 1;
-                modbusTcp.ReceiveTimeOut = 1;
-                modbusTcp.IpAddress = DataModel.Settingmodel.PLC_IP;
-                modbusTcp.Port = DataModel.Settingmodel.PLC_Port;
-                modbusTcp.DataFormat = HslCommunication.Core.DataFormat.CDAB;
-                
-                var connectresult = modbusTcp.ConnectServer();
-                if (connectresult.IsSuccess)
+                try
                 {
-                    // M寄存器是线圈（Coil），使用WriteCoil方法写入Bool值
-                    bool boolValue = (value == 1);
-                    var writeResult = modbusTcp.WriteCoil(DataModel.Settingmodel.AOI_NG_InspectionAddress.ToString(), boolValue);
-                    modbusTcp.ConnectClose();
+                    ModbusTcpNet modbusTcp = new ModbusTcpNet();
+                    modbusTcp.ConnectTimeOut = 1;
+                    modbusTcp.ReceiveTimeOut = 1;
+                    modbusTcp.IpAddress = DataModel.Settingmodel.PLC_IP;
+                    modbusTcp.Port = DataModel.Settingmodel.PLC_Port;
+                    modbusTcp.DataFormat = HslCommunication.Core.DataFormat.CDAB;
                     
-                    if (writeResult.IsSuccess)
+                    var connectresult = modbusTcp.ConnectServer();
+                    if (connectresult.IsSuccess)
                     {
-                        writeLog($"AOI_NG点检->向PLC地址M{DataModel.Settingmodel.AOI_NG_InspectionAddress}写入{value}成功");
-                    }
+                        // M寄存器是线圈（Coil），使用WriteCoil方法写入Bool值
+                        bool boolValue = (value == 1);
+                        var writeResult = modbusTcp.WriteCoil(DataModel.Settingmodel.AOI_NG_InspectionAddress.ToString(), boolValue);
+                        modbusTcp.ConnectClose();
+                        
+                        if (writeResult.IsSuccess)
+                        {
+                            writeLog($"AOI_NG点检->向PLC地址M{DataModel.Settingmodel.AOI_NG_InspectionAddress}写入{value}成功");
+                        }
+                        else
+                        {
+                                writeLog($"AOI_NG点检->向PLC地址M{DataModel.Settingmodel.AOI_NG_InspectionAddress}写入{value}失败: {writeResult.Message}");
+                            }
+                        }
                     else
                     {
-                        writeLog($"AOI_NG点检->向PLC地址M{DataModel.Settingmodel.AOI_NG_InspectionAddress}写入{value}失败: {writeResult.Message}");
+                            writeLog($"AOI_NG点检->PLC连接失败: {connectresult.Message}");
+                        }
+                    }
+                catch (Exception ex)
+                {
+                        writeLog($"AOI_NG点检->写入PLC信号异常: {ex.Message}");
                     }
                 }
-                else
-                {
-                    writeLog($"AOI_NG点检->PLC连接失败: {connectresult.Message}");
-                }
-            }
-            catch (Exception ex)
-            {
-                writeLog($"AOI_NG点检->写入PLC信号异常: {ex.Message}");
-            }
-        }
 
 
         private bool PLC_write(float result)
         {
             writeLog($"视觉->PLC:{result}、{(result == 1 ? "OK" : "NG")}", false);
 
-            int i = 0;
-            while (i++ < 4)
+            int maxRetry = 6;
+            for (int i = 0; i < maxRetry; i++)
             {
                 ModbusTcpNet modbusTcp = new ModbusTcpNet();
                 try
@@ -2062,7 +2083,7 @@ namespace BusbarCompressionSystem.ViewModel
                 }
                 catch
                 {
-                    ;
+                    writeLog($"视觉写入PLC信号异常1") ;
                 }
                 Thread.Sleep(100);
             }
@@ -2074,8 +2095,8 @@ namespace BusbarCompressionSystem.ViewModel
         {
             writeLog($"视觉->PLC:{result}、{(result == 1 ? "OK" : "NG")}", false);
 
-            int i = 0;
-            while (i++ < 4)
+            int maxRetry = 6;
+            for (int i = 0; i < maxRetry; i++)
             {
                 ModbusTcpNet modbusTcp = new ModbusTcpNet();
                 try
@@ -2097,7 +2118,7 @@ namespace BusbarCompressionSystem.ViewModel
                 }
                 catch
                 {
-                    ;
+                    writeLog($"视觉写入PLC信号异常2") ;
                 }
                 Thread.Sleep(100);
             }
@@ -2109,8 +2130,8 @@ namespace BusbarCompressionSystem.ViewModel
         {
             writeLog($"视觉->PLC:{result}、{(result == 1 ? "OK" : "NG")}", false);
 
-            int i = 0;
-            while (i++ < 4)
+            int maxRetry = 6;
+            for (int i = 0; i < maxRetry; i++)
             {
                 ModbusTcpNet modbusTcp = new ModbusTcpNet();
                 try
@@ -2132,7 +2153,7 @@ namespace BusbarCompressionSystem.ViewModel
                 }
                 catch
                 {
-                    ;
+                    writeLog($"视觉写入PLC信号异常3");
                 }
                 Thread.Sleep(100);
             }
@@ -2142,7 +2163,7 @@ namespace BusbarCompressionSystem.ViewModel
         public UInt16 PLC_ReadUint16(int address)
 {
     ModbusTcpNet modbusTcp = new ModbusTcpNet();
-    int maxRetry = 3;
+    int maxRetry = 6;
     
     for (int i = 0; i < maxRetry; i++)
     {
@@ -2192,7 +2213,7 @@ namespace BusbarCompressionSystem.ViewModel
         public float PLC_ReadFloat(int address)
 {
     ModbusTcpNet modbusTcp = new ModbusTcpNet();
-    int maxRetry = 3;
+    int maxRetry = 6;
 
     for (int i = 0; i < maxRetry; i++)
     {
@@ -2236,11 +2257,26 @@ namespace BusbarCompressionSystem.ViewModel
 
     return float.NaN;
 }
+        /// <summary>
+        /// 从PLC读取字符串数据
+        /// </summary>
+        /// <param name="address">PLC寄存器地址（整数类型，例如：D100表示地址100）</param>
+        /// <returns>成功时返回读取到的字符串（已去除空字符），失败时返回空字符串</returns>
+        /// <remarks>
+        /// 1. 支持自动重试机制，最多重试6次，提高通信可靠性
+        /// 2. 每次读取25个字符长度的字符串数据
+        /// 3. 自动去除字符串中的空字符（\0）
+        /// 4. 连接失败或读取失败时会记录日志（仅在最后一次重试时记录，避免日志过多）
+        /// 5. 使用CDAB数据格式进行通信
+        /// </remarks>
         public string PLC_Readstring(int address)
 {
+    // 创建Modbus TCP通信对象
     ModbusTcpNet modbusTcp = new ModbusTcpNet();
-    int maxRetry = 3;
+    // 设置最大重试次数为6次
+    int maxRetry = 6;
     
+    // 循环重试机制：如果第一次读取失败，会自动重试，最多重试6次
     for(int i=0; i<maxRetry; i++)
     {
         try
@@ -2248,62 +2284,87 @@ namespace BusbarCompressionSystem.ViewModel
             modbusTcp.ConnectTimeOut = 1000;
             modbusTcp.ReceiveTimeOut = 1000;
             modbusTcp.IpAddress = DataModel.Settingmodel.PLC_IP;
+            // 从配置模型中获取PLC的端口号，通常是502（Modbus TCP标准端口）
             modbusTcp.Port = DataModel.Settingmodel.PLC_Port;
+            // 设置数据格式为CDAB（字节序），确保数据解析正确
             modbusTcp.DataFormat = HslCommunication.Core.DataFormat.CDAB;
             
+            // 尝试连接到PLC服务器
             var connectresult = modbusTcp.ConnectServer();
+            // 判断连接是否成功
             if (connectresult.IsSuccess)
             {
+                // 连接成功，开始读取字符串数据
+                // address.ToString()：将整数地址转换为字符串格式（如：100 -> "100"）
+                // 25：读取25个字符长度的字符串（PLC中字符串通常占用多个寄存器，这里读取25个字符）
                 var r = modbusTcp.ReadString(address.ToString(), 25);
+                // 读取完成后立即关闭连接，释放网络资源
                 modbusTcp.ConnectClose();
+                // 判断读取操作是否成功
                 if (r.IsSuccess)
                 { 
+                    // 读取成功，返回读取到的字符串内容
+                    // Replace("\0", "")：去除字符串中的空字符（\0），因为PLC返回的字符串可能包含填充的空字符
                     return r.Content.Replace("\0", ""); 
                 }
                 else
                 {
+                   // 读取失败，如果这是最后一次重试（i == maxRetry - 1），则记录错误日志
+                   // 只在最后一次重试时记录日志，避免重复记录相同的错误信息
                    if (i == maxRetry - 1)
                        writeLog($"[PLC通讯] 读取String失败(D{address}): {r.Message}", false);
                 }
             }
             else
             {
+                // 连接失败，如果这是最后一次重试，则记录连接失败的日志
                 if (i == maxRetry - 1)
                        writeLog($"[PLC通讯] 连接失败(D{address}): {connectresult.Message}", false);
             }
         }
         catch (Exception ex)
         {
+             // 捕获异常（如网络异常、超时异常等），如果这是最后一次重试，则记录异常日志
              if (i == maxRetry - 1)
                  writeLog($"[PLC通讯] 读取String异常(D{address}): {ex.Message}", false);
         }
+        // 每次重试前等待50毫秒，避免频繁重试对PLC造成压力，也给网络一些恢复时间
         Thread.Sleep(50);
     }
 
+    // 如果所有重试都失败了，返回空字符串，表示读取失败
     return string.Empty;
 }
         public bool PLC_Writestring(string address, string data)
         {
-            ModbusTcpNet modbusTcp = new ModbusTcpNet();
-            try
+            int maxRetry = 3;
+            for (int i = 0; i < maxRetry; i++)
             {
-                modbusTcp.ConnectTimeOut = 1;
-                modbusTcp.ReceiveTimeOut = 1;
-                modbusTcp.IpAddress = DataModel.Settingmodel.PLC_IP;
-                modbusTcp.Port = DataModel.Settingmodel.PLC_Port;
-                modbusTcp.DataFormat = HslCommunication.Core.DataFormat.CDAB;
-                var connectresult = modbusTcp.ConnectServer();
-
-                if (connectresult.IsSuccess)
+                ModbusTcpNet modbusTcp = new ModbusTcpNet();
+                try
                 {
-                    var r = modbusTcp.WriteUnicodeString(address.ToString(), data);
-                    modbusTcp.ConnectClose();
-                    return r.IsSuccess;
+                    modbusTcp.ConnectTimeOut = 1;
+                    modbusTcp.ReceiveTimeOut = 1;
+                    modbusTcp.IpAddress = DataModel.Settingmodel.PLC_IP;
+                    modbusTcp.Port = DataModel.Settingmodel.PLC_Port;
+                    modbusTcp.DataFormat = HslCommunication.Core.DataFormat.CDAB;
+                    var connectresult = modbusTcp.ConnectServer();
+
+                    if (connectresult.IsSuccess)
+                    {
+                        var r = modbusTcp.WriteUnicodeString(address.ToString(), data);
+                        modbusTcp.ConnectClose();
+                        if (r.IsSuccess)
+                        {
+                            return true;
+                        }
+                    }
                 }
-            }
-            catch
-            {
-                ;
+                catch
+                {
+                    writeLog($"PLC_Writestring写入PLC异常");
+                }
+                Thread.Sleep(40);
             }
             return false;
 
@@ -2311,41 +2372,51 @@ namespace BusbarCompressionSystem.ViewModel
 
         public bool PLC_ReadTVAvailable()
         {
-
-            ModbusTcpNet modbusTcp = new ModbusTcpNet();
-            try
+            int maxRetry = 3;
+            for (int i = 0; i < maxRetry; i++)
             {
-                modbusTcp.ConnectTimeOut = 1;
-                modbusTcp.ReceiveTimeOut = 1;
-                modbusTcp.IpAddress = DataModel.Settingmodel.PLC_IP;
-                modbusTcp.Port = DataModel.Settingmodel.PLC_Port;
-                modbusTcp.DataFormat = HslCommunication.Core.DataFormat.CDAB;
-                var connectresult = modbusTcp.ConnectServer();
-
-                if (connectresult.IsSuccess)
+                ModbusTcpNet modbusTcp = new ModbusTcpNet();
+                try
                 {
-                    var r1 = modbusTcp.ReadCoil(DataModel.Settingmodel.Meter1AvailableAddress.ToString(), 1);
-                    var r2 = modbusTcp.ReadCoil(DataModel.Settingmodel.Meter2AvailableAddress.ToString(), 1);
-                    // 【优化】不再读取第三个耐压仪器的PLC状态（设备已更新，不再使用第三个仪器）
-                    // var r3 = modbusTcp.ReadCoil(DataModel.Settingmodel.Meter3AvailableAddress.ToString(), 1);
-                    modbusTcp.Write(DataModel.Settingmodel.ShankHandAddress.ToString(), (UInt16)1);
-                    modbusTcp.Write(DataModel.Settingmodel.DeviceAvailableAddress.ToString(), DataModel.Processmodel.allow_start);
-                    modbusTcp.ConnectClose();
-                    if (r1.IsSuccess)
-                    {
-                        DataModel.Processmodel.TVAvailable.TV1Available = !r1.Content[0];
-                        DataModel.Processmodel.TVAvailable.TV2Available = !r2.Content[0];
-                        // 【优化】强制设置第三个仪器为不可用状态
-                        DataModel.Processmodel.TVAvailable.TV3Available = false;
-                    }
+                    modbusTcp.ConnectTimeOut = 1;
+                    modbusTcp.ReceiveTimeOut = 1;
+                    modbusTcp.IpAddress = DataModel.Settingmodel.PLC_IP;
+                    modbusTcp.Port = DataModel.Settingmodel.PLC_Port;
+                    modbusTcp.DataFormat = HslCommunication.Core.DataFormat.CDAB;
+                    var connectresult = modbusTcp.ConnectServer();
 
-                    // 【优化】只返回前两个仪器的状态，不再检查第三个仪器
-                    return r1.IsSuccess & r2.IsSuccess;
+                    if (connectresult.IsSuccess)
+                    {
+                        var r1 = modbusTcp.ReadCoil(DataModel.Settingmodel.Meter1AvailableAddress.ToString(), 1);
+                        var r2 = modbusTcp.ReadCoil(DataModel.Settingmodel.Meter2AvailableAddress.ToString(), 1);
+                        // 【优化】不再读取第三个耐压仪器的PLC状态（设备已更新，不再使用第三个仪器）
+                        // var r3 = modbusTcp.ReadCoil(DataModel.Settingmodel.Meter3AvailableAddress.ToString(), 1);
+                        modbusTcp.Write(DataModel.Settingmodel.ShankHandAddress.ToString(), (UInt16)1);
+                        modbusTcp.Write(DataModel.Settingmodel.DeviceAvailableAddress.ToString(), DataModel.Processmodel.allow_start);
+                        modbusTcp.ConnectClose();
+                        if (r1.IsSuccess)
+                        {
+                            DataModel.Processmodel.TVAvailable.TV1Available = !r1.Content[0];
+                            DataModel.Processmodel.TVAvailable.TV2Available = !r2.Content[0];
+                            // 【优化】强制设置第三个仪器为不可用状态
+                            DataModel.Processmodel.TVAvailable.TV3Available = false;
+                        }
+
+                        // 【优化】只返回前两个仪器的状态，不再检查第三个仪器
+                        if (r1.IsSuccess & r2.IsSuccess)
+                        {
+                            return true;
+                        }
+                    }
                 }
-            }
-            catch (Exception ex)
-            {
-                writeLog($"PLC读取仪器可用状态异常: {ex.Message}", true);
+                catch (Exception ex)
+                {
+                    if (i == maxRetry - 1)
+                    {
+                        writeLog($"PLC读取仪器可用状态异常: {ex.Message}", true);
+                    }
+                }
+                Thread.Sleep(50);
             }
 
             return false;
@@ -3593,6 +3664,7 @@ namespace BusbarCompressionSystem.ViewModel
                 {
                     #region 读取产品编号
                     // Debug: 读取所有相关的5个地址块数据，用于排查偏移或数据错位问题
+                    /*
                     string s_base = PLC_Readstring(DataModel.Settingmodel.AddressSN);
                     string s_25 = PLC_Readstring(DataModel.Settingmodel.AddressSN + 25);
                     string s_50 = PLC_Readstring(DataModel.Settingmodel.AddressSN + 50);
@@ -3607,8 +3679,10 @@ namespace BusbarCompressionSystem.ViewModel
                     writeLog($"  AddressSN+100 (地址{DataModel.Settingmodel.AddressSN + 100}) : [{s_100}] <== 当前使用的Target", false);
 
                     string s = s_100;
-                    // writeLog($"[CHECK1 Debug] PLC原始读取值: [{s}]"); // 上方已记录，此行可省略
+                    */
 
+                    // writeLog($"[CHECK1 Debug] PLC原始读取值: [{s}]"); // 上方已记录，此行可省略
+                    string s = PLC_Readstring(DataModel.Settingmodel.AddressSN + 100);
                     string[] ss = s.Split(';');
                     if (ss.Length == 2)
                     {

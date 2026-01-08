@@ -551,6 +551,13 @@ namespace SQLITEDATABASE
                     
                     if (dt != null && dt.Rows.Count > 0)
                     {
+                        // 记录查询到的记录详情
+                        string recordId = dt.Rows[0]["SN"]?.ToString() ?? "未知";
+                        string dbPath = _connstr.Replace("Data Source=", "").Replace(";Pooling=true;FailIfMissing=false", "");
+                        WriteErrorLog("[调试信息]CHECK1-查询记录详情",
+                            $"数据库文件={dbPath}, SN={recordId}, TAKEPHOTO1原始值=[{dt.Rows[0]["TAKEPHOTO1"]?.ToString()}], RES=[{dt.Rows[0]["RES"]?.ToString()}], TVRESULT=[{dt.Rows[0]["TVRESULT"]?.ToString()}]",
+                            SN, WOCODE);
+                        
                         // 1. 先解析拍照留底（必须字段）
                         bool _takephoto1 = false;
                         string s_takephoto1 = dt.Rows[0]["TAKEPHOTO1"]?.ToString();
@@ -574,6 +581,9 @@ namespace SQLITEDATABASE
 
                         if (!_takephoto1)
                         {
+                            WriteErrorLog("[业务判定]CHECK1-拍照留底不良",
+                                $"TAKEPHOTO1字段值为false，拍照留底失败，返回值=1，数据库文件={dbPath}，查询SQL={sql}",
+                                SN, WOCODE);
                             return 1;
                         }
 
