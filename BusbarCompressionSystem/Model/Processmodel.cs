@@ -61,11 +61,11 @@ namespace BusbarCompressionSystem.Model
         public AT9620.TVParameter DCWParameter { set; get; } = new AT9620.TVParameter() { TestMode = AT9620.TestMode.DCW };
 
         /// <summary>
-        /// 上次执行的测试模式（用于判断是否需要重新下发参数）
+        /// TV1上次执行的测试模式（用于界面显示/记录，保留兼容）
         /// </summary>
         /// <remarks>
-        /// 当测试模式切换时（ACW→DCW或DCW→ACW），需要重新下发参数到AT9620设备。
-        /// 此字段记录上次执行的模式，用于判断是否需要切换。
+        /// 说明：当前逻辑在每次触发测试前都会统一下发对应工艺参数到AT9620设备，已不再依赖该字段来判断“是否需要下发”。
+        /// 该字段主要用于界面绑定显示（CurrentTV1TestModeDisplay）以及记录上一次执行的模式。
         /// </remarks>
         [XmlIgnore]
         private AT9620.TestMode _lastTV1TestMode = AT9620.TestMode.ACW;

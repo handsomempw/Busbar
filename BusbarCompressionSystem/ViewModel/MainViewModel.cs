@@ -1058,28 +1058,25 @@ namespace BusbarCompressionSystem.ViewModel
         /// </summary>
         /// <remarks>
         /// 当TV1Trig=1时调用此方法。
-        /// 如果上次执行的是DCW测试，会先重新下发ACW参数到AT9620设备。
+        /// 触发前统一下发ACW参数到AT9620设备。
         /// </remarks>
         public void TV1Process_ACW()
         {
             writeLog($"[耐压1-ACW] 开始ACW交流耐压测试");
             
-            // 检查是否需要切换参数（从DCW切换到ACW）
-            if (DataModel.Processmodel.LastTV1TestMode != AT9620.TestMode.ACW)
+            // 触发前统一下发参数，避免设备参数未同步
+            writeLog($"[耐压1-ACW] 开始下发ACW参数");
+            DataModel.Settingmodel.AT9620_1.TVParameter = DataModel.Processmodel.ACWParameter;
+            var downloadResult = DataModel.Settingmodel.AT9620_1.Download();
+            if (!downloadResult.Success)
             {
-                writeLog($"[耐压1-ACW] 检测到模式切换 {DataModel.Processmodel.LastTV1TestMode} → ACW，重新下发参数");
-                DataModel.Settingmodel.AT9620_1.TVParameter = DataModel.Processmodel.ACWParameter;
-                var downloadResult = DataModel.Settingmodel.AT9620_1.Download();
-                if (!downloadResult.Success)
-                {
-                    writeLog($"[耐压1-ACW] ❌ ACW参数下发失败: {downloadResult.Error}", true);
-                    PLC_write((DataModel.Settingmodel.AddressStart + 7).ToString(), (UInt16)2);
-                    return;
-                }
-                DataModel.Processmodel.LastTV1TestMode = AT9620.TestMode.ACW;
-                writeLog($"[耐压1-ACW] ACW参数下发成功");
-                Thread.Sleep(500);
+                writeLog($"[耐压1-ACW] ❌ ACW参数下发失败: {downloadResult.Error}", true);
+                PLC_write((DataModel.Settingmodel.AddressStart + 7).ToString(), (UInt16)2);
+                return;
             }
+            DataModel.Processmodel.LastTV1TestMode = AT9620.TestMode.ACW;
+            writeLog($"[耐压1-ACW] ACW参数下发成功");
+            Thread.Sleep(500);
             
             // 执行测试（复用现有逻辑）
             TV1Process_Core("ACW");
@@ -1090,27 +1087,24 @@ namespace BusbarCompressionSystem.ViewModel
         /// </summary>
         /// <remarks>
         /// 当TV1Trig=2时调用此方法。
-        /// 如果上次执行的是ACW测试，会先重新下发DCW参数到AT9620设备。
+        /// 触发前统一下发DCW参数到AT9620设备。
         /// </remarks>
         public void TV1Process_DCW()
         {
             writeLog($"[耐压1-DCW] 开始DCW直流耐压测试");
             
-            // 检查是否需要切换参数（从ACW切换到DCW）
-            if (DataModel.Processmodel.LastTV1TestMode != AT9620.TestMode.DCW)
+            // 触发前统一下发参数，避免设备参数未同步
+            writeLog($"[耐压1-DCW] 开始下发DCW参数");
+            DataModel.Settingmodel.AT9620_1.TVParameter = DataModel.Processmodel.DCWParameter;
+            var downloadResult = DataModel.Settingmodel.AT9620_1.Download();
+            if (!downloadResult.Success)
             {
-                writeLog($"[耐压1-DCW] 检测到模式切换 {DataModel.Processmodel.LastTV1TestMode} → DCW，重新下发参数");
-                DataModel.Settingmodel.AT9620_1.TVParameter = DataModel.Processmodel.DCWParameter;
-                var downloadResult = DataModel.Settingmodel.AT9620_1.Download();
-                if (!downloadResult.Success)
-                {
-                    writeLog($"[耐压1-DCW] ❌ DCW参数下发失败: {downloadResult.Error}", true);
-                    PLC_write((DataModel.Settingmodel.AddressStart + 7).ToString(), (UInt16)2);
-                    return;
-                }
-                DataModel.Processmodel.LastTV1TestMode = AT9620.TestMode.DCW;
-                writeLog($"[耐压1-DCW] DCW参数下发成功");
+                writeLog($"[耐压1-DCW] ❌ DCW参数下发失败: {downloadResult.Error}", true);
+                PLC_write((DataModel.Settingmodel.AddressStart + 7).ToString(), (UInt16)2);
+                return;
             }
+            DataModel.Processmodel.LastTV1TestMode = AT9620.TestMode.DCW;
+            writeLog($"[耐压1-DCW] DCW参数下发成功");
             Thread.Sleep(500);
 
             // 执行测试（复用现有逻辑）
@@ -1144,8 +1138,23 @@ namespace BusbarCompressionSystem.ViewModel
             DataModel.Processmodel.TVTestTestModel1.TVMaxVoltage = 0;
             DataModel.Processmodel.TVTestTestModel1.TVMaxCurrent = 0;
 
+            // 清空上一次测试残留，避免本次启动失败时沿用旧信息导致“结果/说明”不一致
+            DataModel.Processmodel.TVTestTestModel1.Status = string.Empty;
+            DataModel.Processmodel.TVTestTestModel1.TVInfo = string.Empty;
+            DataModel.Processmodel.TVTestTestModel1.Voltage = 0;
+            DataModel.Processmodel.TVTestTestModel1.Current = 0;
+            DataModel.Processmodel.TVTestTestModel1.Time = 0;
+
             var r = DataModel.Settingmodel.AT9620_1.Start();
-            
+            // 记录耐压失败原因到界面日志，便于首件异常定位
+            if (!r.Success && !string.IsNullOrWhiteSpace(r.Error))
+            {
+                // 将失败原因写入状态/信息，避免首件启动失败时界面仍显示上一件PASS
+                DataModel.Processmodel.TVTestTestModel1.Status = r.Error;
+                DataModel.Processmodel.TVTestTestModel1.TVInfo = r.Error;
+                writeLog($"[耐压1-{testType}] 失败原因: {r.Error}", true);
+            }
+
             // 获取翻译后的状态并添加测试模式前缀
             var rawTvInfo = DataModel.Processmodel.TVTestTestModel1.TVInfo;
             var translatedTvInfo = GetLocalizedTvStatus(rawTvInfo);
@@ -1361,27 +1370,24 @@ namespace BusbarCompressionSystem.ViewModel
         /// </summary>
         /// <remarks>
         /// 当TV2Trig=1时调用此方法。
-        /// 如果上次执行的是DCW测试，会先重新下发ACW参数到AT9620设备。
+        /// 触发前统一下发ACW参数到AT9620设备。
         /// </remarks>
         public void TV2Process_ACW()
         {
             writeLog($"[耐压2-ACW] 开始ACW交流耐压测试");
             
-            // 检查是否需要切换参数（从DCW切换到ACW）
-            if (DataModel.Processmodel.LastTV2TestMode != AT9620.TestMode.ACW)
+            // 触发前统一下发参数，避免设备参数未同步
+            writeLog($"[耐压2-ACW] 开始下发ACW参数");
+            DataModel.Settingmodel.AT9620_2.TVParameter = DataModel.Processmodel.ACWParameter;
+            var downloadResult = DataModel.Settingmodel.AT9620_2.Download();
+            if (!downloadResult.Success)
             {
-                writeLog($"[耐压2-ACW] 检测到模式切换 {DataModel.Processmodel.LastTV2TestMode} → ACW，重新下发参数");
-                DataModel.Settingmodel.AT9620_2.TVParameter = DataModel.Processmodel.ACWParameter;
-                var downloadResult = DataModel.Settingmodel.AT9620_2.Download();
-                if (!downloadResult.Success)
-                {
-                    writeLog($"[耐压2-ACW] ❌ ACW参数下发失败: {downloadResult.Error}", true);
-                    PLC_write((DataModel.Settingmodel.AddressStart + 9).ToString(), (UInt16)2);
-                    return;
-                }
-                DataModel.Processmodel.LastTV2TestMode = AT9620.TestMode.ACW;
-                writeLog($"[耐压2-ACW] ACW参数下发成功");
+                writeLog($"[耐压2-ACW] ❌ ACW参数下发失败: {downloadResult.Error}", true);
+                PLC_write((DataModel.Settingmodel.AddressStart + 9).ToString(), (UInt16)2);
+                return;
             }
+            DataModel.Processmodel.LastTV2TestMode = AT9620.TestMode.ACW;
+            writeLog($"[耐压2-ACW] ACW参数下发成功");
             Thread.Sleep(500);
 
             // 执行测试（复用现有逻辑）
@@ -1393,27 +1399,24 @@ namespace BusbarCompressionSystem.ViewModel
         /// </summary>
         /// <remarks>
         /// 当TV2Trig=2时调用此方法。
-        /// 如果上次执行的是ACW测试，会先重新下发DCW参数到AT9620设备。
+        /// 触发前统一下发DCW参数到AT9620设备。
         /// </remarks>
         public void TV2Process_DCW()
         {
             writeLog($"[耐压2-DCW] 开始DCW直流耐压测试");
             
-            // 检查是否需要切换参数（从ACW切换到DCW）
-            if (DataModel.Processmodel.LastTV2TestMode != AT9620.TestMode.DCW)
+            // 触发前统一下发参数，避免设备参数未同步
+            writeLog($"[耐压2-DCW] 开始下发DCW参数");
+            DataModel.Settingmodel.AT9620_2.TVParameter = DataModel.Processmodel.DCWParameter;
+            var downloadResult = DataModel.Settingmodel.AT9620_2.Download();
+            if (!downloadResult.Success)
             {
-                writeLog($"[耐压2-DCW] 检测到模式切换 {DataModel.Processmodel.LastTV2TestMode} → DCW，重新下发参数");
-                DataModel.Settingmodel.AT9620_2.TVParameter = DataModel.Processmodel.DCWParameter;
-                var downloadResult = DataModel.Settingmodel.AT9620_2.Download();
-                if (!downloadResult.Success)
-                {
-                    writeLog($"[耐压2-DCW] ❌ DCW参数下发失败: {downloadResult.Error}", true);
-                    PLC_write((DataModel.Settingmodel.AddressStart + 9).ToString(), (UInt16)2);
-                    return;
-                }
-                DataModel.Processmodel.LastTV2TestMode = AT9620.TestMode.DCW;
-                writeLog($"[耐压2-DCW] DCW参数下发成功");
+                writeLog($"[耐压2-DCW] ❌ DCW参数下发失败: {downloadResult.Error}", true);
+                PLC_write((DataModel.Settingmodel.AddressStart + 9).ToString(), (UInt16)2);
+                return;
             }
+            DataModel.Processmodel.LastTV2TestMode = AT9620.TestMode.DCW;
+            writeLog($"[耐压2-DCW] DCW参数下发成功");
             Thread.Sleep(500);
 
             // 执行测试（复用现有逻辑）
@@ -1446,8 +1449,24 @@ namespace BusbarCompressionSystem.ViewModel
 
             DataModel.Processmodel.TVTestTestModel2.TVMaxVoltage = 0;
             DataModel.Processmodel.TVTestTestModel2.TVMaxCurrent = 0;
+
+            // 清空上一次测试残留，避免本次启动失败时沿用旧信息导致“结果/说明”不一致
+            DataModel.Processmodel.TVTestTestModel2.Status = string.Empty;
+            DataModel.Processmodel.TVTestTestModel2.TVInfo = string.Empty;
+            DataModel.Processmodel.TVTestTestModel2.Voltage = 0;
+            DataModel.Processmodel.TVTestTestModel2.Current = 0;
+            DataModel.Processmodel.TVTestTestModel2.Time = 0;
+
             var r = DataModel.Settingmodel.AT9620_2.Start();
-            
+            // 记录耐压失败原因到界面日志，便于首件异常定位
+            if (!r.Success && !string.IsNullOrWhiteSpace(r.Error))
+            {
+                // 将失败原因写入状态/信息，避免首件启动失败时界面仍显示上一件PASS
+                DataModel.Processmodel.TVTestTestModel2.Status = r.Error;
+                DataModel.Processmodel.TVTestTestModel2.TVInfo = r.Error;
+                writeLog($"[耐压2-{testType}] 失败原因: {r.Error}", true);
+            }
+
             // 获取翻译后的状态并添加测试模式前缀
             var rawTvInfo = DataModel.Processmodel.TVTestTestModel2.TVInfo;
             var translatedTvInfo = GetLocalizedTvStatus(rawTvInfo);
