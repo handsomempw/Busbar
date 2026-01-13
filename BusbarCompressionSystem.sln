@@ -29,6 +29,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SystemFreeTest", "SystemFre
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Faratronic.EquipUtils.Authentication.Sample", "Faratronic.EquipUtils.Authentication 2.0.0\Faratronic.EquipUtils.Authentication.Sample\Faratronic.EquipUtils.Authentication.Sample.csproj", "{F459B12A-F4BB-446D-AB85-52B88D9AC992}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AuthenticationTest", "AuthenticationTest\AuthenticationTest.csproj", "{A8B3C4D5-E6F7-4890-A1B2-C3D4E5F67890}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -87,6 +89,10 @@ Global
 		{F459B12A-F4BB-446D-AB85-52B88D9AC992}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{F459B12A-F4BB-446D-AB85-52B88D9AC992}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{F459B12A-F4BB-446D-AB85-52B88D9AC992}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A8B3C4D5-E6F7-4890-A1B2-C3D4E5F67890}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A8B3C4D5-E6F7-4890-A1B2-C3D4E5F67890}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A8B3C4D5-E6F7-4890-A1B2-C3D4E5F67890}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A8B3C4D5-E6F7-4890-A1B2-C3D4E5F67890}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
