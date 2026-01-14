@@ -299,6 +299,38 @@ namespace AuthenticationTest
 
         #endregion
 
+        #region 辅助方法 - Helper Methods
+
+        /// <summary>
+        /// 显示接收人不存在时的解决方案提示
+        /// </summary>
+        static void ShowReceiverNotFoundSolution()
+        {
+            Console.WriteLine();
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine("💡 【解决建议】");
+            Console.ResetColor();
+            Console.WriteLine();
+            Console.WriteLine("  步骤1：先用\"测试1 - 自动请求动态密码\"查看系统返回的可用接收人列表");
+            Console.WriteLine("     └─ 系统会自动找到有权限的管理员");
+            Console.WriteLine();
+            Console.WriteLine("  步骤2：从返回的接收人列表中选择一个确认有权限的接收人");
+            Console.WriteLine("     └─ 记录该接收人的工号（ReceiverNo）");
+            Console.WriteLine();
+            Console.WriteLine("  步骤3：修改 App.config 文件中的接收人配置");
+            Console.WriteLine("     └─ 将 ReceiverNo 改为从列表中选择的工号");
+            Console.WriteLine("     └─ 将 ReceiverName 改为对应的姓名");
+            Console.WriteLine();
+            Console.WriteLine("  步骤4：重新运行测试2");
+            Console.WriteLine();
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.WriteLine("  注意：接收人工号必须在该设备/应用的审批人列表中，否则无法成功请求");
+            Console.ResetColor();
+            Console.WriteLine();
+        }
+
+        #endregion
+
         #region 测试用例 - Test Cases
 
         /// <summary>
@@ -476,38 +508,65 @@ namespace AuthenticationTest
                 DynamicPassword psw = new DynamicPassword(TestConfig.TestMode);
                 TestHelper.PrintProcessing($"正在向 {TestConfig.ReceiverName}({TestConfig.ReceiverNo}) 发送密码请求...");
 
-                var requestResult = psw.RequestPasswordManualReceiver(
-                    TestConfig.ReceiverNo,
-                    TestConfig.EquipNo,
-                    TestConfig.ApplicationName,
-                    TestConfig.DefaultPrivilegeLevel,
-                    TestConfig.DefaultPeriod,
-                    "设备维修");
+                List<Receiver> requestResult = null;
+                bool requestSuccess = false;
 
-                // 步骤3：显示结果
+                try
+                {
+                    requestResult = psw.RequestPasswordManualReceiver(
+                        TestConfig.ReceiverNo,
+                        TestConfig.EquipNo,
+                        TestConfig.ApplicationName,
+                        TestConfig.DefaultPrivilegeLevel,
+                        TestConfig.DefaultPeriod,
+                        "设备维修");
+                    requestSuccess = true;
+                }
+                catch (NullReferenceException)
+                {
+                    // 捕获库内部的NullReferenceException，通常是接收人不存在导致的
+                    requestResult = null;
+                    requestSuccess = false;
+                }
+
+                // 步骤3：显示结果并检查
                 TestHelper.PrintStepSimple(3, "显示请求结果", 
                     "确认指定的管理员收到通知");
 
-                if (requestResult != null && requestResult.Count > 0)
+                // 严格检查返回结果
+                if (requestSuccess && requestResult != null && requestResult.Count > 0)
                 {
-                    TestHelper.PrintSuccess("请求成功！密码已发送给指定接收人：");
+                    // 进一步验证返回的接收人数据完整性
+                    var receiver = requestResult[0];
+                    if (receiver != null && !string.IsNullOrWhiteSpace(receiver.ReceiverNo))
+                    {
+                        TestHelper.PrintSuccess("请求成功！密码已发送给指定接收人：");
 
-                    var rows = new List<string[]>();
-                    rows.Add(new string[] 
-                    { 
-                        requestResult[0].ReceiverName ?? "未知",
-                        requestResult[0].ReceiverNo ?? "未知",
-                        "已发送通知"
-                    });
-                    TestHelper.PrintThreeColumnTable(
-                        new string[] { "姓名", "工号", "状态" }, 
-                        rows);
+                        var rows = new List<string[]>();
+                        rows.Add(new string[] 
+                        { 
+                            receiver.ReceiverName ?? "未知",
+                            receiver.ReceiverNo ?? "未知",
+                            "已发送通知"
+                        });
+                        TestHelper.PrintThreeColumnTable(
+                            new string[] { "姓名", "工号", "状态" }, 
+                            rows);
 
-                    TestHelper.PrintTip($"{TestConfig.ReceiverName} 的手机现在应该收到了密码通知");
+                        TestHelper.PrintTip($"{receiver.ReceiverName ?? TestConfig.ReceiverName} 的手机现在应该收到了密码通知");
+                    }
+                    else
+                    {
+                        // 返回结果存在但数据不完整
+                        TestHelper.PrintError("请求返回的数据不完整");
+                        ShowReceiverNotFoundSolution();
+                    }
                 }
                 else
                 {
-                    TestHelper.PrintWarning("请求失败，可能是接收人工号不存在");
+                    // 请求失败或返回空
+                    TestHelper.PrintError("请求失败：接收人不存在或无权限");
+                    ShowReceiverNotFoundSolution();
                 }
 
                 TestHelper.PrintSummary("本次测试验证了什么？",
@@ -515,13 +574,36 @@ namespace AuthenticationTest
                     "可以精确控制谁来审批",
                     "适用于需要特定人员审批的场景");
             }
+            catch (NullReferenceException ex)
+            {
+                // 特别处理NullReferenceException（通常是接收人不存在导致的库内部错误）
+                Console.WriteLine();
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine("⚠️ 【错误分析】接收人不存在或无权审批");
+                Console.ResetColor();
+                Console.WriteLine();
+
+                Console.WriteLine("问题原因：");
+                Console.WriteLine($"  • 接收人 {TestConfig.ReceiverName}({TestConfig.ReceiverNo}) 不在该设备/应用的审批人列表中");
+                Console.WriteLine("  • 或该人员没有对应的审批权限");
+                Console.WriteLine("  • 或库在处理\"接收人不存在\"的情况时出现了内部错误");
+                Console.WriteLine();
+
+                ShowReceiverNotFoundSolution();
+
+                // 仍然显示详细的异常信息用于诊断
+                TestHelper.ShowException(ex,
+                    "库在处理请求时遇到了空引用错误（通常是接收人不存在导致的）",
+                    "这是库的内部错误，但根本原因是接收人不存在或无权审批");
+            }
             catch (Exception ex)
             {
                 TestHelper.ShowException(ex,
                     "手动指定接收人时发生错误",
                     "检查接收人工号是否正确",
                     "确认该人员是否有审批权限",
-                    "验证网络连接是否正常");
+                    "验证网络连接是否正常",
+                    "如果是NullReferenceException，可能是接收人不存在导致的库内部错误");
             }
         }
 
@@ -1209,34 +1291,59 @@ namespace AuthenticationTest
                 DynamicPassword psw = new DynamicPassword(false); // 生产模式
                 TestHelper.PrintProcessing("正在连接服务器...");
 
-                var requestResult = psw.RequestPasswordManualReceiver(
-                    TestConfig.ReceiverNo,
-                    TestConfig.EquipNo,
-                    TestConfig.ApplicationName,
-                    TestConfig.DefaultPrivilegeLevel,
-                    TestConfig.DefaultPeriod,
-                    "生产环境测试");
+                List<Receiver> requestResult = null;
+                bool requestSuccess = false;
 
-                if (requestResult != null && requestResult.Count > 0)
+                try
                 {
-                    TestHelper.PrintSuccess("请求成功！");
+                    requestResult = psw.RequestPasswordManualReceiver(
+                        TestConfig.ReceiverNo,
+                        TestConfig.EquipNo,
+                        TestConfig.ApplicationName,
+                        TestConfig.DefaultPrivilegeLevel,
+                        TestConfig.DefaultPeriod,
+                        "生产环境测试");
+                    requestSuccess = true;
+                }
+                catch (NullReferenceException)
+                {
+                    // 捕获库内部的NullReferenceException，通常是接收人不存在导致的
+                    requestResult = null;
+                    requestSuccess = false;
+                }
 
-                    var rows = new List<string[]>();
-                    rows.Add(new string[] 
-                    { 
-                        requestResult[0].ReceiverName ?? "未知",
-                        requestResult[0].ReceiverNo ?? "未知",
-                        "短信+App推送"
-                    });
-                    TestHelper.PrintThreeColumnTable(
-                        new string[] { "姓名", "工号", "通知方式" }, 
-                        rows);
+                // 严格检查返回结果
+                if (requestSuccess && requestResult != null && requestResult.Count > 0)
+                {
+                    var receiver = requestResult[0];
+                    if (receiver != null && !string.IsNullOrWhiteSpace(receiver.ReceiverNo))
+                    {
+                        TestHelper.PrintSuccess("请求成功！");
 
-                    TestHelper.PrintTip($"{requestResult[0].ReceiverName} 的手机现在应该收到了6位数字密码");
+                        var rows = new List<string[]>();
+                        rows.Add(new string[] 
+                        { 
+                            receiver.ReceiverName ?? "未知",
+                            receiver.ReceiverNo ?? "未知",
+                            "短信+App推送"
+                        });
+                        TestHelper.PrintThreeColumnTable(
+                            new string[] { "姓名", "工号", "通知方式" }, 
+                            rows);
+
+                        TestHelper.PrintTip($"{receiver.ReceiverName} 的手机现在应该收到了6位数字密码");
+                    }
+                    else
+                    {
+                        TestHelper.PrintError("密码请求失败：返回的数据不完整");
+                        ShowReceiverNotFoundSolution();
+                        return;
+                    }
                 }
                 else
                 {
-                    TestHelper.PrintError("密码请求失败");
+                    TestHelper.PrintError("密码请求失败：接收人不存在或无权限");
+                    ShowReceiverNotFoundSolution();
                     return;
                 }
 
@@ -1344,6 +1451,28 @@ namespace AuthenticationTest
                     }
                 }
             }
+            catch (NullReferenceException ex)
+            {
+                // 特别处理NullReferenceException（通常是接收人不存在导致的库内部错误）
+                Console.WriteLine();
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine("⚠️ 【错误分析】接收人不存在或无权审批");
+                Console.ResetColor();
+                Console.WriteLine();
+
+                Console.WriteLine("问题原因：");
+                Console.WriteLine($"  • 接收人 {TestConfig.ReceiverName}({TestConfig.ReceiverNo}) 不在该设备/应用的审批人列表中");
+                Console.WriteLine("  • 或该人员没有对应的审批权限");
+                Console.WriteLine("  • 或库在处理\"接收人不存在\"的情况时出现了内部错误");
+                Console.WriteLine();
+
+                ShowReceiverNotFoundSolution();
+
+                // 仍然显示详细的异常信息用于诊断
+                TestHelper.ShowException(ex,
+                    "库在处理请求时遇到了空引用错误（通常是接收人不存在导致的）",
+                    "这是库的内部错误，但根本原因是接收人不存在或无权审批");
+            }
             catch (Exception ex)
             {
                 TestHelper.ShowException(ex,
@@ -1351,6 +1480,7 @@ namespace AuthenticationTest
                     "检查网络连接是否正常",
                     "确认服务器地址是否正确",
                     "验证接收人工号是否存在",
+                    "如果是NullReferenceException，可能是接收人不存在导致的库内部错误",
                     "联系技术支持获取帮助");
             }
         }

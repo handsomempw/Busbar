@@ -475,6 +475,47 @@ namespace AuthenticationTest
                 }
                 Console.WriteLine();
             }
+
+            // ============================
+            // 诊断信息（最小增量，用于定位生产环境异常原因）
+            // ============================
+            // 说明：
+            // - ex.ToString() 会包含：异常类型 + Message + StackTrace（关键！）
+            // - InnerException 链通常能揭示“真实根因”（例如网络/反序列化/配置缺失）
+            try
+            {
+                Console.WriteLine("诊断信息：");
+                Console.WriteLine("  【异常堆栈】");
+                Console.WriteLine(ex.ToString());
+                Console.WriteLine();
+
+                // 打印内部异常链（最多10层，避免极端情况下刷屏）
+                Exception inner = ex.InnerException;
+                int depth = 0;
+                while (inner != null && depth < 10)
+                {
+                    Console.WriteLine($"  【内部异常 {depth + 1}】{inner.GetType().Name}: {inner.Message}");
+                    Console.WriteLine(inner.ToString());
+                    Console.WriteLine();
+                    inner = inner.InnerException;
+                    depth++;
+                }
+
+                // 打印关键运行参数快照（用于判断是否“配置缺失/参数为空”）
+                Console.WriteLine("  【运行参数快照】");
+                Console.WriteLine($"  模式(TestMode): {TestConfig.TestMode}");
+                Console.WriteLine($"  设备编号(EquipNo): {TestConfig.EquipNo}");
+                Console.WriteLine($"  应用名称(ApplicationName): {TestConfig.ApplicationName}");
+                Console.WriteLine($"  接收人工号(ReceiverNo): {TestConfig.ReceiverNo}");
+                Console.WriteLine($"  接收人姓名(ReceiverName): {TestConfig.ReceiverName}");
+                Console.WriteLine($"  权限等级(DefaultPrivilegeLevel): {TestConfig.DefaultPrivilegeLevel}");
+                Console.WriteLine($"  有效期(DefaultPeriod): {TestConfig.DefaultPeriod} 分钟");
+                Console.WriteLine();
+            }
+            catch
+            {
+                // 诊断输出不应影响主流程
+            }
         }
 
         #endregion
