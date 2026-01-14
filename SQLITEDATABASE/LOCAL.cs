@@ -669,9 +669,9 @@ namespace SQLITEDATABASE
                         if (string.IsNullOrWhiteSpace(s_pressureResult))
                         {
                             WriteErrorLog("[数据缺失]CHECK1-字段为空-PRESSURE_RESULT",
-                               "PRESSURE_RESULT字段为空，可能是UpdatePressure执行失败，返回值=2",
+                               "PRESSURE_RESULT字段为空，可能是UpdatePressure执行失败，返回值=3",
                                SN, WOCODE);
-                            return 2;
+                            return 3;
                         }
 
                         // 兼容1/0和True/False两种存储格式
@@ -686,14 +686,14 @@ namespace SQLITEDATABASE
                         else if (!bool.TryParse(s_pressureResult, out _pressureResult))
                         {
                             WriteErrorLog("[数据异常]CHECK1-字段解析错误-PRESSURE_RESULT",
-                               $"PRESSURE_RESULT字段解析失败，原始值=[{s_pressureResult}]，返回值=2",
+                               $"PRESSURE_RESULT字段解析失败，原始值=[{s_pressureResult}]，返回值=3",
                                SN, WOCODE);
-                            return 2;
+                            return 3;
                         }
 
                         if (!_pressureResult)
                         {
-                            return 2;
+                            return 3;
                         }
 
                         // 7. 检查是否为双测模式，如果是则需要综合判断ACW和DCW结果
@@ -878,9 +878,9 @@ namespace SQLITEDATABASE
                         if (string.IsNullOrWhiteSpace(s_pressureResult))
                         {
                             WriteErrorLog("[数据缺失]CHECK2-字段为空-PRESSURE_RESULT",
-                               "PRESSURE_RESULT字段为空，可能是UpdatePressure执行失败，返回值:2",
+                               "PRESSURE_RESULT字段为空，可能是UpdatePressure执行失败，返回值:3",
                                SN, WOCODE);
-                            return 2;
+                            return 3;
                         }
 
                         // 兼容1/0和True/False两种存储格式
@@ -895,14 +895,14 @@ namespace SQLITEDATABASE
                         else if (!bool.TryParse(s_pressureResult, out _pressureResult))
                         {
                             WriteErrorLog("[数据异常]CHECK2-字段解析错误-PRESSURE_RESULT",
-                               $"PRESSURE_RESULT字段解析失败，原始值=[{s_pressureResult}]，返回值:2",
+                               $"PRESSURE_RESULT字段解析失败，原始值=[{s_pressureResult}]，返回值:3",
                                SN, WOCODE);
-                            return 2;
+                            return 3;
                         }
 
                         if (!_pressureResult)
                         {
-                            return 2;
+                            return 3;
                         }
 
                         // 7. 解析AOI外观检测

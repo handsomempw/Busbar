@@ -3799,18 +3799,20 @@ namespace BusbarCompressionSystem.ViewModel
                                 else if (pi.Res > 14)
                                 {
                                     MSG = "NG3";
-                                    resultstr = "阻值测试不合格";
+                                    resultstr = "阻值或压力测试不合格";
                                 }
                                 else if (pi.TVMaxVoltage == 0 || pi.TVMaxVoltage == -1 || !pi.TVResult)
                                 {
                                     MSG = "NG2";
                                     resultstr = "耐压测试不合格";
                                 }
-                                // 压力失败与耐压同优先级，判定为NG2
-                                else if (!pi.Pressure_Result)
+                                // 压力失败判定为NG3（与阻值同级）
+                                // 直接使用本地变量PressureResult，避免异步更新时序问题导致误判
+                                // 因为updatepressure()是异步的(BeginInvoke)，此时pi.Pressure_Result可能还未更新
+                                else if (!PressureResult)
                                 {
-                                    MSG = "NG2";
-                                    resultstr = "耐压测试不合格";
+                                    MSG = "NG3";
+                                    resultstr = "阻值或压力测试不合格";
                                 }
                                 else
                                 {
@@ -3866,7 +3868,7 @@ namespace BusbarCompressionSystem.ViewModel
                         // 实际会根据Check1返回值在switch中被覆盖
                         string resultstr = "拍照留底不良";
                         // 根据Check1返回的错误代码，映射为机器人可识别的消息和中文结果描述
-                        // Check1返回值：0=全部合格, 1=拍照不良, 2=耐压不良, 3=阻值不良
+                        // Check1返回值：0=全部合格, 1=拍照不良, 2=耐压不良, 3=阻值或压力不良
                         // 注意：case 4(AOI不良)在Check1中不会出现，仅在Check2中才有
                         switch (r)
                         {
@@ -3891,7 +3893,7 @@ namespace BusbarCompressionSystem.ViewModel
                             case 3:
                                 {
                                     MSG = "NG3";
-                                    resultstr = "阻值测试不合格";
+                                    resultstr = "阻值或压力测试不合格";
                                     break;
                                 }
                             case 4:
@@ -4019,7 +4021,7 @@ namespace BusbarCompressionSystem.ViewModel
                             }
                             else
                             {
-                                // 耐压点检 SN：完整判断拍照、耐压、阻值、AOI
+                                // 耐压点检 SN：完整判断拍照、耐压、阻值、压力、AOI
                                 if (!pi.TakePhoto1)
                                 {
                                     MSG = "NG1";
@@ -4029,12 +4031,18 @@ namespace BusbarCompressionSystem.ViewModel
                                 else if (pi.Res > 14)
                                 {
                                     MSG = "NG3";
-                                    resultstr = "阻值测试不合格";
+                                    resultstr = "阻值或压力测试不合格";
                                 }
                                 else if (pi.TVMaxVoltage == 0 || pi.TVMaxVoltage == -1 || !pi.TVResult)
                                 {
                                     MSG = "NG2";
                                     resultstr = "耐压测试不合格";
+                                }
+                                // 判断压力结果
+                                else if (!pi.Pressure_Result)
+                                {
+                                    MSG = "NG3";
+                                    resultstr = "阻值或压力测试不合格";
                                 }
                                 else if (!pi.AppearanceInspection)
                                 {
@@ -4095,7 +4103,7 @@ namespace BusbarCompressionSystem.ViewModel
                             case 3:
                                 {
                                     MSG = "NG3";
-                                    resultstr = "阻值测试不合格";
+                                    resultstr = "阻值或压力测试不合格";
                                     break;
                                 }
                             case 4:
