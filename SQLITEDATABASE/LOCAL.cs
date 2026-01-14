@@ -537,7 +537,7 @@ namespace SQLITEDATABASE
 
                 if (!string.IsNullOrEmpty(_connstr))
                 {
-                    string sql = $"SELECT SN, TAKEPHOTO1, RES, TVMAXVOLTAGE, TVRESULT FROM BusbarCompressionData  where ID=(SELECT max(ID)  FROM BusbarCompressionData WHERE sn='{SN}')";
+                    string sql = $"SELECT SN, TAKEPHOTO1, RES, TVMAXVOLTAGE, TVRESULT, PRESSURE_RESULT FROM BusbarCompressionData  where ID=(SELECT max(ID)  FROM BusbarCompressionData WHERE sn='{SN}')";
                     DataTable dt = Read(sql, _connstr);
                     
                     if (dt == null || dt.Rows.Count <= 0)
@@ -662,7 +662,41 @@ namespace SQLITEDATABASE
                             return 2;
                         }
 
-                        // 6. 检查是否为双测模式，如果是则需要综合判断ACW和DCW结果
+                        // 6. 判断压力结果（与耐压同优先级，失败即返回NG2）
+                        bool _pressureResult = false;
+                        string s_pressureResult = dt.Rows[0]["PRESSURE_RESULT"]?.ToString();
+
+                        if (string.IsNullOrWhiteSpace(s_pressureResult))
+                        {
+                            WriteErrorLog("[数据缺失]CHECK1-字段为空-PRESSURE_RESULT",
+                               "PRESSURE_RESULT字段为空，可能是UpdatePressure执行失败，返回值=2",
+                               SN, WOCODE);
+                            return 2;
+                        }
+
+                        // 兼容1/0和True/False两种存储格式
+                        if (s_pressureResult == "1")
+                        {
+                            _pressureResult = true;
+                        }
+                        else if (s_pressureResult == "0")
+                        {
+                            _pressureResult = false;
+                        }
+                        else if (!bool.TryParse(s_pressureResult, out _pressureResult))
+                        {
+                            WriteErrorLog("[数据异常]CHECK1-字段解析错误-PRESSURE_RESULT",
+                               $"PRESSURE_RESULT字段解析失败，原始值=[{s_pressureResult}]，返回值=2",
+                               SN, WOCODE);
+                            return 2;
+                        }
+
+                        if (!_pressureResult)
+                        {
+                            return 2;
+                        }
+
+                        // 7. 检查是否为双测模式，如果是则需要综合判断ACW和DCW结果
                         if (IsDualTestMode(WOCODE, PARTNOID, SN))
                         {
                             bool acwResult, dcwResult;
@@ -723,7 +757,7 @@ namespace SQLITEDATABASE
 
                 if (!string.IsNullOrEmpty(_connstr))
                 {
-                    string sql = $"SELECT SN, TAKEPHOTO1, RES, TVMAXVOLTAGE, TVRESULT,TAKEPHOTO2 FROM BusbarCompressionData  where ID=(SELECT max(ID)  FROM BusbarCompressionData WHERE sn='{SN}')";
+                    string sql = $"SELECT SN, TAKEPHOTO1, RES, TVMAXVOLTAGE, TVRESULT, PRESSURE_RESULT, TAKEPHOTO2 FROM BusbarCompressionData  where ID=(SELECT max(ID)  FROM BusbarCompressionData WHERE sn='{SN}')";
                     DataTable dt = Read(sql, _connstr);
                     
                     if (dt == null || dt.Rows.Count <= 0)
@@ -837,7 +871,41 @@ namespace SQLITEDATABASE
                             return 2;
                         }
 
-                        // 6. 解析AOI外观检测
+                        // 6. 判断压力结果（与耐压同优先级，失败即返回NG2）
+                        bool _pressureResult = false;
+                        string s_pressureResult = dt.Rows[0]["PRESSURE_RESULT"]?.ToString();
+
+                        if (string.IsNullOrWhiteSpace(s_pressureResult))
+                        {
+                            WriteErrorLog("[数据缺失]CHECK2-字段为空-PRESSURE_RESULT",
+                               "PRESSURE_RESULT字段为空，可能是UpdatePressure执行失败，返回值:2",
+                               SN, WOCODE);
+                            return 2;
+                        }
+
+                        // 兼容1/0和True/False两种存储格式
+                        if (s_pressureResult == "1")
+                        {
+                            _pressureResult = true;
+                        }
+                        else if (s_pressureResult == "0")
+                        {
+                            _pressureResult = false;
+                        }
+                        else if (!bool.TryParse(s_pressureResult, out _pressureResult))
+                        {
+                            WriteErrorLog("[数据异常]CHECK2-字段解析错误-PRESSURE_RESULT",
+                               $"PRESSURE_RESULT字段解析失败，原始值=[{s_pressureResult}]，返回值:2",
+                               SN, WOCODE);
+                            return 2;
+                        }
+
+                        if (!_pressureResult)
+                        {
+                            return 2;
+                        }
+
+                        // 7. 解析AOI外观检测
                         bool _takephoto2 = false;
                         string s_takephoto2 = dt.Rows[0]["TAKEPHOTO2"]?.ToString();
                         
@@ -862,7 +930,7 @@ namespace SQLITEDATABASE
                             return 4;
                         }
 
-                        // 7. 检查是否为双测模式，如果是则需要综合判断ACW和DCW结果
+                        // 8. 检查是否为双测模式，如果是则需要综合判断ACW和DCW结果
                         if (IsDualTestMode(WOCODE, PARTNOID, SN))
                         {
                             bool acwResult, dcwResult;

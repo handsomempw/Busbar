@@ -3806,6 +3806,12 @@ namespace BusbarCompressionSystem.ViewModel
                                     MSG = "NG2";
                                     resultstr = "耐压测试不合格";
                                 }
+                                // 压力失败与耐压同优先级，判定为NG2
+                                else if (!pi.Pressure_Result)
+                                {
+                                    MSG = "NG2";
+                                    resultstr = "耐压测试不合格";
+                                }
                                 else
                                 {
                                     MSG = "OK";
