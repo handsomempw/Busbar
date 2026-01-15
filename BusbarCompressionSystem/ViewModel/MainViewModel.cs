@@ -1150,8 +1150,8 @@ namespace BusbarCompressionSystem.ViewModel
             if (!r.Success && !string.IsNullOrWhiteSpace(r.Error))
             {
                 // 将失败原因写入状态/信息，避免首件启动失败时界面仍显示上一件PASS
-                DataModel.Processmodel.TVTestTestModel1.Status = r.Error;
-                DataModel.Processmodel.TVTestTestModel1.TVInfo = r.Error;
+                //DataModel.Processmodel.TVTestTestModel1.Status = r.Error;
+                //DataModel.Processmodel.TVTestTestModel1.TVInfo = r.Error;
                 writeLog($"[耐压1-{testType}] 失败原因: {r.Error}", true);
             }
 
@@ -1462,8 +1462,8 @@ namespace BusbarCompressionSystem.ViewModel
             if (!r.Success && !string.IsNullOrWhiteSpace(r.Error))
             {
                 // 将失败原因写入状态/信息，避免首件启动失败时界面仍显示上一件PASS
-                DataModel.Processmodel.TVTestTestModel2.Status = r.Error;
-                DataModel.Processmodel.TVTestTestModel2.TVInfo = r.Error;
+                //DataModel.Processmodel.TVTestTestModel2.Status = r.Error;
+                //DataModel.Processmodel.TVTestTestModel2.TVInfo = r.Error;
                 writeLog($"[耐压2-{testType}] 失败原因: {r.Error}", true);
             }
 
@@ -1992,6 +1992,8 @@ namespace BusbarCompressionSystem.ViewModel
                 }
                 catch (Exception ex)
                 {
+                    // 同时写入UI日志与数据库错误日志，便于现场快速定位“内存更新失败/对象不存在/线程异常”等问题
+                    writeLog($"[AOI] 更新内存外观结果失败：SN={SN}, 结果={(result ? "OK" : "NG")}, 异常={ex.Message}", true);
                     sqlite.WriteErrorLog("UPDATETAKEPHOTO2_EXCEPTION", $"更新AOI外观数据失败: {ex.Message}", SN);
                 }
             }));
@@ -3234,6 +3236,72 @@ namespace BusbarCompressionSystem.ViewModel
                         Save_record(s1);
                         stopwatch.Restart();
 
+                        #region 保存结果到数据库和更新状态
+                        if (i == DataModel.FaraVisionDataModel.Processmodel.Tools.Count - 1)
+                        {
+                            int status = -1;
+                            int c = DataModel.FaraVisionDataModel.Processmodel.Tools.Count();
+
+
+                            var ok = (from ToolModel in DataModel.FaraVisionDataModel.Processmodel.Tools
+                                      where (ToolModel.ToolStatus == ToolStatus.OK)
+                                      select ToolModel);
+                            var NG1 = (from ToolModel in DataModel.FaraVisionDataModel.Processmodel.Tools
+                                       where (ToolModel.ToolStatus == ToolStatus.NG)
+                                       select ToolModel);
+                            var NG2 = (from ToolModel in DataModel.FaraVisionDataModel.Processmodel.Tools
+                                       where (ToolModel.ToolStatus == ToolStatus.NG2)
+                                       select ToolModel);
+                            var wait = (from ToolModel in DataModel.FaraVisionDataModel.Processmodel.Tools
+                                        where (ToolModel.ToolStatus == ToolStatus.等待中 || ToolModel.ToolStatus == ToolStatus.识别中)
+                                        select ToolModel);
+
+                            if (ok.Count() == c)
+                            {
+                                status = 0;
+                            }
+                            else if (NG2.Count() > 0)
+                            {
+                                status = 2;
+                            }
+                            else
+                            {
+                                status = 1;
+                            }
+
+                            if (status == 0)
+                            {
+                                DataModel.FaraVisionDataModel.Processmodel.Status = ToolStatus.OK;
+                                //PLC_write((UInt16)1);
+                            }
+                            else if (status == 2)
+                            {
+                                DataModel.FaraVisionDataModel.Processmodel.Status = ToolStatus.NG2;
+                                //PLC_write((UInt16)3);
+                            }
+                            else
+                            {
+                                DataModel.FaraVisionDataModel.Processmodel.Status = ToolStatus.NG;
+                                //PLC_write((UInt16)2);
+                            }
+
+                            #region 保存拍照记录到本地
+                            DateTime dt = DateTime.Now;
+                            updatetakephoto2(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, status == 0, dt);
+                            bool updateAoiDbOk = sqlite.UpdateTakePhoto2(
+                                DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE,
+                                DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID,
+                                DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN,
+                                status == 0);
+                            if (!updateAoiDbOk)
+                        {
+                                // 写库失败必须在UI日志可见，否则会出现“UI/DB不一致、CHECK2判定异常”难排查
+                                writeLog($"[AOI] 写入数据库TAKEPHOTO2失败：WOCODE={DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE}, PartNOID={DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID}, SN={DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN}, 结果={(status == 0 ? "OK" : "NG")}", true);
+                            }
+                            #endregion
+                        }
+                        #endregion
+
                         #region 保存图片
                         try
                         {
@@ -3386,79 +3454,10 @@ namespace BusbarCompressionSystem.ViewModel
                             }
                         }
 
-
-                        if (i == DataModel.FaraVisionDataModel.Processmodel.Tools.Count - 1)
-                        {
-                            int status = -1;
-                            int c = DataModel.FaraVisionDataModel.Processmodel.Tools.Count();
-
-
-                            var ok = (from ToolModel in DataModel.FaraVisionDataModel.Processmodel.Tools
-                                      where (ToolModel.ToolStatus == ToolStatus.OK)
-                                      select ToolModel);
-                            var NG1 = (from ToolModel in DataModel.FaraVisionDataModel.Processmodel.Tools
-                                       where (ToolModel.ToolStatus == ToolStatus.NG)
-                                       select ToolModel);
-                            var NG2 = (from ToolModel in DataModel.FaraVisionDataModel.Processmodel.Tools
-                                       where (ToolModel.ToolStatus == ToolStatus.NG2)
-                                       select ToolModel);
-                            var wait = (from ToolModel in DataModel.FaraVisionDataModel.Processmodel.Tools
-                                        where (ToolModel.ToolStatus == ToolStatus.等待中 || ToolModel.ToolStatus == ToolStatus.识别中)
-                                        select ToolModel);
-
-                            if (ok.Count() == c)
-                            {
-                                status = 0;
-                            }
-                            else if (NG2.Count() > 0)
-                            {
-                                status = 2;
-                            }
-                            else
-                            {
-                                status = 1;
-                            }
-
-                            if (status == 0)
-                            {
-                                DataModel.FaraVisionDataModel.Processmodel.Status = ToolStatus.OK;
-                                //PLC_write((UInt16)1);
-                            }
-                            else if (status == 2)
-                            {
-                                DataModel.FaraVisionDataModel.Processmodel.Status = ToolStatus.NG2;
-                                //PLC_write((UInt16)3);
-                            }
-                            else
-                            {
-                                DataModel.FaraVisionDataModel.Processmodel.Status = ToolStatus.NG;
-                                //PLC_write((UInt16)2);
-                            }
-
-                            #region 保存拍照记录到本地
-                            DateTime dt = DateTime.Now;
-                            updatetakephoto2(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, status == 0, dt);
-                            sqlite.UpdateTakePhoto2(
-                                DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE,
-                                DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID,
-                                DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN,
-                              status == 0);
-                            #endregion
-                        }
-
-
-
-
-
-
                         writeLog($"视觉->视觉:保存完成", false);
 
                         string s2 = $"{DataModel.FaraVisionDataModel.Processmodel.Tools[i].Name}:保存图片发送结果耗时:{stopwatch.ElapsedMilliseconds}ms";
                         Save_record(s2);
-
-
-
-
                     }
                 }
                 #endregion
