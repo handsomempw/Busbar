@@ -35,9 +35,28 @@
                 </Grid.ColumnDefinitions>
                 <!--<TextBlock VerticalAlignment="Center" Margin="30,0" FontSize="20">法拉电子-母排压合系统</TextBlock>-->
                 <Menu p:WindowX.IsDragMoveArea="False" FontSize="20"   VerticalAlignment="Center" Margin="20,0,0,0" Background="Transparent" BorderThickness="0">
-                    <MenuItem Header="法拉电子-母排压合系统" p:MenuItemHelper.HoverBackground="Transparent" Background="Transparent" Foreground="WhiteSmoke" BorderThickness="0">
+                    <!-- 中文说明：保留程序标题文字，仅用于展示，不承担下拉入口 -->
+                    <MenuItem Header="法拉电子-母排压合系统"
+                              Background="Transparent"
+                              Foreground="WhiteSmoke"
+                              BorderThickness="0"
+                              p:MenuItemHelper.HoverBackground="Transparent"
+                              IsHitTestVisible="False"
+                              Focusable="False"
+                              Margin="0,0,12,0" />
+                    <!-- 中文说明：增加明显的按钮感提示“工程操作”入口 -->
+                    <MenuItem Header="工程操作 ▼"
+                              Padding="12,6"
+                              Background="#FF8C00"
+                              Foreground="WhiteSmoke"
+                              BorderBrush="WhiteSmoke"
+                              BorderThickness="1"
+                              p:MenuItemHelper.CornerRadius="6"
+                              p:MenuItemHelper.HoverBackground="Orange"
+                              p:MenuItemHelper.HoverForeground="WhiteSmoke">
                         <MenuItem Header="新建工程" FontSize="12" Padding="20,0" Background="WhiteSmoke" Foreground="#010101" p:MenuItemHelper.HoverForeground="WhiteSmoke" p:MenuItemHelper.HoverBackground="Orange"  Visibility="{Binding  Source={StaticResource Locator},Path=Main.DataModel.FaraVisionDataModel.Settingmodel.permission,Converter={StaticResource Bool2Visible_Converter}}" Command="{Binding Source={StaticResource Locator},Path=Main.NEW_PRJCMD}"/>
-                        <MenuItem Header="保存工程" FontSize="12" Padding="20,0" Background="WhiteSmoke" Foreground="#010101" p:MenuItemHelper.HoverForeground="WhiteSmoke" p:MenuItemHelper.HoverBackground="Orange"                                                                                           Command="{Binding Source={StaticResource Locator},Path=Main.SAVE_PRJCMD}"/>
+                        <!-- 中文说明：保存工程按钮增加提示“上传参数变更” -->
+                        <MenuItem Header="保存工程（上传参数变更）" FontSize="12" Padding="20,0" Background="WhiteSmoke" Foreground="#010101" p:MenuItemHelper.HoverForeground="WhiteSmoke" p:MenuItemHelper.HoverBackground="Orange"                                                                                           Command="{Binding Source={StaticResource Locator},Path=Main.SAVE_PRJCMD}"/>
                         <!--<MenuItem Header="注册主控" FontSize="12" Padding="20,0" Background="WhiteSmoke" Foreground="#010101" p:MenuItemHelper.HoverForeground="WhiteSmoke" p:MenuItemHelper.HoverBackground="Orange"  Visibility="{Binding DATA.permission,Converter={StaticResource Bool2Visible_Converter}}" Command="{Binding Source={StaticResource Locator},Path=Main.REGISTER_MAIN_CMD}" />
                         <MenuItem Header="添加主控" FontSize="12" Padding="20,0" Background="WhiteSmoke" Foreground="#010101" p:MenuItemHelper.HoverForeground="WhiteSmoke" p:MenuItemHelper.HoverBackground="Orange"  Visibility="{Binding DATA.permission,Converter={StaticResource Bool2Visible_Converter}}" Command="{Binding Source={StaticResource Locator},Path=Main.ADD_MAIN_CMD}"/>-->
                         <!--<MenuItem Header="开始点检" FontSize="12" Padding="20,0" Background="WhiteSmoke" Foreground="#010101" p:MenuItemHelper.HoverForeground="WhiteSmoke" p:MenuItemHelper.HoverBackground="Orange"  Click="Button_Click_4"/>-->
