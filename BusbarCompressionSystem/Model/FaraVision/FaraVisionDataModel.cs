@@ -100,6 +100,28 @@ namespace BusbarCompressionSystem.FaraVision
         [XmlIgnore]
         public int ToolIndex { set; get; } = -1;
 
+        #region 动态密码参数审计（P1快照模式：运行时，不序列化）
+
+        /// <summary>
+        /// 进入编辑界面时的工具索引（用于保存工程时做参数差异对比）
+        /// </summary>
+        [XmlIgnore]
+        public int EditingToolIndex { get; set; } = -1;
+
+        /// <summary>
+        /// 进入编辑界面时的工具快照（旧值来源）
+        /// </summary>
+        [XmlIgnore]
+        public ToolModel EditingToolSnapshot { get; set; } = null;
+
+        /// <summary>
+        /// 快照时间
+        /// </summary>
+        [XmlIgnore]
+        public DateTime EditingToolSnapshotTime { get; set; } = DateTime.MinValue;
+
+        #endregion
+
         [XmlElement("工具模型")]
         public ObservableCollection<ToolModel> Tools { get; set; } = new ObservableCollection<ToolModel>();
 
@@ -230,6 +252,52 @@ namespace BusbarCompressionSystem.FaraVision
         [XmlIgnore]
         [XmlElement("权限")]
         public bool permission { get; set; } = false;
+
+        #region 动态密码授权上下文（运行时，不序列化）
+
+        /// <summary>
+        /// 动态密码授权时间（用于“保存工程”时上报参数差异审计）
+        /// </summary>
+        [XmlIgnore]
+        public DateTime PermissionGrantedAt { get; set; } = DateTime.MinValue;
+
+        /// <summary>
+        /// 授权人姓名（动态密码验证返回）
+        /// </summary>
+        [XmlIgnore]
+        public string PermissionAuthorizerName { get; set; } = string.Empty;
+
+        /// <summary>
+        /// 授权人工号（动态密码验证返回）
+        /// </summary>
+        [XmlIgnore]
+        public string PermissionAuthorizerNo { get; set; } = string.Empty;
+
+        /// <summary>
+        /// 申请时通知的接收人列表（用于审计追溯，格式：姓名(工号)；姓名(工号)）
+        /// </summary>
+        [XmlIgnore]
+        public string PermissionRequestedReceivers { get; set; } = string.Empty;
+
+        /// <summary>
+        /// 权限等级（动态密码验证返回）
+        /// </summary>
+        [XmlIgnore]
+        public int PermissionPrivilegeLevel { get; set; } = 0;
+
+        /// <summary>
+        /// 有效期分钟（来自配置）
+        /// </summary>
+        [XmlIgnore]
+        public int PermissionPeriodMinutes { get; set; } = 0;
+
+        /// <summary>
+        /// 申请原因（用于审计追溯）
+        /// </summary>
+        [XmlIgnore]
+        public string PermissionReason { get; set; } = string.Empty;
+
+        #endregion
         #endregion
 
         #region 通讯配置

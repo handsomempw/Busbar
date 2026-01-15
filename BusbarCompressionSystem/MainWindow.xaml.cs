@@ -16,6 +16,7 @@
 
 using BusbarCompressionSystem.Model;
 using BusbarCompressionSystem.Model.FaraVision;
+using BusbarCompressionSystem.Model.FaraVision.Tool;
 using BusbarCompressionSystem.Utils;
 using BusbarCompressionSystem.ViewModel;
 using HalconDotNet;
@@ -24,10 +25,12 @@ using Panuon.WPF.UI;
 using SQLITEDATABASE;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Xml.Serialization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
@@ -46,6 +49,12 @@ namespace BusbarCompressionSystem
     public partial class MainWindow : WindowX
     {
         ViewModelLocator vml = null;
+
+        // 中文说明：用于维护“动态密码授权”生命周期，密码过期后自动回收 AOI 编辑权限
+        private DynamicPasswordAuthService aoiPermissionAuthService;
+        private EventHandler aoiPermissionExpiredHandler;
+        private CancellationTokenSource aoiPermissionCts;
+
         public MainWindow()
         {
             InitializeComponent();
@@ -102,6 +111,9 @@ namespace BusbarCompressionSystem
         {
             if (MessageBoxX.Show("是否确定关闭运行软件?", "提示", MessageBoxButton.YesNo, MessageBoxIcon.Question) == MessageBoxResult.Yes)
             {
+                // 中文说明：关闭软件前释放动态密码授权相关资源（防止事件残留）
+                DisposeAoiPermissionAuthService();
+
                 vml.Main.SaveSettingModel();
                 vml.Main.SaveRecordModel();
                 vml.Main.SaveProcessmodel();
@@ -317,6 +329,10 @@ namespace BusbarCompressionSystem
                 vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool = vml.Main.DataModel.FaraVisionDataModel.Processmodel.Tools[vml.Main.DataModel.FaraVisionDataModel.Processmodel.selectedindex];
                 vml.Main.LoadBitmapSource();
                 //vml.Main.DataModel.Processmodel.tool = @vml.Main.DataModel.Processmodel.Tools[vml.Main.DataModel.Processmodel.selectedindex];
+
+                // 中文说明：进入编辑界面前保存工具快照，作为“保存工程时参数差异审计”的旧值来源
+                CaptureEditingToolSnapshotForAudit();
+
                 Model.FaraVision.SettingForm settingForm = new Model.FaraVision.SettingForm();
                 //settingForm.Topmost = true;
                 settingForm.ShowDialog();
@@ -347,13 +363,205 @@ namespace BusbarCompressionSystem
             if (vml.Main.DataModel.FaraVisionDataModel.Settingmodel.permission)
             {
                 vml.Main.DataModel.FaraVisionDataModel.Settingmodel.permission = false;
+                DisposeAoiPermissionAuthService();
                 return;
             }
-            InputPassword ip = new InputPassword("faracheck");
-            if (ip.ShowDialog() == true)
+
+            // 中文说明：将固定口令改为动态密码（通过 Faratronic.EquipUtils.Authentication 接入）
+            var authSetting = vml.Main.DataModel.Settingmodel.SETTING_DATA.DynamicPasswordAuth;
+            if (authSetting == null || !authSetting.Enabled)
             {
-                vml.Main.DataModel.FaraVisionDataModel.Settingmodel.permission = true;
+                NoticeBox.Show("动态密码认证未启用，请在“配置\\配置数据.xml”中开启后重试", "提示", MessageBoxIcon.Warning, true, 5000);
+                return;
             }
+
+            string equipNo = vml.Main.DataModel.Settingmodel.SETTING_DATA.MachineID;
+            if (string.IsNullOrWhiteSpace(equipNo) || equipNo == "设备编号")
+            {
+                NoticeBox.Show("设备编号未配置（用于动态密码认证），请先在配置中填写设备编号", "提示", MessageBoxIcon.Warning, true, 5000);
+                return;
+            }
+
+            // 防止重复点击（模板内按钮无法直接字段访问，使用 sender）
+            var permissionButton = sender as Button;
+            if (permissionButton != null)
+            {
+                permissionButton.IsEnabled = false;
+            }
+            try
+            {
+                // 若之前存在授权对象，先释放，避免多路计时/事件叠加
+                DisposeAoiPermissionAuthService();
+
+                CancellationTokenSource cts = new CancellationTokenSource();
+                DynamicPasswordAuthService service = new DynamicPasswordAuthService(authSetting, equipNo);
+                try
+                {
+                    // UI-2：在授权窗口内完成“申请→显示接收人→输入→验证”的闭环
+                    DynamicPasswordAuthWindow window = new DynamicPasswordAuthWindow(service, "AOI工具编辑/参数修改", cts.Token);
+                    if (window.ShowDialog() != true)
+                    {
+                        return;
+                    }
+
+                    if (window.VerifyInfo == null || !window.VerifyInfo.VerifyStatus)
+                    {
+                        NoticeBox.Show("动态密码验证未通过，无法开启权限", "提示", MessageBoxIcon.Warning, true, 5000);
+                        return;
+                    }
+
+                    // 验证通过：打开权限，并保持 service 存活以便监听“密码过期”事件自动回收权限
+                    aoiPermissionCts = cts;
+                    aoiPermissionAuthService = service;
+                    cts = null;
+                    service = null;
+
+                    // 中文说明：保存授权上下文到模型中，供“保存工程”时生成参数差异日志使用
+                    vml.Main.DataModel.FaraVisionDataModel.Settingmodel.PermissionGrantedAt = DateTime.Now;
+                    vml.Main.DataModel.FaraVisionDataModel.Settingmodel.PermissionAuthorizerName = window.VerifyInfo.AuthorizerName ?? string.Empty;
+                    vml.Main.DataModel.FaraVisionDataModel.Settingmodel.PermissionAuthorizerNo = window.VerifyInfo.AuthorizerNo ?? string.Empty;
+                    vml.Main.DataModel.FaraVisionDataModel.Settingmodel.PermissionPrivilegeLevel = window.VerifyInfo.PrivilegeLevel;
+                    vml.Main.DataModel.FaraVisionDataModel.Settingmodel.PermissionPeriodMinutes = authSetting.PeriodMinutes;
+                    vml.Main.DataModel.FaraVisionDataModel.Settingmodel.PermissionReason = "AOI工具编辑/参数修改";
+
+                    if (window.RequestedReceivers != null && window.RequestedReceivers.Count > 0)
+                    {
+                        vml.Main.DataModel.FaraVisionDataModel.Settingmodel.PermissionRequestedReceivers =
+                            string.Join("；", window.RequestedReceivers.Select(r => $"{r.ReceiverName}({r.ReceiverNo})"));
+                    }
+                    else
+                    {
+                        vml.Main.DataModel.FaraVisionDataModel.Settingmodel.PermissionRequestedReceivers = string.Empty;
+                    }
+
+                    aoiPermissionExpiredHandler = (s, ex) =>
+                    {
+                        // 中文说明：密码过期回调来自第三方库计时器线程，这里切回 UI 线程更新状态
+                        Dispatcher.Invoke(() =>
+                        {
+                            vml.Main.DataModel.FaraVisionDataModel.Settingmodel.permission = false;
+                            DisposeAoiPermissionAuthService();
+                            NoticeBox.Show("动态密码已过期，权限已自动关闭，请重新申请", "提示", MessageBoxIcon.Warning, true, 6000);
+                        });
+                    };
+                    aoiPermissionAuthService.PasswordExpired += aoiPermissionExpiredHandler;
+
+                    vml.Main.DataModel.FaraVisionDataModel.Settingmodel.permission = true;
+
+                    string periodTip = authSetting.PeriodMinutes > 0 ? $"（有效期 {authSetting.PeriodMinutes} 分钟）" : string.Empty;
+                    NoticeBox.Show($"动态密码验证通过，已开启编辑权限{periodTip}", "提示", MessageBoxIcon.Success, true, 4000);
+                }
+                finally
+                {
+                    // 中文说明：若未成功开启权限，则释放本次申请/验证过程中的资源
+                    service?.Dispose();
+                    cts?.Dispose();
+                }
+            }
+            catch (Exception ex)
+            {
+                // 中文说明：异常信息尽量简洁，避免把敏感信息（如动态密码）带入日志/提示
+                NoticeBox.Show($"动态密码认证失败：{ex.Message}", "错误", MessageBoxIcon.Error, true, 6000);
+            }
+            finally
+            {
+                if (permissionButton != null)
+                {
+                    permissionButton.IsEnabled = true;
+                }
+            }
+        }
+
+        private void CaptureEditingToolSnapshotForAudit()
+        {
+            try
+            {
+                int selectedIndex = vml.Main.DataModel.FaraVisionDataModel.Processmodel.selectedindex;
+                if (selectedIndex < 0 || selectedIndex >= vml.Main.DataModel.FaraVisionDataModel.Processmodel.Tools.Count)
+                {
+                    vml.Main.DataModel.FaraVisionDataModel.Processmodel.EditingToolIndex = -1;
+                    vml.Main.DataModel.FaraVisionDataModel.Processmodel.EditingToolSnapshot = null;
+                    vml.Main.DataModel.FaraVisionDataModel.Processmodel.EditingToolSnapshotTime = DateTime.MinValue;
+                    return;
+                }
+
+                ToolModel tool = vml.Main.DataModel.FaraVisionDataModel.Processmodel.Tools[selectedIndex];
+                vml.Main.DataModel.FaraVisionDataModel.Processmodel.EditingToolIndex = selectedIndex;
+                vml.Main.DataModel.FaraVisionDataModel.Processmodel.EditingToolSnapshot = CloneToolModelForAudit(tool);
+                vml.Main.DataModel.FaraVisionDataModel.Processmodel.EditingToolSnapshotTime = DateTime.Now;
+            }
+            catch
+            {
+                // 捕获异常，避免影响主流程
+            }
+        }
+
+        private ToolModel CloneToolModelForAudit(ToolModel tool)
+        {
+            try
+            {
+                if (tool == null)
+                {
+                    return null;
+                }
+
+                // 中文说明：使用XmlSerializer做深拷贝，确保快照与后续编辑互不影响
+                var serializer = new XmlSerializer(typeof(ToolModel));
+                using (var ms = new MemoryStream())
+                {
+                    serializer.Serialize(ms, tool);
+                    ms.Position = 0;
+                    return serializer.Deserialize(ms) as ToolModel;
+                }
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private void DisposeAoiPermissionAuthService()
+        {
+            try
+            {
+                aoiPermissionCts?.Cancel();
+                aoiPermissionCts?.Dispose();
+                aoiPermissionCts = null;
+            }
+            catch { }
+
+            try
+            {
+                if (aoiPermissionAuthService != null && aoiPermissionExpiredHandler != null)
+                {
+                    aoiPermissionAuthService.PasswordExpired -= aoiPermissionExpiredHandler;
+                }
+            }
+            catch { }
+            finally
+            {
+                aoiPermissionExpiredHandler = null;
+            }
+
+            try
+            {
+                aoiPermissionAuthService?.Dispose();
+                aoiPermissionAuthService = null;
+            }
+            catch { }
+
+            // 中文说明：权限关闭后清理授权上下文，避免后续误用
+            try
+            {
+                vml.Main.DataModel.FaraVisionDataModel.Settingmodel.PermissionGrantedAt = DateTime.MinValue;
+                vml.Main.DataModel.FaraVisionDataModel.Settingmodel.PermissionAuthorizerName = string.Empty;
+                vml.Main.DataModel.FaraVisionDataModel.Settingmodel.PermissionAuthorizerNo = string.Empty;
+                vml.Main.DataModel.FaraVisionDataModel.Settingmodel.PermissionRequestedReceivers = string.Empty;
+                vml.Main.DataModel.FaraVisionDataModel.Settingmodel.PermissionPrivilegeLevel = 0;
+                vml.Main.DataModel.FaraVisionDataModel.Settingmodel.PermissionPeriodMinutes = 0;
+                vml.Main.DataModel.FaraVisionDataModel.Settingmodel.PermissionReason = string.Empty;
+            }
+            catch { }
         }
 
 

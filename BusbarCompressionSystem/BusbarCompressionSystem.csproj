@@ -133,6 +133,9 @@
     <Compile Include="Model\FaraVision\FaraVisionDataModel.cs" />
     <Compile Include="Model\FaraVision\Convertor.cs" />
     <Compile Include="Model\FaraVision\Hobject2Bitmap.cs" />
+    <Compile Include="Model\FaraVision\DynamicPasswordAuthWindow.xaml.cs">
+      <DependentUpon>DynamicPasswordAuthWindow.xaml</DependentUpon>
+    </Compile>
     <Compile Include="Model\FaraVision\Inputbox.xaml.cs">
       <DependentUpon>Inputbox.xaml</DependentUpon>
     </Compile>
@@ -158,9 +161,11 @@
     <Compile Include="Model\Record1\TestModel.cs" />
     <Compile Include="Model\RecordModel.cs" />
     <Compile Include="Model\Setting1\ImageSaveSetting.cs" />
+    <Compile Include="Model\Setting1\DynamicPasswordAuthenticationSetting.cs" />
     <Compile Include="Model\Setting1\SETTING_DATA.cs" />
     <Compile Include="Model\Setting1\TcpSetting.cs" />
     <Compile Include="Model\SettingModel.cs" />
+    <Compile Include="Utils\DynamicPasswordAuthService.cs" />
     <Compile Include="Utils\TvStatusTranslator.cs" />
     <Compile Include="SettingForm.xaml.cs">
       <DependentUpon>SettingForm.xaml</DependentUpon>
@@ -191,6 +196,10 @@
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Include="Model\FaraVision\Inputbox.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="Model\FaraVision\DynamicPasswordAuthWindow.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>

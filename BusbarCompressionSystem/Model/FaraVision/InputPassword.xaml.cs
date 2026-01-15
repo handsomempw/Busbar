@@ -20,16 +20,16 @@ namespace BusbarCompressionSystem.Model.FaraVision
     /// </summary>
     public partial class InputPassword : WindowX
     {
-        string p = string.Empty;
+        /// <summary>
+        /// 用户输入的动态密码（仅在 DialogResult=true 时有效）
+        /// </summary>
+        public string InputValue { get; private set; } = string.Empty;
+
         public InputPassword()
         {
             InitializeComponent();
         }
-        public InputPassword(string p)
-        {
-            InitializeComponent();
-            this.p = p;
-        }
+
         private void Button_Click(object sender, RoutedEventArgs e)
         {
             check();
@@ -41,15 +41,27 @@ namespace BusbarCompressionSystem.Model.FaraVision
         {
             try
             {
-                if (p.ToUpper() == passwordbox.Password.ToUpper())
+                // 中文说明：原先这里是“固定口令比对”，现改为动态密码输入框，仅做格式校验并返回输入值
+                string value = (passwordbox.Password ?? string.Empty).Trim();
+                if (string.IsNullOrWhiteSpace(value))
                 {
-                    this.DialogResult = true;
+                    MessageBox.Show("请输入6位动态密码");
                     return;
                 }
+
+                if (value.Length != 6 || value.Any(c => c < '0' || c > '9'))
+                {
+                    MessageBox.Show("动态密码格式不正确（应为6位数字）");
+                    return;
+                }
+
+                InputValue = value;
+                this.DialogResult = true;
+                return;
             }
             catch {; }
 
-            MessageBox.Show("密码错误");
+            MessageBox.Show("动态密码输入异常，请重试");
 
         }
         private void Button_Click_1(object sender, RoutedEventArgs e)

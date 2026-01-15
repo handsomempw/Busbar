@@ -76,5 +76,11 @@ namespace BusbarCompressionSystem.Model.Setting1
         [XmlElement("AOI点检NG_SN码")]
         public string InspectionAOINGSN { set; get; } = "INSPECTION_AOI_NG";
 
+        /// <summary>
+        /// 动态密码认证配置（用于敏感操作的权限开启）
+        /// </summary>
+        [XmlElement("动态密码认证")]
+        public DynamicPasswordAuthenticationSetting DynamicPasswordAuth { get; set; } = new DynamicPasswordAuthenticationSetting();
+
     }
 }

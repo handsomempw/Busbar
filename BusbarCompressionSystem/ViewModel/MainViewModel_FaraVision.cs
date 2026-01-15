@@ -22,6 +22,10 @@ using System.Xml.Serialization;
 using GalaSoft.MvvmLight.Command;
 using BusbarCompressionSystem.FaraVision;
 using System.Runtime.InteropServices; // 用于GDI句柄管理
+using Faratronic.EquipUtils.Authentication;
+using Faratronic.EquipUtils.Authentication.Models;
+using System.Globalization;
+using System.Reflection;
 
 namespace BusbarCompressionSystem.ViewModel
 {
@@ -328,6 +332,31 @@ namespace BusbarCompressionSystem.ViewModel
         {
             try
             {
+                // ==================== 动态密码审计（P1）：保存工程时上报参数差异 ====================
+                // 中文说明：仅在“动态密码验证通过且已开启编辑权限”时，记录本次保存涉及的参数变化（old/new）
+                bool shouldReport = CanReportDynamicPasswordAudit(
+                    out string authorizerName,
+                    out string authorizerNo,
+                    out string auditReason,
+                    out int privilegeLevel,
+                    out int periodMinutes,
+                    out string requestedReceivers);
+
+                // 中文说明：快照模式：oldTool 来自“打开编辑界面时的工具快照”，避免依赖磁盘旧xml并减少运行时噪声
+                int editingIndex = DataModel.FaraVisionDataModel.Processmodel.EditingToolIndex;
+                ToolModel oldTool = DataModel.FaraVisionDataModel.Processmodel.EditingToolSnapshot;
+                ToolModel newTool = null;
+                int toolFileIndex = -1;
+
+                if (shouldReport
+                    && oldTool != null
+                    && editingIndex >= 0
+                    && editingIndex < DataModel.FaraVisionDataModel.Processmodel.Tools.Count)
+                {
+                    toolFileIndex = editingIndex + 1;
+                    newTool = DataModel.FaraVisionDataModel.Processmodel.Tools[editingIndex];
+                }
+
                 #region 删除旧xml文件
                 foreach (string s in Directory.GetFiles($"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}"))
                 {
@@ -345,8 +374,380 @@ namespace BusbarCompressionSystem.ViewModel
                 {
                     SavePrjXml(DataModel.FaraVisionDataModel.Processmodel.Tools[i], i + 1);
                 }
+
+                if (shouldReport && toolFileIndex > 0 && newTool != null && oldTool != null)
+                {
+                    ReportToolParameterDiff(
+                        oldTool,
+                        newTool,
+                        toolFileIndex,
+                        DataModel.FaraVisionDataModel.Settingmodel.Name,
+                        authorizerName,
+                        authorizerNo,
+                        auditReason,
+                        privilegeLevel,
+                        periodMinutes,
+                        requestedReceivers);
+
+                    // 中文说明：一次保存完成后更新快照，避免重复上报同一批变更
+                    DataModel.FaraVisionDataModel.Processmodel.EditingToolSnapshot = CloneToolModelSnapshot(newTool);
+                    DataModel.FaraVisionDataModel.Processmodel.EditingToolSnapshotTime = DateTime.Now;
+                }
             }
             catch (Exception ex) {; }
+        }
+
+        private bool CanReportDynamicPasswordAudit(
+            out string authorizerName,
+            out string authorizerNo,
+            out string reason,
+            out int privilegeLevel,
+            out int periodMinutes,
+            out string requestedReceivers)
+        {
+            authorizerName = DataModel.FaraVisionDataModel.Settingmodel.PermissionAuthorizerName ?? string.Empty;
+            authorizerNo = DataModel.FaraVisionDataModel.Settingmodel.PermissionAuthorizerNo ?? string.Empty;
+            reason = DataModel.FaraVisionDataModel.Settingmodel.PermissionReason ?? string.Empty;
+            privilegeLevel = DataModel.FaraVisionDataModel.Settingmodel.PermissionPrivilegeLevel;
+            periodMinutes = DataModel.FaraVisionDataModel.Settingmodel.PermissionPeriodMinutes;
+            requestedReceivers = DataModel.FaraVisionDataModel.Settingmodel.PermissionRequestedReceivers ?? string.Empty;
+
+            // 中文说明：必须满足“权限已开启 + 授权人工号存在”，否则不做审计上报
+            return DataModel.FaraVisionDataModel.Settingmodel.permission
+                && !string.IsNullOrWhiteSpace(authorizerNo);
+        }
+
+        private ToolModel CloneToolModelSnapshot(ToolModel tool)
+        {
+            try
+            {
+                if (tool == null)
+                {
+                    return null;
+                }
+
+                var serializer = new XmlSerializer(typeof(ToolModel));
+                using (var ms = new MemoryStream())
+                {
+                    serializer.Serialize(ms, tool);
+                    ms.Position = 0;
+                    return serializer.Deserialize(ms) as ToolModel;
+                }
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private void ReportToolParameterDiff(
+            ToolModel oldTool,
+            ToolModel newTool,
+            int toolFileIndex,
+            string prjName,
+            string authorizerName,
+            string authorizerNo,
+            string reason,
+            int privilegeLevel,
+            int periodMinutes,
+            string requestedReceivers)
+        {
+            try
+            {
+                var datas = new List<OperationData>();
+
+                // 上下文信息（不做 old/new 对比，仅用于追溯）
+                datas.Add(new OperationData { DataName = "工程名称", DataOldValue = string.Empty, DataNewValue = prjName ?? string.Empty, DataType = "上下文" });
+                datas.Add(new OperationData { DataName = "工具文件序号", DataOldValue = string.Empty, DataNewValue = toolFileIndex.ToString(CultureInfo.InvariantCulture), DataType = "上下文" });
+                datas.Add(new OperationData { DataName = "工具名称", DataOldValue = string.Empty, DataNewValue = newTool?.Name ?? string.Empty, DataType = "上下文" });
+                datas.Add(new OperationData { DataName = "申请原因", DataOldValue = string.Empty, DataNewValue = reason ?? string.Empty, DataType = "上下文" });
+                datas.Add(new OperationData { DataName = "权限等级", DataOldValue = string.Empty, DataNewValue = privilegeLevel.ToString(CultureInfo.InvariantCulture), DataType = "上下文" });
+                if (periodMinutes > 0)
+                {
+                    datas.Add(new OperationData { DataName = "有效期分钟", DataOldValue = string.Empty, DataNewValue = periodMinutes.ToString(CultureInfo.InvariantCulture), DataType = "上下文" });
+                }
+                if (!string.IsNullOrWhiteSpace(requestedReceivers))
+                {
+                    datas.Add(new OperationData { DataName = "通知接收人", DataOldValue = string.Empty, DataNewValue = requestedReceivers, DataType = "上下文" });
+                }
+
+                // 参数差异明细
+                string dataType = string.IsNullOrWhiteSpace(newTool?.Name)
+                    ? $"AOI工具{toolFileIndex}"
+                    : $"AOI工具{toolFileIndex}({newTool.Name})";
+
+                if (oldTool == null)
+                {
+                    // 中文说明：旧快照不存在时不全量展开（字段太多），仅记录关键字段用于追溯
+                    datas.AddRange(new[]
+                    {
+                        new OperationData { DataName = "工具模式", DataOldValue = "无快照", DataNewValue = newTool.TestMode.ToString(), DataType = dataType },
+                        new OperationData { DataName = "触发指令", DataOldValue = "无快照", DataNewValue = newTool.Command ?? string.Empty, DataType = dataType },
+                        new OperationData { DataName = "相机序号", DataOldValue = "无快照", DataNewValue = newTool.CameraIndex.ToString(CultureInfo.InvariantCulture), DataType = dataType },
+                        new OperationData { DataName = "相机曝光时间", DataOldValue = "无快照", DataNewValue = newTool.ExposureTime.ToString(CultureInfo.InvariantCulture), DataType = dataType },
+                    });
+                }
+                else
+                {
+                    var diffs = BuildObjectDiff(oldTool, newTool, dataType, 2);
+                    if (diffs.Count > 0)
+                    {
+                        datas.AddRange(diffs);
+                    }
+                }
+
+                // 如果没有任何差异，则不发送
+                bool hasRealDiff = datas.Any(d => d.DataType != "上下文");
+                if (!hasRealDiff)
+                {
+                    return;
+                }
+
+                // 防止一次保存产生过多字段（ToolModel字段非常多）
+                const int maxDatas = 200;
+                if (datas.Count > maxDatas)
+                {
+                    datas = datas.Take(maxDatas).ToList();
+                    datas.Add(new OperationData
+                    {
+                        DataName = "提示",
+                        DataOldValue = string.Empty,
+                        DataNewValue = "变更项过多，已截断（请联系开发扩展上报策略）",
+                        DataType = "系统"
+                    });
+                }
+
+                bool testMode = DataModel.Settingmodel.SETTING_DATA.DynamicPasswordAuth != null
+                    && !DataModel.Settingmodel.SETTING_DATA.DynamicPasswordAuth.StrictMode
+                    && DataModel.Settingmodel.SETTING_DATA.DynamicPasswordAuth.TestMode;
+
+                string equipNo = DataModel.Settingmodel.SETTING_DATA.MachineID ?? string.Empty;
+
+                var record = new OperationRecord
+                {
+                    AuthorizerName = authorizerName ?? string.Empty,
+                    AuthorizerNo = authorizerNo ?? string.Empty,
+                    EquipNo = equipNo,
+                    OperateStartTime = DateTime.Now,
+                    OperateEndTime = DateTime.Now,
+                    Datas = datas
+                };
+
+                Task.Run(() =>
+                {
+                    try
+                    {
+                        OperationLog opLog = new OperationLog(testMode);
+                        opLog.Log(record);
+                        writeLog($"[动态密码][参数审计] 已上报：工程={prjName}, 工具序号={toolFileIndex}, 变更项={datas.Count}", false);
+                    }
+                    catch (Exception ex)
+                    {
+                        writeLog($"[动态密码][参数审计] 上报失败：{ex.Message}", false);
+                    }
+                });
+            }
+            catch
+            {
+                // 忽略所有异常，避免影响保存工程主流程
+            }
+        }
+
+        private List<OperationData> BuildObjectDiff(object oldObj, object newObj, string dataType, int maxDepth)
+        {
+            var diffs = new List<OperationData>();
+            AppendObjectDiff(diffs, oldObj, newObj, string.Empty, dataType, maxDepth);
+            return diffs;
+        }
+
+        private void AppendObjectDiff(List<OperationData> diffs, object oldObj, object newObj, string prefix, string dataType, int depth)
+        {
+            if (depth < 0)
+            {
+                return;
+            }
+
+            if (oldObj == null && newObj == null)
+            {
+                return;
+            }
+
+            Type type = (newObj ?? oldObj).GetType();
+
+            foreach (var prop in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+            {
+                if (!prop.CanRead || !prop.CanWrite)
+                {
+                    continue;
+                }
+
+                if (prop.GetIndexParameters().Length > 0)
+                {
+                    continue;
+                }
+
+                if (Attribute.IsDefined(prop, typeof(XmlIgnoreAttribute)))
+                {
+                    continue;
+                }
+
+                // 中文说明：过滤运行时结果字段，避免把“测量结果/识别结果”等噪声上报为参数修改
+                if (!IsAuditRelevantProperty(prop.Name))
+                {
+                    continue;
+                }
+
+                object oldValue = oldObj != null ? prop.GetValue(oldObj) : null;
+                object newValue = newObj != null ? prop.GetValue(newObj) : null;
+
+                string displayName = GetDisplayName(prop);
+                string path = string.IsNullOrWhiteSpace(prefix) ? displayName : $"{prefix}.{displayName}";
+
+                Type propType = prop.PropertyType;
+
+                if (IsSimpleType(propType))
+                {
+                    if (!AreEqual(oldValue, newValue, propType))
+                    {
+                        diffs.Add(new OperationData
+                        {
+                            DataName = path,
+                            DataOldValue = FormatValue(oldValue),
+                            DataNewValue = FormatValue(newValue),
+                            DataType = dataType
+                        });
+                    }
+                    continue;
+                }
+
+                // 跳过集合/大对象，避免爆炸式上报
+                if (typeof(System.Collections.IEnumerable).IsAssignableFrom(propType) && propType != typeof(string))
+                {
+                    continue;
+                }
+
+                // 递归比较子对象（例如 ROI）
+                if (depth > 0)
+                {
+                    AppendObjectDiff(diffs, oldValue, newValue, path, dataType, depth - 1);
+                }
+            }
+        }
+
+        private bool IsAuditRelevantProperty(string propertyName)
+        {
+            if (string.IsNullOrWhiteSpace(propertyName))
+            {
+                return false;
+            }
+
+            // 运行时结果字段常见前缀（ToolModel中较多），不作为“参数修改”审计
+            if (propertyName.StartsWith("Actual", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+            if (propertyName.StartsWith("Delta", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            // 状态/过程字段，不作为参数审计
+            if (propertyName.IndexOf("Status", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return false;
+            }
+
+            // 运行时扫码内容，不作为参数审计
+            if (propertyName.Equals("BarcodeStr", StringComparison.OrdinalIgnoreCase) ||
+                propertyName.Equals("Barcodes", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        private string GetDisplayName(PropertyInfo prop)
+        {
+            var xmlElement = prop.GetCustomAttributes(typeof(XmlElementAttribute), true)
+                .OfType<XmlElementAttribute>()
+                .FirstOrDefault();
+            if (xmlElement != null && !string.IsNullOrWhiteSpace(xmlElement.ElementName))
+            {
+                return xmlElement.ElementName;
+            }
+            return prop.Name;
+        }
+
+        private bool IsSimpleType(Type t)
+        {
+            if (t.IsEnum)
+            {
+                return true;
+            }
+
+            return t == typeof(string)
+                || t == typeof(bool)
+                || t == typeof(byte)
+                || t == typeof(short)
+                || t == typeof(int)
+                || t == typeof(long)
+                || t == typeof(float)
+                || t == typeof(double)
+                || t == typeof(decimal)
+                || t == typeof(DateTime);
+        }
+
+        private bool AreEqual(object oldValue, object newValue, Type t)
+        {
+            if (oldValue == null && newValue == null)
+            {
+                return true;
+            }
+            if (oldValue == null || newValue == null)
+            {
+                return false;
+            }
+
+            if (t == typeof(double))
+            {
+                double a = (double)oldValue;
+                double b = (double)newValue;
+                return Math.Abs(a - b) < 1e-9;
+            }
+            if (t == typeof(float))
+            {
+                float a = (float)oldValue;
+                float b = (float)newValue;
+                return Math.Abs(a - b) < 1e-6f;
+            }
+
+            if (t == typeof(string))
+            {
+                return string.Equals((string)oldValue, (string)newValue, StringComparison.Ordinal);
+            }
+
+            return Equals(oldValue, newValue);
+        }
+
+        private string FormatValue(object value)
+        {
+            if (value == null)
+            {
+                return string.Empty;
+            }
+
+            if (value is DateTime dt)
+            {
+                return dt.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+            }
+
+            if (value is IFormattable formattable)
+            {
+                return formattable.ToString(null, CultureInfo.InvariantCulture);
+            }
+
+            return value.ToString();
         }
 
         private void SavePrjXml(ToolModel td, int index)
