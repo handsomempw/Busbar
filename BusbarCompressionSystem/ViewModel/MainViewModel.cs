@@ -452,6 +452,77 @@ namespace BusbarCompressionSystem.ViewModel
             DataModel.Settingmodel.AT9620_3.DataReceived += OnReceive3;
         }
 
+        // 中文说明：电测原始数据日志（按SN分文件，每天清空目录下所有txt）
+        private readonly object _electricalRawLogLock = new object();
+        private static readonly string ElectricalRawLogDir = Path.Combine(Environment.CurrentDirectory, "识别过程日志", "电测原始数据");
+        private static readonly string ElectricalRawLogCleanupMarkerPath = Path.Combine(ElectricalRawLogDir, ".last_cleanup_date");
+
+        private void WriteElectricalRawDataLog(int tvIndex, Productinfo productInfo, double voltage, double current, double time, string status)
+        {
+            try
+            {
+                if (productInfo == null || string.IsNullOrWhiteSpace(productInfo.SN))
+                {
+                    return;
+                }
+
+                lock (_electricalRawLogLock)
+                {
+                    Directory.CreateDirectory(ElectricalRawLogDir);
+
+                    // 每天清空：第一次写入当天日志时，清理目录下所有txt（保留marker文件）
+                    string today = DateTime.Now.ToString("yyyyMMdd");
+                    string lastCleanup = "";
+                    try
+                    {
+                        if (File.Exists(ElectricalRawLogCleanupMarkerPath))
+                        {
+                            lastCleanup = File.ReadAllText(ElectricalRawLogCleanupMarkerPath)?.Trim() ?? "";
+                        }
+                    }
+                    catch
+                    {
+                        // 读marker失败不影响主流程，后续会尝试重新写入
+                    }
+
+                    if (!string.Equals(lastCleanup, today, StringComparison.Ordinal))
+                    {
+                        try
+                        {
+                            foreach (var file in Directory.GetFiles(ElectricalRawLogDir, "*.txt", SearchOption.TopDirectoryOnly))
+                            {
+                                try { File.Delete(file); } catch { }
+                            }
+                        }
+                        catch
+                        {
+                            // 清理失败不影响主流程，至少保证本次能写入
+                        }
+
+                        try { File.WriteAllText(ElectricalRawLogCleanupMarkerPath, today); } catch { }
+                    }
+
+                    string filePath = Path.Combine(ElectricalRawLogDir, $"{productInfo.SN}.txt");
+                    bool isNewFile = !File.Exists(filePath);
+
+                    using (var sw = new StreamWriter(filePath, true))
+                    {
+                        if (isNewFile)
+                        {
+                            // 字段说明：时间戳、耐压机台、SN、工单、料号、实时电压/电流/时间、仪器状态（原始）
+                            sw.WriteLine("时间\t机台\tSN\tWOCODE\tPartNOID\t电压\t电流\t时间\t状态");
+                        }
+
+                        sw.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}\tTV{tvIndex}\t{productInfo.SN}\t{productInfo.WOCODE}\t{productInfo.PartNOID}\t{voltage}\t{current}\t{time}\t{status}");
+                    }
+                }
+            }
+            catch
+            {
+                // 中文说明：原始数据日志不允许影响主流程，异常直接吞掉
+            }
+        }
+
         private void OnReceive1(object sender, EventArgs e)
         {
 
@@ -459,6 +530,7 @@ namespace BusbarCompressionSystem.ViewModel
             {
                 //writeLog($"相机->视觉:接收照片", false);
                 AT9620EventArgs myEventArgs = e as AT9620EventArgs;
+                var tv = myEventArgs.ResultTVProcess.Value;
                 DataModel.Processmodel.TVTestTestModel1.Voltage = myEventArgs.ResultTVProcess.Value.Voltage;
                 DataModel.Processmodel.TVTestTestModel1.Current = myEventArgs.ResultTVProcess.Value.Current;
                 DataModel.Processmodel.TVTestTestModel1.Time = myEventArgs.ResultTVProcess.Value.Time;
@@ -467,6 +539,9 @@ namespace BusbarCompressionSystem.ViewModel
                 DataModel.Processmodel.TVTestTestModel1.TVMaxVoltage = Math.Max(DataModel.Processmodel.TVTestTestModel1.TVMaxVoltage, DataModel.Processmodel.TVTestTestModel1.Voltage);
                 DataModel.Processmodel.TVTestTestModel1.TVMaxCurrent = Math.Max(DataModel.Processmodel.TVTestTestModel1.TVMaxCurrent, DataModel.Processmodel.TVTestTestModel1.Current);
                 DataModel.Processmodel.TVTestTestModel1.TVInfo = myEventArgs.ResultTVProcess.Value.status;
+
+                // 中文说明：电测阶段原始数据落盘（按SN区分，每天清空）
+                WriteElectricalRawDataLog(1, DataModel.Processmodel.TVTestTestModel1.Productinfo, tv.Voltage, tv.Current, tv.Time, tv.status);
             }
             catch (Exception ex)
             {
@@ -479,6 +554,7 @@ namespace BusbarCompressionSystem.ViewModel
             {
                 //writeLog($"相机->视觉:接收照片", false);
                 AT9620EventArgs myEventArgs = e as AT9620EventArgs;
+                var tv = myEventArgs.ResultTVProcess.Value;
                 DataModel.Processmodel.TVTestTestModel2.Voltage = myEventArgs.ResultTVProcess.Value.Voltage;
                 DataModel.Processmodel.TVTestTestModel2.Current = myEventArgs.ResultTVProcess.Value.Current;
                 DataModel.Processmodel.TVTestTestModel2.Time = myEventArgs.ResultTVProcess.Value.Time;
@@ -487,6 +563,9 @@ namespace BusbarCompressionSystem.ViewModel
                 DataModel.Processmodel.TVTestTestModel2.TVMaxVoltage = Math.Max(DataModel.Processmodel.TVTestTestModel2.TVMaxVoltage, DataModel.Processmodel.TVTestTestModel2.Voltage);
                 DataModel.Processmodel.TVTestTestModel2.TVMaxCurrent = Math.Max(DataModel.Processmodel.TVTestTestModel2.TVMaxCurrent, DataModel.Processmodel.TVTestTestModel2.Current);
                 DataModel.Processmodel.TVTestTestModel2.TVInfo = myEventArgs.ResultTVProcess.Value.status;
+
+                // 中文说明：电测阶段原始数据落盘（按SN区分，每天清空）
+                WriteElectricalRawDataLog(2, DataModel.Processmodel.TVTestTestModel2.Productinfo, tv.Voltage, tv.Current, tv.Time, tv.status);
             }
             catch (Exception ex)
             {
@@ -499,6 +578,7 @@ namespace BusbarCompressionSystem.ViewModel
             {
                 //writeLog($"相机->视觉:接收照片", false);
                 AT9620EventArgs myEventArgs = e as AT9620EventArgs;
+                var tv = myEventArgs.ResultTVProcess.Value;
                 DataModel.Processmodel.TVTestTestModel3.Voltage = myEventArgs.ResultTVProcess.Value.Voltage;
                 DataModel.Processmodel.TVTestTestModel3.Current = myEventArgs.ResultTVProcess.Value.Current;
                 DataModel.Processmodel.TVTestTestModel3.Time = myEventArgs.ResultTVProcess.Value.Time;
@@ -507,6 +587,9 @@ namespace BusbarCompressionSystem.ViewModel
                 DataModel.Processmodel.TVTestTestModel3.TVMaxVoltage = Math.Max(DataModel.Processmodel.TVTestTestModel3.TVMaxVoltage, DataModel.Processmodel.TVTestTestModel3.Voltage);
                 DataModel.Processmodel.TVTestTestModel3.TVMaxCurrent = Math.Max(DataModel.Processmodel.TVTestTestModel3.TVMaxCurrent, DataModel.Processmodel.TVTestTestModel3.Current);
                 DataModel.Processmodel.TVTestTestModel3.TVInfo = myEventArgs.ResultTVProcess.Value.status;
+
+                // 中文说明：电测阶段原始数据落盘（按SN区分，每天清空）
+                WriteElectricalRawDataLog(3, DataModel.Processmodel.TVTestTestModel3.Productinfo, tv.Voltage, tv.Current, tv.Time, tv.status);
 
             }
             catch (Exception ex)
@@ -3294,7 +3377,7 @@ namespace BusbarCompressionSystem.ViewModel
                                 DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN,
                                 status == 0);
                             if (!updateAoiDbOk)
-                        {
+                            {
                                 // 写库失败必须在UI日志可见，否则会出现“UI/DB不一致、CHECK2判定异常”难排查
                                 writeLog($"[AOI] 写入数据库TAKEPHOTO2失败：WOCODE={DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE}, PartNOID={DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID}, SN={DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN}, 结果={(status == 0 ? "OK" : "NG")}", true);
                             }

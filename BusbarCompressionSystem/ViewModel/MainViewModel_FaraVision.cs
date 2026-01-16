@@ -533,17 +533,25 @@ namespace BusbarCompressionSystem.ViewModel
                     Datas = datas
                 };
 
+                int contextCount = datas.Count(d => d.DataType == "上下文");
+                int diffCount = datas.Count(d => d.DataType != "上下文");
+                int totalCount = datas.Count;
+
+                // 中文说明：UI仅提示概要信息，详细变更写入日志文件
+                writeLog($"[动态密码][参数审计] 触发上报：工程={prjName}, 工具序号={toolFileIndex}, 参数变更={diffCount}, 上下文={contextCount}, 合计={totalCount}", true);
+                WriteParameterAuditDetailToFile(prjName, toolFileIndex, authorizerName, authorizerNo, reason, requestedReceivers, datas);
+
                 Task.Run(() =>
                 {
                     try
                     {
                         OperationLog opLog = new OperationLog(testMode);
                         opLog.Log(record);
-                        writeLog($"[动态密码][参数审计] 已上报：工程={prjName}, 工具序号={toolFileIndex}, 变更项={datas.Count}", false);
+                        writeLog($"[动态密码][参数审计] 已上报：工程={prjName}, 工具序号={toolFileIndex}, 参数变更={diffCount}, 上下文={contextCount}, 合计={totalCount}", true);
                     }
                     catch (Exception ex)
                     {
-                        writeLog($"[动态密码][参数审计] 上报失败：{ex.Message}", false);
+                        writeLog($"[动态密码][参数审计] 上报失败：{ex.Message}", true);
                     }
                 });
             }
@@ -558,6 +566,62 @@ namespace BusbarCompressionSystem.ViewModel
             var diffs = new List<OperationData>();
             AppendObjectDiff(diffs, oldObj, newObj, string.Empty, dataType, maxDepth);
             return diffs;
+        }
+
+        private void WriteParameterAuditDetailToFile(
+            string prjName,
+            int toolFileIndex,
+            string authorizerName,
+            string authorizerNo,
+            string reason,
+            string requestedReceivers,
+            List<OperationData> datas)
+        {
+            try
+            {
+                // 中文说明：明细仅写入日志文件，界面不展示（showdatarecord=false）
+                writeLog($"[动态密码][参数审计][明细] 工程={prjName}, 工具序号={toolFileIndex}, 授权人={authorizerName}({authorizerNo}), 原因={reason}", false);
+                if (!string.IsNullOrWhiteSpace(requestedReceivers))
+                {
+                    writeLog($"[动态密码][参数审计][明细] 通知接收人={requestedReceivers}", false);
+                }
+
+                if (datas == null || datas.Count == 0)
+                {
+                    writeLog("[动态密码][参数审计][明细] 无明细数据", false);
+                    return;
+                }
+
+                const int maxValueLength = 300;
+                foreach (var d in datas)
+                {
+                    string oldValue = TruncateForAuditLog(d?.DataOldValue, maxValueLength);
+                    string newValue = TruncateForAuditLog(d?.DataNewValue, maxValueLength);
+                    string dataType = d?.DataType ?? string.Empty;
+                    string name = d?.DataName ?? string.Empty;
+
+                    writeLog($"[动态密码][参数审计][明细] {dataType}|{name}: {oldValue} -> {newValue}", false);
+                }
+            }
+            catch
+            {
+                // 忽略所有异常，避免影响保存工程主流程
+            }
+        }
+
+        private static string TruncateForAuditLog(string value, int maxLength)
+        {
+            if (string.IsNullOrEmpty(value))
+            {
+                return string.Empty;
+            }
+
+            string v = value.Replace("\r", "\\r").Replace("\n", "\\n");
+            if (v.Length <= maxLength)
+            {
+                return v;
+            }
+            return v.Substring(0, maxLength) + "...(已截断)";
         }
 
         private void AppendObjectDiff(List<OperationData> diffs, object oldObj, object newObj, string prefix, string dataType, int depth)
