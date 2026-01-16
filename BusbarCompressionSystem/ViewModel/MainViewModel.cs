@@ -71,6 +71,9 @@ namespace BusbarCompressionSystem.ViewModel
         /// </summary>
         public MainViewModel()
         {
+            // 注入SQLite模块的UI日志回调：当底层检测到关键文件缺失等情况时，也能通过 writeLog 在界面提示
+            sqlite.UiLog = msg => writeLog(msg);
+
             ////if (IsInDesignMode)
             ////{
             ////    // Code runs in Blend --> create design time data.

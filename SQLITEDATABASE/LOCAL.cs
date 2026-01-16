@@ -20,6 +20,12 @@ namespace SQLITEDATABASE
         private static object dbFileLocker = new object(); //数据库文件操作锁
 
         /// <summary>
+        /// UI层注入的日志回调：用于将SQLite相关提示输出到界面（例如调用主程序的 writeLog）。
+        /// 说明：SQLITEDATABASE 项目不应直接依赖 UI 项目，通过委托回调保持分层与依赖方向正确。
+        /// </summary>
+        public static Action<string> UiLog { get; set; }
+
+        /// <summary>
         /// SQLite模块专用错误日志
         /// 独立文件存储，便于问题定位和统计分析
         /// 输出路径：日志\数据库异常\{日期}.txt
@@ -488,7 +494,9 @@ namespace SQLITEDATABASE
                     }
                     else
                     {
-                        // 关键问题：模板数据库不存在
+                        // 模板数据库不存在
+                        // 同步在UI界面提示：模板库缺失时，指导用户把 default.db 复制到指定目录
+                        UiLog?.Invoke($"模板数据库不存在请复制文件到目录: {defaultdb}");
                         WriteErrorLog("[数据库异常]CheckDataBase-模板缺失",
                             $"模板数据库不存在: {defaultdb}，无法创建工单数据库", SN, WOCODE);
                         return string.Empty;
