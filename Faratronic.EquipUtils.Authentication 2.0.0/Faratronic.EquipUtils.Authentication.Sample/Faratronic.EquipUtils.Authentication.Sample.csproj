@@ -34,15 +34,15 @@
   <ItemGroup>
     <Reference Include="Faratronic.EquipUtils.Authentication, Version=2.0.0.0, Culture=neutral, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\Release\net462\Faratronic.EquipUtils.Authentication.dll</HintPath>
+      <HintPath>..\Release\net45\Faratronic.EquipUtils.Authentication.dll</HintPath>
     </Reference>
     <Reference Include="log4net, Version=2.0.17.0, Culture=neutral, PublicKeyToken=669e0ddf0bb1aa2a, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\Release\net462\log4net.dll</HintPath>
+      <HintPath>..\Release\net45\log4net.dll</HintPath>
     </Reference>
     <Reference Include="Newtonsoft.Json, Version=13.0.0.0, Culture=neutral, PublicKeyToken=30ad4fe6b2a6aeed, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\Release\net462\Newtonsoft.Json.dll</HintPath>
+      <HintPath>..\Release\net45\Newtonsoft.Json.dll</HintPath>
     </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core" />

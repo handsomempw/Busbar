@@ -2347,16 +2347,17 @@ namespace BusbarCompressionSystem.ViewModel
 
                 // 4. 添加线对象到Metrology模型
                 HTuple index;
+                // 注意：这里必须按 HALCON 接口定义传入测量窗口参数，避免语义错位
                 HOperatorSet.AddMetrologyObjectGeneric(
                     metrologyHandle,
-                    "line",                          // 对象类型：线段
-                    shapeParam,                      // 线段参数
-                    tool.MetrologyTolerance,         // 搜索范围（Tolerance）
-                    tool.MetrologyNumMeasures,       // 卡尺数量
-                    1,                               // 卡尺间距（自动分布）
-                    tool.MetrologyMeasureThreshold,  // 边缘阈值
-                    new HTuple(),                    // GenParamName（空）
-                    new HTuple(),                    // GenParamValue（空）
+                    "line",                           // 对象类型：线段
+                    shapeParam,                       // 线段参数
+                    tool.MetrologyMeasureLength1,     // 测量方向半长度
+                    tool.MetrologyMeasureLength2,     // 垂直测量方向半宽度
+                    tool.MetrologyMeasureSigma,       // 高斯平滑
+                    tool.MetrologyMeasureThreshold,   // 边缘阈值
+                    new HTuple(),                     // GenParamName（空）
+                    new HTuple(),                     // GenParamValue（空）
                     out index
                 );
 
@@ -2860,7 +2861,7 @@ namespace BusbarCompressionSystem.ViewModel
                     double perpRow = -dirCol;
                     double perpCol = dirRow;
 
-                    // 绘制卡尺位置（黄色矩形）
+                    // 绘制卡尺位置（黄色矩形，按参数含义：Length1=测量方向，Length2=垂直测量方向）
                     hwindow.SetColor("yellow");
                     hwindow.SetLineWidth(1);
                     hwindow.SetDraw("margin");
@@ -2873,17 +2874,18 @@ namespace BusbarCompressionSystem.ViewModel
                         double centerCol = lineColBegin + t * (lineColEnd - lineColBegin);
 
                         // 计算卡尺矩形的四个角点
-                        double halfLen1 = tool.MetrologyMeasureLength1;
-                        double halfLen2 = tool.MetrologyMeasureLength2;
+                        double halfLen1 = tool.MetrologyMeasureLength1; // 测量方向半长度
+                        double halfLen2 = tool.MetrologyMeasureLength2; // 垂直测量方向半宽度
 
-                        double row1 = centerRow - halfLen1 * dirRow - halfLen2 * perpRow;
-                        double col1 = centerCol - halfLen1 * dirCol - halfLen2 * perpCol;
-                        double row2 = centerRow + halfLen1 * dirRow - halfLen2 * perpRow;
-                        double col2 = centerCol + halfLen1 * dirCol - halfLen2 * perpCol;
-                        double row3 = centerRow + halfLen1 * dirRow + halfLen2 * perpRow;
-                        double col3 = centerCol + halfLen1 * dirCol + halfLen2 * perpCol;
-                        double row4 = centerRow - halfLen1 * dirRow + halfLen2 * perpRow;
-                        double col4 = centerCol - halfLen1 * dirCol + halfLen2 * perpCol;
+                        // 测量方向应垂直于ROI线方向，因此Length1沿perp，Length2沿dir
+                        double row1 = centerRow - halfLen1 * perpRow - halfLen2 * dirRow;
+                        double col1 = centerCol - halfLen1 * perpCol - halfLen2 * dirCol;
+                        double row2 = centerRow + halfLen1 * perpRow - halfLen2 * dirRow;
+                        double col2 = centerCol + halfLen1 * perpCol - halfLen2 * dirCol;
+                        double row3 = centerRow + halfLen1 * perpRow + halfLen2 * dirRow;
+                        double col3 = centerCol + halfLen1 * perpCol + halfLen2 * dirCol;
+                        double row4 = centerRow - halfLen1 * perpRow + halfLen2 * dirRow;
+                        double col4 = centerCol - halfLen1 * perpCol + halfLen2 * dirCol;
 
                         // 绘制矩形
                         hwindow.DispLine(row1, col1, row2, col2);
