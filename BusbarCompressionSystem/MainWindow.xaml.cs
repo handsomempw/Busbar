@@ -50,7 +50,7 @@ namespace BusbarCompressionSystem
     {
         ViewModelLocator vml = null;
 
-        // 中文说明：用于维护“动态密码授权”生命周期，密码过期后自动回收 AOI 编辑权限
+        // 用于维护“动态密码授权”生命周期，密码过期后自动回收 AOI 编辑权限
         private DynamicPasswordAuthService aoiPermissionAuthService;
         private EventHandler aoiPermissionExpiredHandler;
         private CancellationTokenSource aoiPermissionCts;
@@ -111,7 +111,7 @@ namespace BusbarCompressionSystem
         {
             if (MessageBoxX.Show("是否确定关闭运行软件?", "提示", MessageBoxButton.YesNo, MessageBoxIcon.Question) == MessageBoxResult.Yes)
             {
-                // 中文说明：关闭软件前释放动态密码授权相关资源（防止事件残留）
+                // 关闭软件前释放动态密码授权相关资源（防止事件残留）
                 DisposeAoiPermissionAuthService();
 
                 vml.Main.SaveSettingModel();
@@ -330,7 +330,7 @@ namespace BusbarCompressionSystem
                 vml.Main.LoadBitmapSource();
                 //vml.Main.DataModel.Processmodel.tool = @vml.Main.DataModel.Processmodel.Tools[vml.Main.DataModel.Processmodel.selectedindex];
 
-                // 中文说明：进入编辑界面前保存工具快照，作为“保存工程时参数差异审计”的旧值来源
+                // 进入编辑界面前保存工具快照，作为“保存工程时参数差异审计”的旧值来源
                 CaptureEditingToolSnapshotForAudit();
 
                 Model.FaraVision.SettingForm settingForm = new Model.FaraVision.SettingForm();
@@ -416,7 +416,7 @@ namespace BusbarCompressionSystem
                     cts = null;
                     service = null;
 
-                    // 中文说明：保存授权上下文到模型中，供“保存工程”时生成参数差异日志使用
+                    // 保存授权上下文到模型中，供“保存工程”时生成参数差异日志使用
                     vml.Main.DataModel.FaraVisionDataModel.Settingmodel.PermissionGrantedAt = DateTime.Now;
                     vml.Main.DataModel.FaraVisionDataModel.Settingmodel.PermissionAuthorizerName = window.VerifyInfo.AuthorizerName ?? string.Empty;
                     vml.Main.DataModel.FaraVisionDataModel.Settingmodel.PermissionAuthorizerNo = window.VerifyInfo.AuthorizerNo ?? string.Empty;
@@ -436,7 +436,7 @@ namespace BusbarCompressionSystem
 
                     aoiPermissionExpiredHandler = (s, ex) =>
                     {
-                        // 中文说明：密码过期回调来自第三方库计时器线程，这里切回 UI 线程更新状态
+                        // 密码过期回调来自第三方库计时器线程，这里切回 UI 线程更新状态
                         Dispatcher.Invoke(() =>
                         {
                             vml.Main.DataModel.FaraVisionDataModel.Settingmodel.permission = false;
@@ -453,14 +453,14 @@ namespace BusbarCompressionSystem
                 }
                 finally
                 {
-                    // 中文说明：若未成功开启权限，则释放本次申请/验证过程中的资源
+                    // 若未成功开启权限，则释放本次申请/验证过程中的资源
                     service?.Dispose();
                     cts?.Dispose();
                 }
             }
             catch (Exception ex)
             {
-                // 中文说明：异常信息尽量简洁，避免把敏感信息（如动态密码）带入日志/提示
+                // 异常信息尽量简洁，避免把敏感信息（如动态密码）带入日志/提示
                 NoticeBox.Show($"动态密码认证失败：{ex.Message}", "错误", MessageBoxIcon.Error, true, 6000);
             }
             finally
@@ -550,7 +550,7 @@ namespace BusbarCompressionSystem
             }
             catch { }
 
-            // 中文说明：权限关闭后清理授权上下文，避免后续误用
+            // 权限关闭后清理授权上下文，避免后续误用
             try
             {
                 vml.Main.DataModel.FaraVisionDataModel.Settingmodel.PermissionGrantedAt = DateTime.MinValue;
@@ -592,10 +592,6 @@ namespace BusbarCompressionSystem
                 ;
             }
         }
-
-
-
-
 
         #endregion
 

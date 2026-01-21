@@ -3,29 +3,30 @@
 // 描述: FaraVision 相关视图模型，负责工程管理、工具增删改、
 //       图像/模型读写以及基于 HALCON 的面积计算等核心逻辑。
 // ==========================================
+using BusbarCompressionSystem.FaraVision;
 using BusbarCompressionSystem.Model.FaraVision.Tool;
+using BusbarCompressionSystem.Model.FaraVision;
+using Faratronic.EquipUtils.Authentication.Models;
+using Faratronic.EquipUtils.Authentication;
+using GalaSoft.MvvmLight.Command;
 using GalaSoft.MvvmLight;
 using HalconDotNet;
-using System;
+using Panuon.WPF.UI;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Globalization;
+using System.IO;
 using System.Linq;
+using System.Reflection;
+using System.Runtime.InteropServices; // 用于GDI句柄管理
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Interop;
 using System.Windows.Media.Imaging;
 using System.Windows;
-using BusbarCompressionSystem.Model.FaraVision;
-using System.IO;
-using Panuon.WPF.UI;
 using System.Xml.Serialization;
-using GalaSoft.MvvmLight.Command;
-using BusbarCompressionSystem.FaraVision;
-using System.Runtime.InteropServices; // 用于GDI句柄管理
-using Faratronic.EquipUtils.Authentication;
-using Faratronic.EquipUtils.Authentication.Models;
-using System.Globalization;
-using System.Reflection;
+using System;
+
 
 namespace BusbarCompressionSystem.ViewModel
 {

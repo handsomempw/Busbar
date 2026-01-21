@@ -11,8 +11,9 @@
  */
 
 using CommonServiceLocator;
-using GalaSoft.MvvmLight;
 using GalaSoft.MvvmLight.Ioc;
+using GalaSoft.MvvmLight;
+
 
 namespace BusbarCompressionSystem.ViewModel
 {
