@@ -1073,7 +1073,164 @@ namespace BusbarCompressionSystem.Model.FaraVision
         }
 
         /// <summary>
-        /// Metrology参数变更事件处理器（300ms防抖）
+        /// 自动估算边缘阈值（仅在参数配置时使用，不参与运行时自动调整）
+        /// </summary>
+        private void AutoMetrologyThreshold_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (t?.Image == null)
+                {
+                    NoticeBox.Show("请先选择图片", "提示", MessageBoxIcon.Warning, true, 5000);
+                    return;
+                }
+
+                var thresholdList = new List<double>();
+                var detailList = new List<string>();
+
+                if (t.MeasureObject1ROI != null && t.MeasureObject1ROI.Type == ROIType.Line && IsROIValid(t.MeasureObject1ROI))
+                {
+                    if (TryEstimateThresholdForLineROI(t.Image, t, t.MeasureObject1ROI, out double th1))
+                    {
+                        thresholdList.Add(th1);
+                        detailList.Add($"ROI1: {th1:F1}");
+                    }
+                }
+
+                if (t.MeasureObject2ROI != null && t.MeasureObject2ROI.Type == ROIType.Line && IsROIValid(t.MeasureObject2ROI))
+                {
+                    if (TryEstimateThresholdForLineROI(t.Image, t, t.MeasureObject2ROI, out double th2))
+                    {
+                        thresholdList.Add(th2);
+                        detailList.Add($"ROI2: {th2:F1}");
+                    }
+                }
+
+                if (thresholdList.Count == 0)
+                {
+                    NoticeBox.Show("未找到有效的线段ROI，无法自动估算阈值", "提示", MessageBoxIcon.Warning, true, 6000);
+                    return;
+                }
+
+                // 按方案A：两条ROI都算，取较小值作为全局阈值（更稳妥不漏边）
+                double finalThreshold = thresholdList.Min();
+                t.MetrologyMeasureThreshold = (int)Math.Round(finalThreshold);
+
+                string detailText = string.Join("，", detailList);
+                NoticeBox.Show($"自动阈值完成\n{detailText}\n采用阈值: {t.MetrologyMeasureThreshold}",
+                    "自动阈值", MessageBoxIcon.Success, true, 6000);
+            }
+            catch (Exception ex)
+            {
+                NoticeBox.Show($"自动阈值失败: {ex.Message}", "错误", MessageBoxIcon.Error, true, 6000);
+            }
+        }
+
+        /// <summary>
+        /// 根据线段ROI采样边缘幅值，估算一个合适的阈值
+        /// </summary>
+        private bool TryEstimateThresholdForLineROI(HObject image, ToolModel tool, ROI roi, out double threshold)
+        {
+            threshold = 0;
+            if (image == null || roi == null)
+            {
+                return false;
+            }
+
+            double row1 = roi.Row1;
+            double col1 = roi.Col1;
+            double row2 = roi.Row2;
+            double col2 = roi.Col2;
+
+            double deltaRow = row2 - row1;
+            double deltaCol = col2 - col1;
+            double lineLength = Math.Sqrt(deltaRow * deltaRow + deltaCol * deltaCol);
+            if (lineLength < 5)
+            {
+                return false;
+            }
+
+            // 采样点数量做上限控制，避免过慢
+            int sampleCount = Math.Max(5, Math.Min(tool.MetrologyNumMeasures, 15));
+            var amplitudes = new List<double>();
+
+            HTuple width, height;
+            HOperatorSet.GetImageSize(image, out width, out height);
+
+            // 测量方向应垂直于ROI线方向
+            double angle = Math.Atan2(deltaRow, deltaCol) + Math.PI / 2.0;
+            double halfLen1 = Math.Max(1, tool.MetrologyMeasureLength1);
+            double halfLen2 = Math.Max(1, tool.MetrologyMeasureLength2);
+
+            for (int i = 0; i < sampleCount; i++)
+            {
+                double tRate = sampleCount == 1 ? 0.5 : (double)i / (sampleCount - 1);
+                double centerRow = row1 + tRate * deltaRow;
+                double centerCol = col1 + tRate * deltaCol;
+
+                HTuple measureHandle = null;
+                try
+                {
+                    HOperatorSet.GenMeasureRectangle2(
+                        centerRow,
+                        centerCol,
+                        angle,
+                        halfLen1,
+                        halfLen2,
+                        width,
+                        height,
+                        tool.SubPixelAccuracy ? "bicubic" : "nearest_neighbor",
+                        out measureHandle
+                    );
+
+                    HTuple rowEdge, colEdge, amplitude, distance;
+                    HOperatorSet.MeasurePos(
+                        image,
+                        measureHandle,
+                        tool.MetrologyMeasureSigma,
+                        1,          // 尽量低阈值采样更多幅值
+                        "all",      // 采样时不过滤极性
+                        "all",      // 采样时不过滤边缘
+                        out rowEdge,
+                        out colEdge,
+                        out amplitude,
+                        out distance
+                    );
+
+                    if (amplitude != null && amplitude.Length > 0)
+                    {
+                        for (int j = 0; j < amplitude.Length; j++)
+                        {
+                            amplitudes.Add(Math.Abs(amplitude[j].D));
+                        }
+                    }
+                }
+                finally
+                {
+                    if (measureHandle != null)
+                    {
+                        try { HOperatorSet.CloseMeasure(measureHandle); } catch { }
+                    }
+                }
+            }
+
+            if (amplitudes.Count == 0)
+            {
+                return false;
+            }
+
+            amplitudes.Sort();
+            int idx = (int)Math.Floor((amplitudes.Count - 1) * 0.6);
+            double p60 = amplitudes[idx];
+
+            // 使用分位数的保守系数，减少误检风险
+            double estimated = p60 * 0.6;
+            threshold = Math.Max(5, Math.Min(100, estimated));
+            return true;
+        }
+
+        /// <summary>
+        /// Metrology参数变更事件处理器（300ms防抖）        
         /// 
         /// 业务场景：
         /// - 用户在"Metrology参数（高级设置）"展开面板中调整参数（搜索范围、卡尺数量、边缘阈值等）

@@ -674,12 +674,12 @@
                                     </Grid.ColumnDefinitions>
 
                                     <!-- 搜索范围（已弃用，保留字段兼容旧配置） -->
-                                    <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Margin="0,5"
+                                    <TextBlock Grid.Row="8" Grid.Column="0" VerticalAlignment="Center" Margin="0,5"
                                                ToolTip="已弃用：搜索范围由卡尺几何参数统一控制" Visibility="Collapsed" IsEnabled="False">搜索范围:</TextBlock>
-                                    <Slider Grid.Row="0" Grid.Column="1" Minimum="50" Maximum="500"
+                                    <Slider Grid.Row="8" Grid.Column="1" Minimum="50" Maximum="500"
                                             Value="{Binding MetrologyTolerance}" TickFrequency="10" IsSnapToTickEnabled="True"
                                             ValueChanged="MetrologyParameter_Changed" Visibility="Collapsed" IsEnabled="False"/>
-                                    <TextBlock Grid.Row="0" Grid.Column="2" Text="{Binding MetrologyTolerance, StringFormat='{}{0}像素'}"
+                                    <TextBlock Grid.Row="8" Grid.Column="2" Text="{Binding MetrologyTolerance, StringFormat='{}{0}像素'}"
                                                VerticalAlignment="Center" Margin="5,0,0,0" MinWidth="70" Visibility="Collapsed" IsEnabled="False"/>
 
                                     <!-- 卡尺数量 -->
@@ -697,8 +697,13 @@
                                     <Slider Grid.Row="2" Grid.Column="1" Minimum="5" Maximum="100"
                                             Value="{Binding MetrologyMeasureThreshold}" TickFrequency="5" IsSnapToTickEnabled="True"
                                             ValueChanged="MetrologyParameter_Changed"/>
-                                    <TextBlock Grid.Row="2" Grid.Column="2" Text="{Binding MetrologyMeasureThreshold, StringFormat='{}{0}'}"
-                                               VerticalAlignment="Center" Margin="5,0,0,0" MinWidth="40"/>
+                                    <StackPanel Grid.Row="2" Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding MetrologyMeasureThreshold, StringFormat='{}{0}'}"
+                                                   VerticalAlignment="Center" Margin="5,0,6,0" MinWidth="40"/>
+                                        <Button Content="自动" Padding="8,2" MinWidth="48" Height="22"
+                                                Click="AutoMetrologyThreshold_Click"
+                                                ToolTip="基于当前模板图像与ROI线段估算阈值"/>
+                                    </StackPanel>
 
                                     <!-- 高斯平滑 -->
                                     <TextBlock Grid.Row="3" Grid.Column="0" VerticalAlignment="Center" Margin="0,5"
@@ -741,22 +746,22 @@
                                     <TextBlock Grid.Row="6" Grid.Column="2" Text="{Binding MetrologyMinScore, StringFormat='{}{0:F1}'}"
                                                VerticalAlignment="Center" Margin="5,0,0,0" MinWidth="40"/>
 
-                                    <!-- 卡尺长度1 -->
-                                    <TextBlock Grid.Row="7" Grid.Column="0" VerticalAlignment="Center" Margin="0,5"
-                                               ToolTip="测量方向上的搜索深度（半长度），越大容错越高但误检风险增加">卡尺长度1:</TextBlock>
-                                    <Slider Grid.Row="7" Grid.Column="1" Minimum="5" Maximum="500"
+                                    <!-- 垂直方向搜索深度 -->
+                                    <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Margin="0,5"
+                                               ToolTip="垂直于ROI线的搜索深度（半长度），越大容错越高但误检风险增加">垂直方向搜索深度:</TextBlock>
+                                    <Slider Grid.Row="0" Grid.Column="1" Minimum="5" Maximum="500"
                                             Value="{Binding MetrologyMeasureLength1}" TickFrequency="1" IsSnapToTickEnabled="True"
                                             ValueChanged="MetrologyParameter_Changed"/>
-                                    <TextBlock Grid.Row="7" Grid.Column="2" Text="{Binding MetrologyMeasureLength1, StringFormat='{}{0}像素'}"
+                                    <TextBlock Grid.Row="0" Grid.Column="2" Text="{Binding MetrologyMeasureLength1, StringFormat='{}{0}像素'}"
                                                VerticalAlignment="Center" Margin="5,0,0,0" MinWidth="70"/>
 
-                                    <!-- 卡尺长度2 -->
-                                    <TextBlock Grid.Row="8" Grid.Column="0" VerticalAlignment="Center" Margin="0,5"
-                                               ToolTip="垂直于测量方向的半宽度（沿线覆盖宽度）">卡尺长度2:</TextBlock>
-                                    <Slider Grid.Row="8" Grid.Column="1" Minimum="2" Maximum="200"
+                                    <!-- 沿线方向半宽度 -->
+                                    <TextBlock Grid.Row="7" Grid.Column="0" VerticalAlignment="Center" Margin="0,5"
+                                               ToolTip="沿ROI线方向的覆盖半宽度">沿线方向半宽度:</TextBlock>
+                                    <Slider Grid.Row="7" Grid.Column="1" Minimum="2" Maximum="200"
                                             Value="{Binding MetrologyMeasureLength2}" TickFrequency="1" IsSnapToTickEnabled="True"
                                             ValueChanged="MetrologyParameter_Changed"/>
-                                    <TextBlock Grid.Row="8" Grid.Column="2" Text="{Binding MetrologyMeasureLength2, StringFormat='{}{0}像素'}"
+                                    <TextBlock Grid.Row="7" Grid.Column="2" Text="{Binding MetrologyMeasureLength2, StringFormat='{}{0}像素'}"
                                                VerticalAlignment="Center" Margin="5,0,0,0" MinWidth="70"/>
 
                                     <!-- 显示调试信息 -->
