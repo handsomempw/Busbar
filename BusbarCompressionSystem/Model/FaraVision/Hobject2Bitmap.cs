@@ -1,4 +1,4 @@
-using HalconDotNet;
+﻿using HalconDotNet;
 using System;
 using System.Collections.Generic;
 using System.Drawing.Imaging;

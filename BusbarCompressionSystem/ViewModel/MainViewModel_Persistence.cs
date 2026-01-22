@@ -1,4 +1,4 @@
-using BusbarCompressionSystem.Model;
+﻿using BusbarCompressionSystem.Model;
 using BusbarCompressionSystem.Model.Record;
 using BusbarCompressionSystem.Utils;
 using GalaSoft.MvvmLight;

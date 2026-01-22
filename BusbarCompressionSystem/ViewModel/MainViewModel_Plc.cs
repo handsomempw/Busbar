@@ -1,4 +1,4 @@
-using GalaSoft.MvvmLight;
+﻿using GalaSoft.MvvmLight;
 using HslCommunication.ModBus;
 using System.Threading;
 using System;

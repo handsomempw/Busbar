@@ -1,4 +1,4 @@
-using BusbarCompressionSystem.Model.FaraVision.Tool.QRCode;
+﻿using BusbarCompressionSystem.Model.FaraVision.Tool.QRCode;
 using BusbarCompressionSystem.Model.FaraVision.Tool;
 using BusbarCompressionSystem.Model.FaraVision;
 using BusbarCompressionSystem.Model.Record;

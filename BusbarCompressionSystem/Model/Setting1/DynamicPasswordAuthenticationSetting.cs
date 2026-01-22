@@ -1,4 +1,4 @@
-using GalaSoft.MvvmLight;
+﻿using GalaSoft.MvvmLight;
 using System.Xml.Serialization;
 
 namespace BusbarCompressionSystem.Model.Setting1

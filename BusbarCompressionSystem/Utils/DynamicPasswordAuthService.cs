@@ -1,4 +1,4 @@
-using BusbarCompressionSystem.Model.Setting1;
+﻿using BusbarCompressionSystem.Model.Setting1;
 using Faratronic.EquipUtils.Authentication;
 using Faratronic.EquipUtils.Authentication.Models;
 using System;
