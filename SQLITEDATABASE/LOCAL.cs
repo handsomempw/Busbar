@@ -670,7 +670,7 @@ namespace SQLITEDATABASE
                             return 2;
                         }
 
-                        // 6. 判断压力结果（与耐压同优先级，失败即返回NG2）
+                        // 6. 判断压力结果（与耐压同优先级，失败即返回NG3）
                         bool _pressureResult = false;
                         string s_pressureResult = dt.Rows[0]["PRESSURE_RESULT"]?.ToString();
 

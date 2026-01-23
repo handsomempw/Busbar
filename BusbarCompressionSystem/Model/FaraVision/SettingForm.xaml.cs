@@ -1075,6 +1075,88 @@ namespace BusbarCompressionSystem.Model.FaraVision
         /// <summary>
         /// 自动估算边缘阈值（仅在参数配置时使用，不参与运行时自动调整）
         /// </summary>
+        /// <summary>
+        /// 尺寸测量检测照片：仅用于临时测试，不修改模板图片与参数
+        /// </summary>
+        private void DimensionMeasureApply_Pic_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (t == null)
+                {
+                    return;
+                }
+
+                OpenFileDialog ofd = new OpenFileDialog();
+                ofd.Filter = "*.jpg|*.jpg";
+                if (ofd.ShowDialog() != true)
+                {
+                    return;
+                }
+
+                string filename = ofd.FileName;
+                HObject image = null;
+                try
+                {
+                    // 加载临时测试图片（不写回t.Image）
+                    HOperatorSet.GenEmptyObj(out image);
+                    HOperatorSet.ReadImage(out image, filename);
+
+                    // 校验ROI设置
+                    if (!IsROIValid(t.MeasureObject1ROI))
+                    {
+                        NoticeBox.Show("请先选择测量对象1区域", "提示", MessageBoxIcon.Warning, true, 5000);
+                        return;
+                    }
+
+                    if (!IsROIValid(t.MeasureObject2ROI))
+                    {
+                        NoticeBox.Show("请先选择测量对象2区域", "提示", MessageBoxIcon.Warning, true, 5000);
+                        return;
+                    }
+
+                    // 校验是否已完成世界坐标校准
+                    if (t.DimensionK <= 0 || (t.DimensionK == 1000 && t.CalibrationRealSize == 0))
+                    {
+                        NoticeBox.Show("请先进行世界坐标校准：\n1. 选择测量对象1区域\n2. 输入真实尺寸(mm)\n3. 点击校准按钮",
+                            "需要校准", MessageBoxIcon.Warning, true, 8000);
+                        return;
+                    }
+
+                    // 执行测量并预览（仅针对当前检测照片）
+                    double measureValue = vml.Main.MeasureDimension(image, t, vml.Main.DataModel.FaraVisionDataModel.Settingmodel.HWindow, true);
+                    vml.Main.PreviewDimensionMeasurement(image, t, vml.Main.DataModel.FaraVisionDataModel.Settingmodel.HWindow);
+
+                    if (measureValue < 0)
+                    {
+                        NoticeBox.Show("测量失败，请检查：\n1. ROI区域是否正确框选\n2. 边缘类型是否匹配\n3. 边缘灵敏度是否合适\n4. 是否已进行世界坐标校准",
+                            "测量失败", MessageBoxIcon.Error, true, 8000);
+                    }
+                    else
+                    {
+                        string status = (measureValue >= t.MinMeasureValue && measureValue <= t.MaxMeasureValue) ? "OK" : "NG";
+                        NoticeBox.Show($"测量结果: {measureValue:F3} mm\n状态: {status}\n范围: {t.MinMeasureValue} - {t.MaxMeasureValue} mm",
+                            "测量结果", MessageBoxIcon.Info, true, 10000);
+                    }
+                }
+                finally
+                {
+                    // 释放临时图片资源
+                    image?.Dispose();
+                }
+            }
+            catch (Exception ex)
+            {
+                // 显示详细错误信息
+                string errorMsg = ex.Message;
+                if (ex.InnerException != null)
+                {
+                    errorMsg += "\n" + ex.InnerException.Message;
+                }
+                NoticeBox.Show($"检测照片失败: {errorMsg}", "检测照片失败", MessageBoxIcon.Error, true, 10000);
+            }
+        }
+
         private void AutoMetrologyThreshold_Click(object sender, RoutedEventArgs e)
         {
             try

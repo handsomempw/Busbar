@@ -404,6 +404,21 @@
 
 
                                     </Grid>
+                                    <!-- 尺寸测量结果：主界面实时显示测量值与状态 -->
+                                    <Grid Grid.Row="2" Visibility="{Binding FaraVisionDataModel.Processmodel.tool.TestMode,Converter={StaticResource TestMode2Visibility_DimensionMeasure}}">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition/>
+                                            <RowDefinition/>
+                                        </Grid.RowDefinitions>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="auto"/>
+                                            <ColumnDefinition/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right">测量值(mm):</TextBlock>
+                                        <TextBlock Grid.Row="0" Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Center" Text="{Binding FaraVisionDataModel.Processmodel.tool.ActualMeasureValue,StringFormat={}{0:F3}}"/>
+                                        <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right">状态:</TextBlock>
+                                        <TextBlock Grid.Row="1" Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Center" Text="{Binding FaraVisionDataModel.Processmodel.tool.ToolStatus}"/>
+                                    </Grid>
 
 
                                 </Grid>

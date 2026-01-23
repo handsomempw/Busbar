@@ -772,10 +772,15 @@
                                 </Grid>
                             </Expander>
 
-                            <!-- 测试按钮 -->
-                            <Button Grid.Row="8" Grid.ColumnSpan="2" Name="DimensionMeasureApply" 
-                                    Click="DimensionMeasureApply_Click" Margin="5,10" Padding="10,5"
-                                    Background="Green" Foreground="White">测试测量</Button>
+                            <!-- 测试按钮：测试测量与检测照片（检测照片仅用于临时验证，不会修改模板图片） -->
+                            <StackPanel Grid.Row="8" Grid.ColumnSpan="2" Orientation="Horizontal" HorizontalAlignment="Left">
+                                <Button Name="DimensionMeasureApply"
+                                        Click="DimensionMeasureApply_Click" Margin="5,10,5,10" Padding="10,5"
+                                        Background="Green" Foreground="White">测试测量</Button>
+                                <Button Name="DimensionMeasureApply_Pic"
+                                        Click="DimensionMeasureApply_Pic_Click" Margin="5,10,5,10" Padding="10,5"
+                                        Background="Orange" Foreground="White">检测照片</Button>
+                            </StackPanel>
                         </Grid>
                     </ScrollViewer>
                 </GroupBox>
