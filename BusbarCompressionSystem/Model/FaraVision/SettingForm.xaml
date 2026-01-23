@@ -461,7 +461,7 @@
                                 
                                 Click="DimensionApply_Click"
                                 
-                                >检测试模板</Button>
+                                >测试此模板</Button>
                         <Button x:Name="DimensionApply_Pic" Grid.Row="12" Grid.Column="1" Grid.ColumnSpan="5" Margin="5" Padding="5" 
                                 Background="Orange" Foreground="White"
                                 Click="DimensionApply_Pic_Click"
@@ -772,15 +772,21 @@
                                 </Grid>
                             </Expander>
 
-                            <!-- 测试按钮：测试测量与检测照片（检测照片仅用于临时验证，不会修改模板图片） -->
-                            <StackPanel Grid.Row="8" Grid.ColumnSpan="2" Orientation="Horizontal" HorizontalAlignment="Left">
+                            <!-- 为保持与“面积检测”工具一致的视觉与交互：尺寸测量的测试按钮统一配色、文案与布局 -->
+                            <Grid Grid.Row="8" Grid.ColumnSpan="2">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+
                                 <Button Name="DimensionMeasureApply"
-                                        Click="DimensionMeasureApply_Click" Margin="5,10,5,10" Padding="10,5"
-                                        Background="Green" Foreground="White">测试测量</Button>
+                                        Grid.Column="0"
+                                        Click="DimensionMeasureApply_Click" Margin="5" Padding="5">测试此模板</Button>
                                 <Button Name="DimensionMeasureApply_Pic"
-                                        Click="DimensionMeasureApply_Pic_Click" Margin="5,10,5,10" Padding="10,5"
+                                        Grid.Column="1"
+                                        Click="DimensionMeasureApply_Pic_Click" Margin="5" Padding="5"
                                         Background="Orange" Foreground="White">检测照片</Button>
-                            </StackPanel>
+                            </Grid>
                         </Grid>
                     </ScrollViewer>
                 </GroupBox>
