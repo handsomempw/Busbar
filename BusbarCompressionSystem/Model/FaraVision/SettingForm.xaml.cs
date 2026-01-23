@@ -1,4 +1,4 @@
-using BusbarCompressionSystem.Model.FaraVision.Tool;
+﻿using BusbarCompressionSystem.Model.FaraVision.Tool;
 using BusbarCompressionSystem.ViewModel;
 using HalconDotNet;
 using Microsoft.Win32;

@@ -1,4 +1,4 @@
-using BusbarCompressionSystem.Utils;
+﻿using BusbarCompressionSystem.Utils;
 using Faratronic.EquipUtils.Authentication.Models;
 using Panuon.WPF.UI;
 using System;

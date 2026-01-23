@@ -1,4 +1,4 @@
-using GalaSoft.MvvmLight;
+ï»¿using GalaSoft.MvvmLight;
 using HalconDotNet;
 using Panuon.WPF.UI;
 using System.Windows.Media;
@@ -31,7 +31,7 @@ namespace PositionDetect.ViewModel
 
             try
             {
-                //HOperatorSet.ReadImage(out DATA.image, "E:\\0.²âÊÔÍ¼Æ¬\\Ä£°åÆ¥Åä\\6999\\1.bmp");
+                //HOperatorSet.ReadImage(out DATA.image, "E:\\0.æµ‹è¯•å›¾ç‰‡\\æ¨¡æ¿åŒ¹é…\\6999\\1.bmp");
                 HOperatorSet.GetImageSize(DATA.image, out hv_width, out hv_height);
                 DATA.HWindow.HalconWindow.SetPart(0, 0, (int)hv_height - 1, (int)hv_width - 1);
                 DATA.HWindow.HalconWindow.DispObj(DATA.image);
@@ -99,7 +99,7 @@ namespace PositionDetect.ViewModel
             try
             {
                 DATA.HWindow.HalconWindow.ClearWindow();
-                //HOperatorSet.ReadImage(out DATA.image, "E:\\0.²âÊÔÍ¼Æ¬\\Ä£°åÆ¥Åä\\6999\\1.bmp");
+                //HOperatorSet.ReadImage(out DATA.image, "E:\\0.æµ‹è¯•å›¾ç‰‡\\æ¨¡æ¿åŒ¹é…\\6999\\1.bmp");
                 //DATA.hSmartWindow.HalconWindow.DispObj(image);
                 HOperatorSet.GetImageSize(DATA.image, out hv_width, out hv_height);
 
@@ -140,7 +140,7 @@ namespace PositionDetect.ViewModel
             try
             {
                 DATA.HWindow.HalconWindow.ClearWindow();
-                //HOperatorSet.ReadImage(out DATA.image, "E:\\0.²âÊÔÍ¼Æ¬\\Ä£°åÆ¥Åä\\6999\\1.bmp");
+                //HOperatorSet.ReadImage(out DATA.image, "E:\\0.æµ‹è¯•å›¾ç‰‡\\æ¨¡æ¿åŒ¹é…\\6999\\1.bmp");
                 //DATA.hSmartWindow.HalconWindow.DispObj(image);
                 HOperatorSet.GetImageSize(DATA.image, out hv_width, out hv_height);
 
@@ -180,7 +180,7 @@ namespace PositionDetect.ViewModel
                 DATA.HWindow.HalconWindow.SetLineWidth(2);
                 DATA.HWindow.HalconWindow.DispObj(DATA.image);
                 HTuple hv_HomMat2D = new HTuple();
-                //½«Ä£°åÓ³Éäµ½Ä¿±êÉÏ
+                //å°†æ¨¡æ¿æ˜ å°„åˆ°ç›®æ ‡ä¸Š
                 hv_HomMat2D.Dispose();
                 HOperatorSet.VectorAngleToRigid(0, 0, 0, hv_Row, hv_Column, hv_Angle, out hv_HomMat2D);
                 ho_ContoursAffinTrans.Dispose();
@@ -198,7 +198,7 @@ namespace PositionDetect.ViewModel
         }
         public void deletelistitem()
         {
-            if (MessageBoxX.Show("ÊÇ·ñÈ·¶¨É¾³ıÑ¡ÔñROIÇøÓò?", "ÌáÊ¾", MessageBoxButton.YesNo, MessageBoxIcon.Question, DefaultButton.NoCancel) == MessageBoxResult.Yes)
+            if (MessageBoxX.Show("æ˜¯å¦ç¡®å®šåˆ é™¤é€‰æ‹©ROIåŒºåŸŸ?", "æç¤º", MessageBoxButton.YesNo, MessageBoxIcon.Question, DefaultButton.NoCancel) == MessageBoxResult.Yes)
             {
                 try
                 {
@@ -214,7 +214,7 @@ namespace PositionDetect.ViewModel
 
             if (DATA.modelID == null)
             {
-                MessageBoxX.Show("ÇëÏÈÔ¤ÀÀÔÙ±£´æÄ£ĞÍ");
+                MessageBoxX.Show("è¯·å…ˆé¢„è§ˆå†ä¿å­˜æ¨¡å‹");
                 return;
             }
 
@@ -226,7 +226,7 @@ namespace PositionDetect.ViewModel
                 {
                     string filename = saveFileDialog.FileName;
                     HOperatorSet.WriteShapeModel(DATA.modelID, filename);
-                    NoticeBox.Show($"{filename}", $"Ä£ĞÍµ¼³ö³É¹¦",  MessageBoxIcon.Success, true, 3000);
+                    NoticeBox.Show($"{filename}", $"æ¨¡å‹å¯¼å‡ºæˆåŠŸ",  MessageBoxIcon.Success, true, 3000);
                 }
             }
             else
@@ -237,7 +237,7 @@ namespace PositionDetect.ViewModel
                     Directory.CreateDirectory(dir);
                 }
                 HOperatorSet.WriteShapeModel(DATA.modelID, DATA.modelfilename);
-                NoticeBox.Show($"{DATA.modelfilename}", $"Ä£ĞÍµ¼³ö³É¹¦",  MessageBoxIcon.Success, true, 3000);
+                NoticeBox.Show($"{DATA.modelfilename}", $"æ¨¡å‹å¯¼å‡ºæˆåŠŸ",  MessageBoxIcon.Success, true, 3000);
             }
         }
 

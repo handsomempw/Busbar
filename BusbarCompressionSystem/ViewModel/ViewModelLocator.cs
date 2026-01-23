@@ -1,4 +1,4 @@
-/*
+﻿/*
  * MVVM架构的ViewModel定位器
  *
  * WPF MVVM模式的核心组件，负责创建和管理所有ViewModel实例：
@@ -11,8 +11,9 @@
  */
 
 using CommonServiceLocator;
-using GalaSoft.MvvmLight;
 using GalaSoft.MvvmLight.Ioc;
+using GalaSoft.MvvmLight;
+
 
 namespace BusbarCompressionSystem.ViewModel
 {
