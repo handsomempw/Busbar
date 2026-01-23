@@ -2850,10 +2850,26 @@ namespace BusbarCompressionSystem.ViewModel
                 // 3. 如果启用调试信息，绘制卡尺位置
                 if (tool.ShowMetrologyDebugInfo)
                 {
-                    // 计算线段方向向量
-                    double dirRow = lineRowEnd - lineRowBegin;
-                    double dirCol = lineColEnd - lineColBegin;
+                    // 重要：调试“卡尺矩形框”以用户绘制的ROI线段为基准（更符合“预览=配置”的直觉），
+                    // 避免跟着拟合结果漂移导致ROI中心看起来“不在画的线的中心”。
+                    int numMeasures = Math.Max(0, tool.MetrologyNumMeasures);
+                    if (numMeasures <= 0)
+                    {
+                        return true;
+                    }
+
+                    // 计算ROI线段方向向量（Row/Col坐标系）
+                    double roiRowBegin = roi.Row1;
+                    double roiColBegin = roi.Col1;
+                    double roiRowEnd = roi.Row2;
+                    double roiColEnd = roi.Col2;
+                    double dirRow = roiRowEnd - roiRowBegin;
+                    double dirCol = roiColEnd - roiColBegin;
                     double lineLength = Math.Sqrt(dirRow * dirRow + dirCol * dirCol);
+                    if (lineLength <= 1e-6)
+                    {
+                        return true; // 线段过短：跳过卡尺矩形框绘制，避免除0/NaN
+                    }
                     dirRow /= lineLength;
                     dirCol /= lineLength;
 
@@ -2861,17 +2877,17 @@ namespace BusbarCompressionSystem.ViewModel
                     double perpRow = -dirCol;
                     double perpCol = dirRow;
 
-                    // 绘制卡尺位置（黄色矩形，按参数含义：Length1=测量方向，Length2=垂直测量方向）
-                    hwindow.SetColor("yellow");
+                    // 绘制卡尺位置（橙色矩形，避免与ROI(绿/黄)冲突）
+                    hwindow.SetColor("orange");
                     hwindow.SetLineWidth(1);
                     hwindow.SetDraw("margin");
 
-                    for (int i = 0; i < tool.MetrologyNumMeasures; i++)
+                    for (int i = 0; i < numMeasures; i++)
                     {
                         // 计算卡尺中心位置
-                        double t = (double)i / (tool.MetrologyNumMeasures - 1);
-                        double centerRow = lineRowBegin + t * (lineRowEnd - lineRowBegin);
-                        double centerCol = lineColBegin + t * (lineColEnd - lineColBegin);
+                        double t = (numMeasures == 1) ? 0.5 : (double)i / (numMeasures - 1);
+                        double centerRow = roiRowBegin + t * (roiRowEnd - roiRowBegin);
+                        double centerCol = roiColBegin + t * (roiColEnd - roiColBegin);
 
                         // 计算卡尺矩形的四个角点
                         double halfLen1 = tool.MetrologyMeasureLength1; // 测量方向半长度
@@ -3038,7 +3054,7 @@ namespace BusbarCompressionSystem.ViewModel
                 hwindow.ClearWindow();
                 hwindow.DispObj(image);
 
-                // 绘制ROI矩形框
+                // 绘制ROI（注意：尺寸测量的ROI可能是线段/圆，不能一律当矩形画）
                 hwindow.SetLineWidth(2);
                 hwindow.SetDraw("margin");
 
@@ -3049,6 +3065,11 @@ namespace BusbarCompressionSystem.ViewModel
                     if (tool.MeasureObject1ROI.Type == ROIType.Circle && tool.MeasureObject1ROI.CircleRadius > 0)
                     {
                         hwindow.DispCircle(tool.MeasureObject1ROI.CircleCenterRow, tool.MeasureObject1ROI.CircleCenterCol, tool.MeasureObject1ROI.CircleRadius);
+                    }
+                    else if (tool.MeasureObject1ROI.Type == ROIType.Line)
+                    {
+                        hwindow.DispLine((double)tool.MeasureObject1ROI.Row1, (double)tool.MeasureObject1ROI.Col1,
+                                         (double)tool.MeasureObject1ROI.Row2, (double)tool.MeasureObject1ROI.Col2);
                     }
                     else
                     {
@@ -3067,6 +3088,11 @@ namespace BusbarCompressionSystem.ViewModel
                     if (tool.MeasureObject2ROI.Type == ROIType.Circle && tool.MeasureObject2ROI.CircleRadius > 0)
                     {
                         hwindow.DispCircle(tool.MeasureObject2ROI.CircleCenterRow, tool.MeasureObject2ROI.CircleCenterCol, tool.MeasureObject2ROI.CircleRadius);
+                    }
+                    else if (tool.MeasureObject2ROI.Type == ROIType.Line)
+                    {
+                        hwindow.DispLine((double)tool.MeasureObject2ROI.Row1, (double)tool.MeasureObject2ROI.Col1,
+                                         (double)tool.MeasureObject2ROI.Row2, (double)tool.MeasureObject2ROI.Col2);
                     }
                     else
                     {
