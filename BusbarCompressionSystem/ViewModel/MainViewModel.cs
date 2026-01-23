@@ -765,7 +765,8 @@ namespace BusbarCompressionSystem.ViewModel
                 r.Success,
                 DataModel.Processmodel.TVTestTestModel1.TVMaxCurrent,
                 localizedTvInfo1,
-                DataModel.Settingmodel.SETTING_DATA.TVMeterID1);
+                DataModel.Settingmodel.SETTING_DATA.TVMeterID1,
+                testType);
 
             if (!r.Success)
             {
@@ -902,7 +903,8 @@ namespace BusbarCompressionSystem.ViewModel
                 r.Success,
                 DataModel.Processmodel.TVTestTestModel1.TVMaxCurrent,
                 localizedTvInfo1,
-                DataModel.Settingmodel.SETTING_DATA.TVMeterID1
+                DataModel.Settingmodel.SETTING_DATA.TVMeterID1,
+                DataModel.Processmodel.CurrentTV1TestModeDisplay
                 );
 
             //if (r.Success)
@@ -1077,7 +1079,8 @@ namespace BusbarCompressionSystem.ViewModel
                 r.Success,
                 DataModel.Processmodel.TVTestTestModel2.TVMaxCurrent,
                 localizedTvInfo2,
-                DataModel.Settingmodel.SETTING_DATA.TVMeterID2);
+                DataModel.Settingmodel.SETTING_DATA.TVMeterID2,
+                testType);
 
             if (!r.Success)
             {
@@ -1150,7 +1153,8 @@ namespace BusbarCompressionSystem.ViewModel
                 r.Success,
                 DataModel.Processmodel.TVTestTestModel2.TVMaxCurrent,
                 localizedTvInfo2,
-                DataModel.Settingmodel.SETTING_DATA.TVMeterID2
+                DataModel.Settingmodel.SETTING_DATA.TVMeterID2,
+                DataModel.Processmodel.CurrentTV2TestModeDisplay
 
                 );
 
@@ -1222,7 +1226,8 @@ namespace BusbarCompressionSystem.ViewModel
                 , r.Success,
                 DataModel.Processmodel.TVTestTestModel3.TVMaxCurrent,
                 localizedTvInfo3,
-                DataModel.Settingmodel.SETTING_DATA.TVMeterID3
+                DataModel.Settingmodel.SETTING_DATA.TVMeterID3,
+                "ACW"
                 );
 
             if (!r.Success)
@@ -1373,24 +1378,94 @@ namespace BusbarCompressionSystem.ViewModel
         /// - CHECK1 / CHECK2 以及点检 SN 的综合判定会直接使用这里更新过的数据。
         /// </summary>
         /// <param name="SN">产品序列号，用于在集合中定位记录</param>
-        private void updatetv(string SN, float res, float maxvoltage, bool result, float maxcurrent, string tvinfo, string tvmeterid)
+        private void updatetv(string SN, float res, float maxvoltage, bool result, float maxcurrent, string tvinfo, string tvmeterid, string testMode)
         {
             App.Current.Dispatcher.BeginInvoke(new Action(() =>
             {
                 try
                 {
+                    // 双测模式下，同一SN会产生两条电测记录（[ACW]/[DCW]）。
+                    // 旧逻辑仅按SN定位并更新，导致第二次电测结果覆盖第一次，界面无法同时看到两次记录。
+                    // 新逻辑按「SN + TestMode」定位；若当前模式记录不存在：
+                    // 1) 优先复用“尚未写入TV结果”的占位记录（拍照后创建的记录）作为第一次电测；
+                    // 2) 若已存在另一模式记录，则复制一条新记录用于第二次电测，确保界面可追溯两次电测。
+
+                    ProductInfoRecord firstSnRecord = null;
+                    ProductInfoRecord target = null;
+
+                    // 1) 优先找同SN且模式匹配的记录（存在则直接更新）
                     foreach (var p in DataModel.Recordmodel.ProductInfoRecords)
                     {
-                        if (p.Productinfo.SN == SN)
+                        if (p?.Productinfo?.SN != SN) continue;
+
+                        if (firstSnRecord == null) firstSnRecord = p;
+
+                        if (!string.IsNullOrWhiteSpace(testMode) &&
+                            string.Equals(p.TestMode, testMode, StringComparison.OrdinalIgnoreCase))
                         {
-                            p.Res = res;
-                            p.TVMaxVoltage = maxvoltage;
-                            p.TVMaxCurrent = maxcurrent;
-                            p.TVResult = result;
-                            p.TVInfo = tvinfo;
-                            p.TVMeterID = tvmeterid;
+                            target = p;
                             break;
                         }
+                    }
+
+                    // 2) 若没有同模式记录，尝试复用“占位记录”（第一次电测：避免创建空白的另一模式行）
+                    if (target == null)
+                    {
+                        foreach (var p in DataModel.Recordmodel.ProductInfoRecords)
+                        {
+                            if (p?.Productinfo?.SN != SN) continue;
+
+                            bool hasTvData = !string.IsNullOrWhiteSpace(p.TVInfo) ||
+                                             !string.IsNullOrWhiteSpace(p.TVMeterID) ||
+                                             p.TVMaxVoltage != 0 ||
+                                             p.TVMaxCurrent != 0;
+                            if (!hasTvData)
+                            {
+                                target = p;
+                                break;
+                            }
+                        }
+                    }
+
+                    // 3) 仍未找到目标：认为是双测第二次测试，复制一条新记录显示第二次电测结果
+                    if (target == null && firstSnRecord != null)
+                    {
+                        var newRecord = new ProductInfoRecord
+                        {
+                            StationCode = firstSnRecord.StationCode,
+                            EQUIPMENTID = firstSnRecord.EQUIPMENTID,
+                            Productinfo = firstSnRecord.Productinfo,
+                            TakePhoto1 = firstSnRecord.TakePhoto1,
+                            AppearanceInspection = firstSnRecord.AppearanceInspection,
+                            Pressure_Max = firstSnRecord.Pressure_Max,
+                            Pressure_Average = firstSnRecord.Pressure_Average,
+                            Pressure_Min = firstSnRecord.Pressure_Min,
+                            Pressure_Result = firstSnRecord.Pressure_Result,
+                            Report = firstSnRecord.Report,
+                            DateTime = DateTime.Now,
+                            TestMode = testMode
+                        };
+
+                        DataModel.Recordmodel.ProductInfoRecords.Insert(0, newRecord);
+                        target = newRecord;
+                    }
+
+                    if (target != null)
+                    {
+                        target.TestMode = testMode;
+                        target.Res = res;
+                        target.TVMaxVoltage = maxvoltage;
+                        target.TVMaxCurrent = maxcurrent;
+                        target.TVResult = result;
+                        target.TVInfo = tvinfo;
+                        target.TVMeterID = tvmeterid;
+                        target.DateTime = DateTime.Now;
+                    }
+                    else
+                    {
+                        // 极端情况：未找到任何记录（例如拍照留底记录未创建/PLC SN异常），记录日志便于现场定位
+                        writeLog($"[耐压] ⚠ 未找到内存记录，无法更新界面电测结果：SN={SN}, 模式={testMode}", true);
+                        sqlite.WriteErrorLog("UPDATETV_RECORD_NOT_FOUND", $"未找到ProductInfoRecord，无法更新电测结果，模式={testMode}", SN);
                     }
                 }
                 catch (Exception ex)
@@ -1452,6 +1527,8 @@ namespace BusbarCompressionSystem.ViewModel
                             p.Pressure_Min = Pressure_Min;
                             p.Pressure_Result = Pressure_Result;
 
+                            // 不对同SN历史记录做“全量同步刷新”，仅更新第一条匹配记录（通常是列表中最新的一条）。
+                            // 双测的另一条记录允许不包含压力信息，以避免点检SN/重复SN场景下污染历史显示。
                             break;
                         }
                     }
@@ -1545,6 +1622,9 @@ namespace BusbarCompressionSystem.ViewModel
                         {
                             p.AppearanceInspection = result;
                             p.DateTime = dt;
+
+                            // 不对同SN历史记录做“全量同步刷新”，仅更新第一条匹配记录（通常是列表中最新的一条）。
+                            // 双测的另一条记录允许不包含AOI信息，以避免点检SN/重复SN场景下污染历史显示。
                             break;
                         }
                     }
