@@ -368,26 +368,36 @@ namespace BusbarCompressionSystem.ViewModel
                     {
                         // 正常产品流程
                         #region 读取压力数据
-                        // 从PLC读取电测过程中的压力监控数据
-                        // AddressPressure: 平均压力, +2: 最大压力, +4: 最小压力
-                        UInt16 AveragePressure = PLC_ReadUint16(DataModel.Settingmodel.AddressPressure);
-                        UInt16 MaxPressure = PLC_ReadUint16(DataModel.Settingmodel.AddressPressure + 2);
-                        UInt16 MinPressure = PLC_ReadUint16(DataModel.Settingmodel.AddressPressure + 4);
+                        // AOI-only模式下跳过全部电测（TV/RES/压力），压力数据不读取/不落库，避免产生默认值干扰追溯
+                        if (!IsAoiOnlyMode)
+                        {
+                            // 从PLC读取电测过程中的压力监控数据
+                            // AddressPressure: 平均压力, +2: 最大压力, +4: 最小压力
+                            UInt16 AveragePressure = PLC_ReadUint16(DataModel.Settingmodel.AddressPressure);
+                            UInt16 MaxPressure = PLC_ReadUint16(DataModel.Settingmodel.AddressPressure + 2);
+                            UInt16 MinPressure = PLC_ReadUint16(DataModel.Settingmodel.AddressPressure + 4);
 
-                        // 压力判定逻辑：最大值不超标 且 最小值达标（确保压接到位且不过压）
-                        bool PressureResult = MaxPressure <= DataModel.Processmodel.PressureParamter.Max_Pressure && MinPressure >= DataModel.Processmodel.PressureParamter.Min_Pressure;
+                            // 压力判定逻辑：最大值不超标 且 最小值达标（确保压接到位且不过压）
+                            bool PressureResult = MaxPressure <= DataModel.Processmodel.PressureParamter.Max_Pressure && MinPressure >= DataModel.Processmodel.PressureParamter.Min_Pressure;
 
-                        sqlite.UpdatePressure(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE,
-                            DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID,
-                            DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN,
-                           AveragePressure, MaxPressure, MinPressure, PressureResult);
-                        updatepressure(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, AveragePressure, MaxPressure, MinPressure, PressureResult);
+                            sqlite.UpdatePressure(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE,
+                                DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID,
+                                DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN,
+                               AveragePressure, MaxPressure, MinPressure, PressureResult);
+                            updatepressure(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, AveragePressure, MaxPressure, MinPressure, PressureResult);
+                        }
 
                         #endregion
 
 
                         // 调用Check1进行第一次综合校验（拍照留底、耐压测试、阻值测试）
-                        var r = sqlite.Check1(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN);
+                        // AOI-only模式：当耐压工位均不可用时，不伪造耐压记录，CHECK阶段跳过全部电测校验（TV/RES/压力）
+                        bool isAoiOnlyMode = IsAoiOnlyMode;
+                        var r = sqlite.Check1(
+                            DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE,
+                            DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID,
+                            DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN,
+                            aoiOnlyMode: isAoiOnlyMode);
                         string MSG = "NG1";
                         // 初始化resultstr为"拍照留底不良"作为默认值（兜底）
                         // 实际会根据Check1返回值在switch中被覆盖
@@ -602,7 +612,13 @@ namespace BusbarCompressionSystem.ViewModel
                     else
                     {
                         // 正常产品流程
-                        var r = sqlite.Check2(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN);
+                        // AOI-only模式：当耐压工位均不可用时，不伪造耐压记录，CHECK阶段跳过全部电测校验（TV/RES/压力）
+                        bool isAoiOnlyMode = IsAoiOnlyMode;
+                        var r = sqlite.Check2(
+                            DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE,
+                            DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID,
+                            DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN,
+                            aoiOnlyMode: isAoiOnlyMode);
                         string MSG = "NG1";
                         string resultstr = "拍照留底不良";
                         switch (r)

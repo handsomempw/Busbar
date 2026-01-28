@@ -638,7 +638,6 @@ namespace BusbarCompressionSystem.ViewModel
         /// 业务含义：
         /// - 在拍照留底完成后调用，将当前产品的基础信息、拍照结果缓存在内存集合里；
         /// - 后续耐压、压力、AOI 等过程都会通过 SN 在该集合中找到对应记录并补充数据，
-        ///   最终在 CHECK1 / CHECK2 中做综合判定和保存到 MES。
         /// </summary>
         /// <param name="takephoto1">拍照留底是否成功</param>
         private void newline(bool takephoto1)
@@ -1426,7 +1425,6 @@ namespace BusbarCompressionSystem.ViewModel
         /// 根据产品 SN 更新 DataModel.Recordmodel.ProductInfoRecords 中对应记录的耐压/阻值相关数据。
         /// 业务含义：
         /// - 在各 TV 测试工位完成后调用，将阻值、电压、电流、结果等写入内存记录；
-        /// - CHECK1 / CHECK2 以及点检 SN 的综合判定会直接使用这里更新过的数据。
         /// </summary>
         /// <param name="SN">产品序列号，用于在集合中定位记录</param>
         private void updatetv(string SN, float res, float maxvoltage, bool result, float maxcurrent, string tvinfo, string tvmeterid, string testMode)
@@ -1658,7 +1656,7 @@ namespace BusbarCompressionSystem.ViewModel
         /// 根据产品 SN 更新 DataModel.Recordmodel.ProductInfoRecords 中对应记录的 AOI 外观检测结果。
         /// 业务含义：
         /// - AOI 工具完成判定后调用，将外观 OK/NG 结果及时间写入内存记录；
-        /// - CHECK2 以及点检 SN 的最终综合判定，会把 AppearanceInspection 作为外观工序的依据。
+        /// - 最终综合判定，会把 AppearanceInspection 作为外观工序的依据。
         /// </summary>
         /// <param name="SN">产品序列号，用于在集合中定位记录</param>
         private void updatetakephoto2(string SN, bool result, DateTime dt)

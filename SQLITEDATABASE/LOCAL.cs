@@ -528,7 +528,7 @@ namespace SQLITEDATABASE
         /// 注意：所有系统异常都会被映射为业务不良返回，通过独立日志详细记录实际原因
         /// </summary>
         /// <returns>错误代码：0=合格，1=拍照不良，2=耐压不良，3=阻值不良</returns>
-        public static int Check1(string WOCODE, string PARTNOID, string SN)
+        public static int Check1(string WOCODE, string PARTNOID, string SN, bool aoiOnlyMode = false)
         {
             try
             {
@@ -595,6 +595,13 @@ namespace SQLITEDATABASE
                             return 1;
                         }
 
+                        // AOI-only模式：仅检查拍照留底，不检查任何电测相关字段（TV/RES/压力）
+                        // 说明：该模式下不伪造耐压/电测记录，电测字段允许为空或默认值。
+                        if (aoiOnlyMode)
+                        {
+                            return 0;
+                        }
+
                         // 2. 解析阻值（必须字段）
                         float _res = -1;
                         string s_res = dt.Rows[0]["RES"]?.ToString();
@@ -621,54 +628,54 @@ namespace SQLITEDATABASE
                             return 3;
                         }
 
-                        // 4. 阻值合格，继续解析耐压字段
-                        float _tvmaxvoltage = -1;
-                        string s_tvmaxvoltage = dt.Rows[0]["TVMAXVOLTAGE"]?.ToString();
-                        
-                        if (string.IsNullOrWhiteSpace(s_tvmaxvoltage))
-                        {
-                             WriteErrorLog("[数据缺失]CHECK1-字段为空-TVMAXVOLTAGE",
-                                "TVMAXVOLTAGE字段为空，可能是UpdateTV执行失败，返回值=2",
-                                SN, WOCODE);
-                            return 2;
-                        }
+                        // 4. 阻值合格后，继续校验耐压字段
+                            float _tvmaxvoltage = -1;
+                            string s_tvmaxvoltage = dt.Rows[0]["TVMAXVOLTAGE"]?.ToString();
 
-                        if (!float.TryParse(s_tvmaxvoltage, out _tvmaxvoltage))
-                        {
-                            WriteErrorLog("[数据异常]CHECK1-字段解析错误-TVMAXVOLTAGE",
-                                $"TVMAXVOLTAGE字段解析失败，原始值=[{s_tvmaxvoltage}]，返回值=2",
-                                SN, WOCODE);
-                            return 2;
-                        }
-                        bool _tvresult = false;
-                        string s_tvresult = dt.Rows[0]["TVRESULT"]?.ToString();
-                        
-                        if (string.IsNullOrWhiteSpace(s_tvresult))
-                        {
-                            // TVRESULT为空也认为耐压数据缺失
-                             WriteErrorLog("[数据缺失]CHECK1-字段为空-TVRESULT",
-                                "TVRESULT字段为空，可能是UpdateTV执行失败，返回值=2",
-                                SN, WOCODE);
-                            return 2;
-                        }
+                            if (string.IsNullOrWhiteSpace(s_tvmaxvoltage))
+                            {
+                                WriteErrorLog("[数据缺失]CHECK1-字段为空-TVMAXVOLTAGE",
+                                   "TVMAXVOLTAGE字段为空，可能是UpdateTV执行失败，返回值=2",
+                                   SN, WOCODE);
+                                return 2;
+                            }
 
-                        if (!bool.TryParse(s_tvresult, out _tvresult))
-                        {
-                            WriteErrorLog("[数据异常]CHECK1-字段解析错误-TVRESULT",
-                                $"TVRESULT字段解析失败，原始值=[{s_tvresult}]，返回值=2",
-                                SN, WOCODE);
-                            return 2;
-                        }
+                            if (!float.TryParse(s_tvmaxvoltage, out _tvmaxvoltage))
+                            {
+                                WriteErrorLog("[数据异常]CHECK1-字段解析错误-TVMAXVOLTAGE",
+                                    $"TVMAXVOLTAGE字段解析失败，原始值=[{s_tvmaxvoltage}]，返回值=2",
+                                    SN, WOCODE);
+                                return 2;
+                            }
+                            bool _tvresult = false;
+                            string s_tvresult = dt.Rows[0]["TVRESULT"]?.ToString();
 
-                        // 5. 判断耐压测试结果
-                        if (_tvmaxvoltage == 0 || _tvmaxvoltage == -1)
-                        {
-                            return 2;
-                        }
-                        if (!_tvresult)
-                        {
-                            return 2;
-                        }
+                            if (string.IsNullOrWhiteSpace(s_tvresult))
+                            {
+                                // TVRESULT为空也认为耐压数据缺失
+                                WriteErrorLog("[数据缺失]CHECK1-字段为空-TVRESULT",
+                                   "TVRESULT字段为空，可能是UpdateTV执行失败，返回值=2",
+                                   SN, WOCODE);
+                                return 2;
+                            }
+
+                            if (!bool.TryParse(s_tvresult, out _tvresult))
+                            {
+                                WriteErrorLog("[数据异常]CHECK1-字段解析错误-TVRESULT",
+                                    $"TVRESULT字段解析失败，原始值=[{s_tvresult}]，返回值=2",
+                                    SN, WOCODE);
+                                return 2;
+                            }
+
+                            // 5. 判断耐压测试结果
+                            if (_tvmaxvoltage == 0 || _tvmaxvoltage == -1)
+                            {
+                                return 2;
+                            }
+                            if (!_tvresult)
+                            {
+                                return 2;
+                            }
 
                         // 6. 判断压力结果（与耐压同优先级，失败即返回NG3）
                         bool _pressureResult = false;
@@ -704,7 +711,7 @@ namespace SQLITEDATABASE
                             return 3;
                         }
 
-                        // 7. 检查是否为双测模式，如果是则需要综合判断ACW和DCW结果
+                        // 7. 检查是否为双测模式
                         if (IsDualTestMode(WOCODE, PARTNOID, SN))
                         {
                             bool acwResult, dcwResult;
@@ -748,7 +755,7 @@ namespace SQLITEDATABASE
         /// 注意：所有系统异常都会被映射为业务不良返回，通过独立日志详细记录实际原因
         /// </summary>
         /// <returns>错误代码：0=合格，1~3同Check1，4=外观不良</returns>
-        public static int Check2(string WOCODE, string PARTNOID, string SN)
+        public static int Check2(string WOCODE, string PARTNOID, string SN, bool aoiOnlyMode = false)
         {
             try
             {
@@ -805,112 +812,117 @@ namespace SQLITEDATABASE
                             return 1;
                         }
 
-                        // 2. 解析阻值（必须字段）
-                        float _res = -1;
-                        string s_res = dt.Rows[0]["RES"]?.ToString();
-                        
-                        if (string.IsNullOrWhiteSpace(s_res))
+                        // AOI-only模式：跳过全部电测（TV/RES/压力），仅检查AOI外观(TAKEPHOTO2)
+                        // 说明：该模式下不伪造耐压/电测记录，电测字段允许为空或默认值。
+                        if (!aoiOnlyMode)
                         {
-                            WriteErrorLog("[数据缺失]CHECK2-字段为空-RES",
-                                "RES字段为空，可能是UpdateTV执行失败，返回值:3",
-                                SN, WOCODE);
-                            return 3;
-                        }
+                            // 2. 解析阻值（必须字段）
+                            float _res = -1;
+                            string s_res = dt.Rows[0]["RES"]?.ToString();
 
-                        if (!float.TryParse(s_res, out _res))
-                        {
-                            WriteErrorLog("[数据异常]CHECK2-字段解析错误-RES",
-                                $"RES字段解析失败，原始值=[{s_res}]，返回值:3",
-                                SN, WOCODE);
-                            return 3;
-                        }
+                            if (string.IsNullOrWhiteSpace(s_res))
+                            {
+                                WriteErrorLog("[数据缺失]CHECK2-字段为空-RES",
+                                    "RES字段为空，可能是UpdateTV执行失败，返回值:3",
+                                    SN, WOCODE);
+                                return 3;
+                            }
 
-                        // 3. 优先判断阻值，阻值不良时无需检查耐压（PLC可能未执行耐压测试）
-                        if (_res > 14)
-                        {
-                            return 3;
-                        }
+                            if (!float.TryParse(s_res, out _res))
+                            {
+                                WriteErrorLog("[数据异常]CHECK2-字段解析错误-RES",
+                                    $"RES字段解析失败，原始值=[{s_res}]，返回值:3",
+                                    SN, WOCODE);
+                                return 3;
+                            }
 
-                        // 4. 阻值合格，继续解析耐压字段
-                        float _tvmaxvoltage = -1;
-                        string s_tvmaxvoltage = dt.Rows[0]["TVMAXVOLTAGE"]?.ToString();
-                        
-                        if (string.IsNullOrWhiteSpace(s_tvmaxvoltage))
-                        {
-                            WriteErrorLog("[数据缺失]CHECK2-字段为空-TVMAXVOLTAGE",
-                                "TVMAXVOLTAGE字段为空，可能是UpdateTV执行失败，返回值:2",
-                                SN, WOCODE);
-                            return 2;
-                        }
+                            // 3. 优先判断阻值，阻值不良时无需检查耐压（PLC可能未执行耐压测试）
+                            if (_res > 14)
+                            {
+                                return 3;
+                            }
 
-                        if (!float.TryParse(s_tvmaxvoltage, out _tvmaxvoltage))
-                        {
-                            WriteErrorLog("[数据异常]CHECK2-字段解析错误-TVMAXVOLTAGE",
-                                $"TVMAXVOLTAGE字段解析失败，原始值=[{s_tvmaxvoltage}]，返回值:2",
-                                SN, WOCODE);
-                            return 2;
-                        }
-                        bool _tvresult = false;
-                        string s_tvresult = dt.Rows[0]["TVRESULT"]?.ToString();
-                        
-                        if (string.IsNullOrWhiteSpace(s_tvresult))
-                        {
-                            WriteErrorLog("[数据缺失]CHECK2-字段为空-TVRESULT",
-                                "TVRESULT字段为空，可能是UpdateTV执行失败，返回值:2",
-                                SN, WOCODE);
-                            return 2;
-                        }
+                            // 4. 阻值合格后，继续校验耐压字段
+                                float _tvmaxvoltage = -1;
+                                string s_tvmaxvoltage = dt.Rows[0]["TVMAXVOLTAGE"]?.ToString();
 
-                        if (!bool.TryParse(s_tvresult, out _tvresult))
-                        {
-                            WriteErrorLog("[数据异常]CHECK2-字段解析错误-TVRESULT",
-                                $"TVRESULT字段解析失败，原始值=[{s_tvresult}]，返回值:2",
-                                SN, WOCODE);
-                            return 2;
-                        }
+                                if (string.IsNullOrWhiteSpace(s_tvmaxvoltage))
+                                {
+                                    WriteErrorLog("[数据缺失]CHECK2-字段为空-TVMAXVOLTAGE",
+                                        "TVMAXVOLTAGE字段为空，可能是UpdateTV执行失败，返回值:2",
+                                        SN, WOCODE);
+                                    return 2;
+                                }
 
-                        // 5. 判断耐压测试结果
-                        if (_tvmaxvoltage == 0 || _tvmaxvoltage == -1)
-                        {
-                            return 2;
-                        }
-                        if (!_tvresult)
-                        {
-                            return 2;
-                        }
+                                if (!float.TryParse(s_tvmaxvoltage, out _tvmaxvoltage))
+                                {
+                                    WriteErrorLog("[数据异常]CHECK2-字段解析错误-TVMAXVOLTAGE",
+                                        $"TVMAXVOLTAGE字段解析失败，原始值=[{s_tvmaxvoltage}]，返回值:2",
+                                        SN, WOCODE);
+                                    return 2;
+                                }
+                                bool _tvresult = false;
+                                string s_tvresult = dt.Rows[0]["TVRESULT"]?.ToString();
 
-                        // 6. 判断压力结果（与耐压同优先级，失败即返回NG2）
-                        bool _pressureResult = false;
-                        string s_pressureResult = dt.Rows[0]["PRESSURE_RESULT"]?.ToString();
+                                if (string.IsNullOrWhiteSpace(s_tvresult))
+                                {
+                                    WriteErrorLog("[数据缺失]CHECK2-字段为空-TVRESULT",
+                                        "TVRESULT字段为空，可能是UpdateTV执行失败，返回值:2",
+                                        SN, WOCODE);
+                                    return 2;
+                                }
 
-                        if (string.IsNullOrWhiteSpace(s_pressureResult))
-                        {
-                            WriteErrorLog("[数据缺失]CHECK2-字段为空-PRESSURE_RESULT",
-                               "PRESSURE_RESULT字段为空，可能是UpdatePressure执行失败，返回值:3",
-                               SN, WOCODE);
-                            return 3;
-                        }
+                                if (!bool.TryParse(s_tvresult, out _tvresult))
+                                {
+                                    WriteErrorLog("[数据异常]CHECK2-字段解析错误-TVRESULT",
+                                        $"TVRESULT字段解析失败，原始值=[{s_tvresult}]，返回值:2",
+                                        SN, WOCODE);
+                                    return 2;
+                                }
 
-                        // 兼容1/0和True/False两种存储格式
-                        if (s_pressureResult == "1")
-                        {
-                            _pressureResult = true;
-                        }
-                        else if (s_pressureResult == "0")
-                        {
-                            _pressureResult = false;
-                        }
-                        else if (!bool.TryParse(s_pressureResult, out _pressureResult))
-                        {
-                            WriteErrorLog("[数据异常]CHECK2-字段解析错误-PRESSURE_RESULT",
-                               $"PRESSURE_RESULT字段解析失败，原始值=[{s_pressureResult}]，返回值:3",
-                               SN, WOCODE);
-                            return 3;
-                        }
+                                // 5. 判断耐压测试结果
+                                if (_tvmaxvoltage == 0 || _tvmaxvoltage == -1)
+                                {
+                                    return 2;
+                                }
+                                if (!_tvresult)
+                                {
+                                    return 2;
+                                }
 
-                        if (!_pressureResult)
-                        {
-                            return 3;
+                            // 6. 判断压力结果（与耐压同优先级，失败即返回NG2）
+                            bool _pressureResult = false;
+                            string s_pressureResult = dt.Rows[0]["PRESSURE_RESULT"]?.ToString();
+
+                            if (string.IsNullOrWhiteSpace(s_pressureResult))
+                            {
+                                WriteErrorLog("[数据缺失]CHECK2-字段为空-PRESSURE_RESULT",
+                                   "PRESSURE_RESULT字段为空，可能是UpdatePressure执行失败，返回值:3",
+                                   SN, WOCODE);
+                                return 3;
+                            }
+
+                            // 兼容1/0和True/False两种存储格式
+                            if (s_pressureResult == "1")
+                            {
+                                _pressureResult = true;
+                            }
+                            else if (s_pressureResult == "0")
+                            {
+                                _pressureResult = false;
+                            }
+                            else if (!bool.TryParse(s_pressureResult, out _pressureResult))
+                            {
+                                WriteErrorLog("[数据异常]CHECK2-字段解析错误-PRESSURE_RESULT",
+                                   $"PRESSURE_RESULT字段解析失败，原始值=[{s_pressureResult}]，返回值:3",
+                                   SN, WOCODE);
+                                return 3;
+                            }
+
+                            if (!_pressureResult)
+                            {
+                                return 3;
+                            }
                         }
 
                         // 7. 解析AOI外观检测
@@ -938,8 +950,8 @@ namespace SQLITEDATABASE
                             return 4;
                         }
 
-                        // 8. 检查是否为双测模式，如果是则需要综合判断ACW和DCW结果
-                        if (IsDualTestMode(WOCODE, PARTNOID, SN))
+                        // 8. 检查是否为双测模式（AOI-only模式下跳过电测，因此无需做双测综合判断）
+                        if (!aoiOnlyMode && IsDualTestMode(WOCODE, PARTNOID, SN))
                         {
                             bool acwResult, dcwResult;
                             int dualResult = GetDualTestResult(WOCODE, PARTNOID, SN, out acwResult, out dcwResult);
