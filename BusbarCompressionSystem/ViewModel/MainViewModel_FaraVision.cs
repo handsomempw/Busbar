@@ -334,7 +334,7 @@ namespace BusbarCompressionSystem.ViewModel
             try
             {
                 // ==================== 动态密码审计（P1）：保存工程时上报参数差异 ====================
-                // 中文说明：仅在“动态密码验证通过且已开启编辑权限”时，记录本次保存涉及的参数变化（old/new）
+                // 仅在“动态密码验证通过且已开启编辑权限”时，记录本次保存涉及的参数变化（old/new）
                 bool shouldReport = CanReportDynamicPasswordAudit(
                     out string authorizerName,
                     out string authorizerNo,
@@ -343,7 +343,7 @@ namespace BusbarCompressionSystem.ViewModel
                     out int periodMinutes,
                     out string requestedReceivers);
 
-                // 中文说明：快照模式：oldTool 来自“打开编辑界面时的工具快照”，避免依赖磁盘旧xml并减少运行时噪声
+                // 快照模式：oldTool 来自“打开编辑界面时的工具快照”，避免依赖磁盘旧xml并减少运行时噪声
                 int editingIndex = DataModel.FaraVisionDataModel.Processmodel.EditingToolIndex;
                 ToolModel oldTool = DataModel.FaraVisionDataModel.Processmodel.EditingToolSnapshot;
                 ToolModel newTool = null;
@@ -390,7 +390,7 @@ namespace BusbarCompressionSystem.ViewModel
                         periodMinutes,
                         requestedReceivers);
 
-                    // 中文说明：一次保存完成后更新快照，避免重复上报同一批变更
+                    // 一次保存完成后更新快照，避免重复上报同一批变更
                     DataModel.FaraVisionDataModel.Processmodel.EditingToolSnapshot = CloneToolModelSnapshot(newTool);
                     DataModel.FaraVisionDataModel.Processmodel.EditingToolSnapshotTime = DateTime.Now;
                 }
@@ -413,7 +413,7 @@ namespace BusbarCompressionSystem.ViewModel
             periodMinutes = DataModel.FaraVisionDataModel.Settingmodel.PermissionPeriodMinutes;
             requestedReceivers = DataModel.FaraVisionDataModel.Settingmodel.PermissionRequestedReceivers ?? string.Empty;
 
-            // 中文说明：必须满足“权限已开启 + 授权人工号存在”，否则不做审计上报
+            // 必须满足“权限已开启 + 授权人工号存在”，否则不做审计上报
             return DataModel.FaraVisionDataModel.Settingmodel.permission
                 && !string.IsNullOrWhiteSpace(authorizerNo);
         }
@@ -479,7 +479,7 @@ namespace BusbarCompressionSystem.ViewModel
 
                 if (oldTool == null)
                 {
-                    // 中文说明：旧快照不存在时不全量展开（字段太多），仅记录关键字段用于追溯
+                    // 旧快照不存在时不全量展开（字段太多），仅记录关键字段用于追溯
                     datas.AddRange(new[]
                     {
                         new OperationData { DataName = "工具模式", DataOldValue = "无快照", DataNewValue = newTool.TestMode.ToString(), DataType = dataType },
@@ -538,7 +538,7 @@ namespace BusbarCompressionSystem.ViewModel
                 int diffCount = datas.Count(d => d.DataType != "上下文");
                 int totalCount = datas.Count;
 
-                // 中文说明：UI仅提示概要信息，详细变更写入日志文件
+                // UI仅提示概要信息，详细变更写入日志文件
                 writeLog($"[动态密码][参数审计] 触发上报：工程={prjName}, 工具序号={toolFileIndex}, 参数变更={diffCount}, 上下文={contextCount}, 合计={totalCount}", true);
                 WriteParameterAuditDetailToFile(prjName, toolFileIndex, authorizerName, authorizerNo, reason, requestedReceivers, datas);
 
@@ -580,7 +580,7 @@ namespace BusbarCompressionSystem.ViewModel
         {
             try
             {
-                // 中文说明：明细仅写入日志文件，界面不展示（showdatarecord=false）
+                // 明细仅写入日志文件，界面不展示（showdatarecord=false）
                 writeLog($"[动态密码][参数审计][明细] 工程={prjName}, 工具序号={toolFileIndex}, 授权人={authorizerName}({authorizerNo}), 原因={reason}", false);
                 if (!string.IsNullOrWhiteSpace(requestedReceivers))
                 {
@@ -656,7 +656,7 @@ namespace BusbarCompressionSystem.ViewModel
                     continue;
                 }
 
-                // 中文说明：过滤运行时结果字段，避免把“测量结果/识别结果”等噪声上报为参数修改
+                // 过滤运行时结果字段，避免把“测量结果/识别结果”等噪声上报为参数修改
                 if (!IsAuditRelevantProperty(prop.Name))
                 {
                     continue;

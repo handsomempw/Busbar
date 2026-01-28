@@ -60,8 +60,6 @@ namespace BusbarCompressionSystem.ViewModel
 
         #endregion
 
-
-
         #region 拍照留底
         /// <summary>
         /// 初始化拍照留底和AOI检测的相机事件订阅。

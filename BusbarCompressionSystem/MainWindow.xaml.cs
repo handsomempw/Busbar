@@ -367,7 +367,7 @@ namespace BusbarCompressionSystem
                 return;
             }
 
-            // 中文说明：将固定口令改为动态密码（通过 Faratronic.EquipUtils.Authentication 接入）
+            // 将固定口令改为动态密码（通过 Faratronic.EquipUtils.Authentication 接入）
             var authSetting = vml.Main.DataModel.Settingmodel.SETTING_DATA.DynamicPasswordAuth;
             if (authSetting == null || !authSetting.Enabled)
             {
@@ -505,7 +505,7 @@ namespace BusbarCompressionSystem
                     return null;
                 }
 
-                // 中文说明：使用XmlSerializer做深拷贝，确保快照与后续编辑互不影响
+                // 使用XmlSerializer做深拷贝，确保快照与后续编辑互不影响
                 var serializer = new XmlSerializer(typeof(ToolModel));
                 using (var ms = new MemoryStream())
                 {

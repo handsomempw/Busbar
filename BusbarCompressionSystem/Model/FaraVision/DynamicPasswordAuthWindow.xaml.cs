@@ -70,7 +70,7 @@ namespace BusbarCompressionSystem.Model.FaraVision
 
                 requestStatusTextBlock.Text = $"申请成功，已发送给 {requestedReceivers.Count} 人";
 
-                // 中文说明：弹框告知“已发送给谁”，方便操作者知道该联系谁要密码
+                // 弹框告知“已发送给谁”，方便操作者知道该联系谁要密码
                 string receiverTip = requestedReceivers.Count == 1
                     ? receiverLines[0]
                     : $"{receiverLines[0]} 等 {requestedReceivers.Count} 人";

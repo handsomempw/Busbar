@@ -39,7 +39,6 @@ namespace BusbarCompressionSystem.Utils
 
             this.equipNo = equipNo;
 
-            // 中文说明：
             // - 先允许“测试模式开关”以便联调
             // - 后期切换为严格模式时，只需要把 StrictMode 置为 true，即可强制走生产模式
             bool testMode = !this.setting.StrictMode && this.setting.TestMode;
@@ -81,7 +80,7 @@ namespace BusbarCompressionSystem.Utils
 
                 List<Receiver> result;
 
-                // 中文说明：接收人工号不为空时，按现场要求指定管理员；否则走系统自动选择
+                // 接收人工号不为空时，按现场要求指定管理员；否则走系统自动选择
                 if (!string.IsNullOrWhiteSpace(setting.ReceiverNo))
                 {
                     result = dynamicPassword.RequestPasswordManualReceiver(
@@ -146,7 +145,7 @@ namespace BusbarCompressionSystem.Utils
 
         private void OnPasswordExpired(object sender, EventArgs e)
         {
-            // 中文说明：密码过期后通过事件通知上层，便于自动回收“编辑权限”
+            // 密码过期后通过事件通知上层，便于自动回收“编辑权限”
             PasswordExpired?.Invoke(this, EventArgs.Empty);
         }
 

@@ -237,7 +237,7 @@ namespace BusbarCompressionSystem.ViewModel
             DataModel.Settingmodel.AT9620_3.DataReceived += OnReceive3;
         }
 
-        // 中文说明：电测原始数据日志（按SN分文件，每天清空目录下所有txt）
+        // 电测原始数据日志（按SN分文件，每天清空目录下所有txt）
         private readonly object _electricalRawLogLock = new object();
         private static readonly string ElectricalRawLogDir = Path.Combine(Environment.CurrentDirectory, "识别过程日志", "电测原始数据");
         private static readonly string ElectricalRawLogCleanupMarkerPath = Path.Combine(ElectricalRawLogDir, ".last_cleanup_date");
@@ -304,7 +304,7 @@ namespace BusbarCompressionSystem.ViewModel
             }
             catch
             {
-                // 中文说明：原始数据日志不允许影响主流程，异常直接吞掉
+                // 原始数据日志不允许影响主流程，异常直接吞掉
             }
         }
 
@@ -325,7 +325,7 @@ namespace BusbarCompressionSystem.ViewModel
                 DataModel.Processmodel.TVTestTestModel1.TVMaxCurrent = Math.Max(DataModel.Processmodel.TVTestTestModel1.TVMaxCurrent, DataModel.Processmodel.TVTestTestModel1.Current);
                 DataModel.Processmodel.TVTestTestModel1.TVInfo = myEventArgs.ResultTVProcess.Value.status;
 
-                // 中文说明：电测阶段原始数据落盘（按SN区分，每天清空）
+                // 电测阶段原始数据落盘（按SN区分，每天清空）
                 WriteElectricalRawDataLog(1, DataModel.Processmodel.TVTestTestModel1.Productinfo, tv.Voltage, tv.Current, tv.Time, tv.status);
             }
             catch (Exception ex)
@@ -349,7 +349,7 @@ namespace BusbarCompressionSystem.ViewModel
                 DataModel.Processmodel.TVTestTestModel2.TVMaxCurrent = Math.Max(DataModel.Processmodel.TVTestTestModel2.TVMaxCurrent, DataModel.Processmodel.TVTestTestModel2.Current);
                 DataModel.Processmodel.TVTestTestModel2.TVInfo = myEventArgs.ResultTVProcess.Value.status;
 
-                // 中文说明：电测阶段原始数据落盘（按SN区分，每天清空）
+                // 电测阶段原始数据落盘（按SN区分，每天清空）
                 WriteElectricalRawDataLog(2, DataModel.Processmodel.TVTestTestModel2.Productinfo, tv.Voltage, tv.Current, tv.Time, tv.status);
             }
             catch (Exception ex)
@@ -373,7 +373,7 @@ namespace BusbarCompressionSystem.ViewModel
                 DataModel.Processmodel.TVTestTestModel3.TVMaxCurrent = Math.Max(DataModel.Processmodel.TVTestTestModel3.TVMaxCurrent, DataModel.Processmodel.TVTestTestModel3.Current);
                 DataModel.Processmodel.TVTestTestModel3.TVInfo = myEventArgs.ResultTVProcess.Value.status;
 
-                // 中文说明：电测阶段原始数据落盘（按SN区分，每天清空）
+                // 电测阶段原始数据落盘（按SN区分，每天清空）
                 WriteElectricalRawDataLog(3, DataModel.Processmodel.TVTestTestModel3.Productinfo, tv.Voltage, tv.Current, tv.Time, tv.status);
 
             }
@@ -498,28 +498,79 @@ namespace BusbarCompressionSystem.ViewModel
         /// </remarks>
         public void TakePhoto1Process()
         {
+            // 从PLC读取产品编码（协议格式：SN;WOCODE）。
+            // PLC_Readstring() 本身已包含“通讯重试”，这里增加少量“重读”，用于缓解PLC尚未写入完成导致的瞬时异常（如读到空/0）。
+            // 一旦最终仍读码失败：直接回写PLC=2并return，避免沿用上一次残留SN导致UI/照片/数据库被污染。
+            const int maxReadRetry = 2;
+            string s = string.Empty;
+            string lastNonEmpty = string.Empty;
+            string sn = string.Empty;
+            string wocode = string.Empty;
+            bool isValid = false;
 
-            string s = PLC_Readstring(DataModel.Settingmodel.AddressSN);
-            string[] ss = s.Split(';');
-            if (ss.Length == 2)
+            for (int attempt = 1; attempt <= maxReadRetry; attempt++)
             {
-                DataModel.Processmodel.TakePhotoTestModel.Productinfo = new Model.Record.Productinfo() { SN = ss[0], WOCODE = ss[1], PartNOID = DataModel.Processmodel.PartNOID };
-                writeLog($"[拍照留底] 产品编码读取成功: SN={ss[0]}, WOCODE={ss[1]}");
+                s = (PLC_Readstring(DataModel.Settingmodel.AddressSN) ?? string.Empty).Trim();
+                if (!string.IsNullOrWhiteSpace(s))
+                {
+                    lastNonEmpty = s;
+                }
+
+                string[] parts = s.Split(';');
+                if (parts.Length == 2)
+                {
+                    sn = (parts[0] ?? string.Empty).Trim();
+                    wocode = (parts[1] ?? string.Empty).Trim();
+                    if (!string.IsNullOrWhiteSpace(sn) && !string.IsNullOrWhiteSpace(wocode))
+                    {
+                        isValid = true;
+                        break;
+                    }
+                }
+
+                Thread.Sleep(80);
             }
-            else
+
+            if (!isValid)
             {
-                writeLog($"[拍照留底] ❌ 产品编码读取错误! 原始值=[{s}], 期望格式=[SN;WOCODE], 实际分段数={ss.Length}", true);
-                //writeLog($"[拍照留底] PLC地址: D{DataModel.Settingmodel.AddressSN}, 请检查PLC寄存器值是否正确", true);
+                // 通讯问题通常表现为“读到空”，值问题通常表现为“读到0/不含;”。
+                // 实际判断可结合 PLC_Readstring() 输出的 [PLC通讯] 日志进一步确认。
+                string failureType = string.IsNullOrWhiteSpace(lastNonEmpty) ? "通讯/未写入" : "值/格式";
+                string raw = string.IsNullOrWhiteSpace(lastNonEmpty) ? s : lastNonEmpty;
+
+                writeLog($"[拍照留底] ❌ 产品编码读取错误({failureType})! 原始值=[{raw}], 期望格式=[SN;WOCODE], 重试次数={maxReadRetry}, PLC地址=D{DataModel.Settingmodel.AddressSN}", true);
+
                 // 记录到数据库异常日志便于统计
-                SQLITEDATABASE.sqlite.WriteErrorLog("[PLC数据异常]TakePhoto1-产品编码格式错误", 
-                    $"原始值=[{s}], 分段数={ss.Length}, PLC地址=D{DataModel.Settingmodel.AddressSN}");
+                SQLITEDATABASE.sqlite.WriteErrorLog("[PLC数据异常]TakePhoto1-产品编码读取失败",
+                    $"失败类型={failureType}, 原始值=[{raw}], 重试次数={maxReadRetry}, PLC地址=D{DataModel.Settingmodel.AddressSN}");
+
+                // 清空当前产品信息，避免后续误用残留SN
+                DataModel.Processmodel.TakePhotoTestModel.Productinfo = new Model.Record.Productinfo()
+                {
+                    SN = string.Empty,
+                    WOCODE = string.Empty,
+                    PartNOID = DataModel.Processmodel.PartNOID
+                };
+
+                // 读码失败：直接回写NG(2)并中止本工位流程（不拍照/不写库/不插UI行）
+                PLC_write((DataModel.Settingmodel.AddressStart + 3).ToString(), 2);
+                return;
             }
 
+            DataModel.Processmodel.TakePhotoTestModel.Productinfo = new Model.Record.Productinfo()
+            {
+                SN = sn,
+                WOCODE = wocode,
+                PartNOID = DataModel.Processmodel.PartNOID
+            };
+            writeLog($"[拍照留底] 产品编码读取成功: SN={sn}, WOCODE={wocode}");
 
+            // 开始拍照前，先清零三个相机的完成标志位；各相机在收到图片回调时会把 finished=true
             DataModel.Settingmodel.camedata1.CameraModel.finished = false;
             DataModel.Settingmodel.camedata2.CameraModel.finished = false;
             DataModel.Settingmodel.camedata3.CameraModel.finished = false;
 
+            // 同时触发三个相机拍照；后续 while 循环轮询等待三个 finished 全部变为 true
             DataModel.Settingmodel.camedata1.CameraModel.camera.bnTriggerExec_Click();
             DataModel.Settingmodel.camedata2.CameraModel.camera.bnTriggerExec_Click();
             DataModel.Settingmodel.camedata3.CameraModel.camera.bnTriggerExec_Click();

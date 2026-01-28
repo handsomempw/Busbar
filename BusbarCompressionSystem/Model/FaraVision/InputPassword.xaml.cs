@@ -41,7 +41,7 @@ namespace BusbarCompressionSystem.Model.FaraVision
         {
             try
             {
-                // 中文说明：原先这里是“固定口令比对”，现改为动态密码输入框，仅做格式校验并返回输入值
+                // 原先这里是“固定口令比对”，现改为动态密码输入框，仅做格式校验并返回输入值
                 string value = (passwordbox.Password ?? string.Empty).Trim();
                 if (string.IsNullOrWhiteSpace(value))
                 {

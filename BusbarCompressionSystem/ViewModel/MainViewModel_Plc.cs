@@ -66,9 +66,9 @@ namespace BusbarCompressionSystem.ViewModel
                                 if (ScanTrig == 1 & DataModel.Processmodel.Scan_Trig_IO.IOstatus == 0)
                                 {
                                     new Thread(() =>
-                                     {
-                                         ScannerProcess();
-                                     }).Start();
+                                    {
+                                        ScannerProcess();
+                                    }).Start();
                                 }
                             }
                             catch {; }
@@ -80,9 +80,9 @@ namespace BusbarCompressionSystem.ViewModel
                                 if (SecondScanTrig == 1 & DataModel.Processmodel.SecondScan_Trig_IO.IOstatus == 0)
                                 {
                                     new Thread(() =>
-                                     {
-                                         SecondScannerProcess();
-                                     }).Start();
+                                    {
+                                        SecondScannerProcess();
+                                    }).Start();
                                 }
                             }
                             catch {; }
@@ -320,7 +320,7 @@ namespace BusbarCompressionSystem.ViewModel
 
         
 
-private bool PLC_write(float result)
+        private bool PLC_write(float result)
         {
             writeLog($"视觉->PLC:{result}、{(result == 1 ? "OK" : "NG")}", false);
 
@@ -347,7 +347,7 @@ private bool PLC_write(float result)
                 }
                 catch
                 {
-                    writeLog($"视觉写入PLC信号异常1") ;
+                    writeLog($"视觉写入PLC信号异常1");
                 }
                 Thread.Sleep(100);
             }
@@ -425,102 +425,102 @@ private bool PLC_write(float result)
             return false;
         }
         public UInt16 PLC_ReadUint16(int address)
-{
-    ModbusTcpNet modbusTcp = new ModbusTcpNet();
-    int maxRetry = 6;
-    
-    for (int i = 0; i < maxRetry; i++)
-    {
-        try
         {
-            modbusTcp.ConnectTimeOut = 1000; // 优化超时设置
-            modbusTcp.ReceiveTimeOut = 1000;
-            modbusTcp.IpAddress = DataModel.Settingmodel.PLC_IP;
-            modbusTcp.Port = DataModel.Settingmodel.PLC_Port;
-            modbusTcp.DataFormat = HslCommunication.Core.DataFormat.CDAB;
+            ModbusTcpNet modbusTcp = new ModbusTcpNet();
+            int maxRetry = 6;
 
-            var connectresult = modbusTcp.ConnectServer();
-            if (connectresult.IsSuccess)
+            for (int i = 0; i < maxRetry; i++)
             {
-                var r = modbusTcp.ReadUInt16(address.ToString(), 1);
-                modbusTcp.ConnectClose();
-                
-                if (r.IsSuccess)
-                { 
-                    return r.Content[0]; 
-                }
-                else
+                try
                 {
-                   // 若最后一次也失败，记录日志
-                   if (i == maxRetry - 1)
-                       writeLog($"[PLC通讯] 读取UInt16失败(D{address}): {r.Message}", false);
+                    modbusTcp.ConnectTimeOut = 1000; // 优化超时设置
+                    modbusTcp.ReceiveTimeOut = 1000;
+                    modbusTcp.IpAddress = DataModel.Settingmodel.PLC_IP;
+                    modbusTcp.Port = DataModel.Settingmodel.PLC_Port;
+                    modbusTcp.DataFormat = HslCommunication.Core.DataFormat.CDAB;
+
+                    var connectresult = modbusTcp.ConnectServer();
+                    if (connectresult.IsSuccess)
+                    {
+                        var r = modbusTcp.ReadUInt16(address.ToString(), 1);
+                        modbusTcp.ConnectClose();
+
+                        if (r.IsSuccess)
+                        {
+                            return r.Content[0];
+                        }
+                        else
+                        {
+                            // 若最后一次也失败，记录日志
+                            if (i == maxRetry - 1)
+                                writeLog($"[PLC通讯] 读取UInt16失败(D{address}): {r.Message}", false);
+                        }
+                    }
+                    else
+                    {
+                        if (i == maxRetry - 1)
+                            writeLog($"[PLC通讯] 连接失败(D{address}): {connectresult.Message}", false);
+                    }
                 }
+                catch (Exception ex)
+                {
+                    if (i == maxRetry - 1)
+                        writeLog($"[PLC通讯] 读取UInt16异常(D{address}): {ex.Message}", false);
+                }
+
+                // 简单延时重试
+                Thread.Sleep(50);
             }
-            else
-            {
-                 if (i == maxRetry - 1)
-                       writeLog($"[PLC通讯] 连接失败(D{address}): {connectresult.Message}", false);
-            }
+
+            return 0;
         }
-        catch (Exception ex)
-        {
-             if (i == maxRetry - 1)
-                  writeLog($"[PLC通讯] 读取UInt16异常(D{address}): {ex.Message}", false);
-        }
-        
-        // 简单延时重试
-        Thread.Sleep(50);
-    }
-    
-    return 0;
-}
         public float PLC_ReadFloat(int address)
-{
-    ModbusTcpNet modbusTcp = new ModbusTcpNet();
-    int maxRetry = 6;
-
-    for (int i = 0; i < maxRetry; i++)
-    {
-        try
         {
-            modbusTcp.ConnectTimeOut = 1000; // 优化超时
-            modbusTcp.ReceiveTimeOut = 1000;
-            modbusTcp.IpAddress = DataModel.Settingmodel.PLC_IP;
-            modbusTcp.Port = DataModel.Settingmodel.PLC_Port;
-            modbusTcp.DataFormat = HslCommunication.Core.DataFormat.CDAB;
-            
-            var connectresult = modbusTcp.ConnectServer();
-            if (connectresult.IsSuccess)
+            ModbusTcpNet modbusTcp = new ModbusTcpNet();
+            int maxRetry = 6;
+
+            for (int i = 0; i < maxRetry; i++)
             {
-                var r = modbusTcp.ReadFloat(address.ToString(), 1);
-                modbusTcp.ConnectClose();
-                
-                if (r.IsSuccess)
-                { 
-                    return r.Content[0]; 
-                }
-                else
+                try
                 {
-                   if (i == maxRetry - 1)
-                       writeLog($"[PLC通讯] 读取Float失败(D{address}): {r.Message}", false);
-                }
-            }
-            else
-            {
-                 if (i == maxRetry - 1)
-                       writeLog($"[PLC通讯] 连接失败(D{address}): {connectresult.Message}", false);
-            }
-        }
-        catch (Exception ex)
-        {
-             if (i == maxRetry - 1)
-                 writeLog($"[PLC通讯] 读取Float异常(D{address}): {ex.Message}", false);
-        }
-        Thread.Sleep(50);
-    }
+                    modbusTcp.ConnectTimeOut = 1000; // 优化超时
+                    modbusTcp.ReceiveTimeOut = 1000;
+                    modbusTcp.IpAddress = DataModel.Settingmodel.PLC_IP;
+                    modbusTcp.Port = DataModel.Settingmodel.PLC_Port;
+                    modbusTcp.DataFormat = HslCommunication.Core.DataFormat.CDAB;
 
-    return float.NaN;
-}
+                    var connectresult = modbusTcp.ConnectServer();
+                    if (connectresult.IsSuccess)
+                    {
+                        var r = modbusTcp.ReadFloat(address.ToString(), 1);
+                        modbusTcp.ConnectClose();
+
+                        if (r.IsSuccess)
+                        {
+                            return r.Content[0];
+                        }
+                        else
+                        {
+                            if (i == maxRetry - 1)
+                                writeLog($"[PLC通讯] 读取Float失败(D{address}): {r.Message}", false);
+                        }
+                    }
+                    else
+                    {
+                        if (i == maxRetry - 1)
+                            writeLog($"[PLC通讯] 连接失败(D{address}): {connectresult.Message}", false);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    if (i == maxRetry - 1)
+                        writeLog($"[PLC通讯] 读取Float异常(D{address}): {ex.Message}", false);
+                }
+                Thread.Sleep(50);
+            }
+
+            return float.NaN;
+        }
         /// <summary>
         /// 从PLC读取字符串数据
         /// </summary>
@@ -534,71 +534,71 @@ private bool PLC_write(float result)
         /// 5. 使用CDAB数据格式进行通信
         /// </remarks>
         public string PLC_Readstring(int address)
-{
-    // 创建Modbus TCP通信对象
-    ModbusTcpNet modbusTcp = new ModbusTcpNet();
-    // 设置最大重试次数为6次
-    int maxRetry = 6;
-    
-    // 循环重试机制：如果第一次读取失败，会自动重试，最多重试6次
-    for(int i=0; i<maxRetry; i++)
-    {
-        try
         {
-            modbusTcp.ConnectTimeOut = 1000;
-            modbusTcp.ReceiveTimeOut = 1000;
-            modbusTcp.IpAddress = DataModel.Settingmodel.PLC_IP;
-            // 从配置模型中获取PLC的端口号，通常是502（Modbus TCP标准端口）
-            modbusTcp.Port = DataModel.Settingmodel.PLC_Port;
-            // 设置数据格式为CDAB（字节序），确保数据解析正确
-            modbusTcp.DataFormat = HslCommunication.Core.DataFormat.CDAB;
-            
-            // 尝试连接到PLC服务器
-            var connectresult = modbusTcp.ConnectServer();
-            // 判断连接是否成功
-            if (connectresult.IsSuccess)
-            {
-                // 连接成功，开始读取字符串数据
-                // address.ToString()：将整数地址转换为字符串格式（如：100 -> "100"）
-                // 25：读取25个字符长度的字符串（PLC中字符串通常占用多个寄存器，这里读取25个字符）
-                var r = modbusTcp.ReadString(address.ToString(), 25);
-                // 读取完成后立即关闭连接，释放网络资源
-                modbusTcp.ConnectClose();
-                // 判断读取操作是否成功
-                if (r.IsSuccess)
-                { 
-                    // 读取成功，返回读取到的字符串内容
-                    // Replace("\0", "")：去除字符串中的空字符（\0），因为PLC返回的字符串可能包含填充的空字符
-                    return r.Content.Replace("\0", ""); 
-                }
-                else
-                {
-                   // 读取失败，如果这是最后一次重试（i == maxRetry - 1），则记录错误日志
-                   // 只在最后一次重试时记录日志，避免重复记录相同的错误信息
-                   if (i == maxRetry - 1)
-                       writeLog($"[PLC通讯] 读取String失败(D{address}): {r.Message}", false);
-                }
-            }
-            else
-            {
-                // 连接失败，如果这是最后一次重试，则记录连接失败的日志
-                if (i == maxRetry - 1)
-                       writeLog($"[PLC通讯] 连接失败(D{address}): {connectresult.Message}", false);
-            }
-        }
-        catch (Exception ex)
-        {
-             // 捕获异常（如网络异常、超时异常等），如果这是最后一次重试，则记录异常日志
-             if (i == maxRetry - 1)
-                 writeLog($"[PLC通讯] 读取String异常(D{address}): {ex.Message}", false);
-        }
-        // 每次重试前等待50毫秒，避免频繁重试对PLC造成压力，也给网络一些恢复时间
-        Thread.Sleep(50);
-    }
+            // 创建Modbus TCP通信对象
+            ModbusTcpNet modbusTcp = new ModbusTcpNet();
+            // 设置最大重试次数为6次
+            int maxRetry = 6;
 
-    // 如果所有重试都失败了，返回空字符串，表示读取失败
-    return string.Empty;
-}
+            // 循环重试机制：如果第一次读取失败，会自动重试，最多重试6次
+            for (int i = 0; i < maxRetry; i++)
+            {
+                try
+                {
+                    modbusTcp.ConnectTimeOut = 1000;
+                    modbusTcp.ReceiveTimeOut = 1000;
+                    modbusTcp.IpAddress = DataModel.Settingmodel.PLC_IP;
+                    // 从配置模型中获取PLC的端口号，通常是502（Modbus TCP标准端口）
+                    modbusTcp.Port = DataModel.Settingmodel.PLC_Port;
+                    // 设置数据格式为CDAB（字节序），确保数据解析正确
+                    modbusTcp.DataFormat = HslCommunication.Core.DataFormat.CDAB;
+
+                    // 尝试连接到PLC服务器
+                    var connectresult = modbusTcp.ConnectServer();
+                    // 判断连接是否成功
+                    if (connectresult.IsSuccess)
+                    {
+                        // 连接成功，开始读取字符串数据
+                        // address.ToString()：将整数地址转换为字符串格式（如：100 -> "100"）
+                        // 25：读取25个字符长度的字符串（PLC中字符串通常占用多个寄存器，这里读取25个字符）
+                        var r = modbusTcp.ReadString(address.ToString(), 25);
+                        // 读取完成后立即关闭连接，释放网络资源
+                        modbusTcp.ConnectClose();
+                        // 判断读取操作是否成功
+                        if (r.IsSuccess)
+                        {
+                            // 读取成功，返回读取到的字符串内容
+                            // Replace("\0", "")：去除字符串中的空字符（\0），因为PLC返回的字符串可能包含填充的空字符
+                            return r.Content.Replace("\0", "");
+                        }
+                        else
+                        {
+                            // 读取失败，如果这是最后一次重试（i == maxRetry - 1），则记录错误日志
+                            // 只在最后一次重试时记录日志，避免重复记录相同的错误信息
+                            if (i == maxRetry - 1)
+                                writeLog($"[PLC通讯] 读取String失败(D{address}): {r.Message}", false);
+                        }
+                    }
+                    else
+                    {
+                        // 连接失败，如果这是最后一次重试，则记录连接失败的日志
+                        if (i == maxRetry - 1)
+                            writeLog($"[PLC通讯] 连接失败(D{address}): {connectresult.Message}", false);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // 捕获异常（如网络异常、超时异常等），如果这是最后一次重试，则记录异常日志
+                    if (i == maxRetry - 1)
+                        writeLog($"[PLC通讯] 读取String异常(D{address}): {ex.Message}", false);
+                }
+                // 每次重试前等待50毫秒，避免频繁重试对PLC造成压力，也给网络一些恢复时间
+                Thread.Sleep(50);
+            }
+
+            // 如果所有重试都失败了，返回空字符串，表示读取失败
+            return string.Empty;
+        }
         public bool PLC_Writestring(string address, string data)
         {
             int maxRetry = 3;
@@ -634,6 +634,17 @@ private bool PLC_write(float result)
 
         }
 
+        /// <summary>
+        /// 从PLC读取耐压仪器（TV）可用状态，并同步更新到 <see cref="DataModel.Processmodel"/>。
+        /// </summary>
+        /// <returns>连接成功且前两台耐压仪线圈读取成功时返回 true，否则返回 false。</returns>
+        /// <remarks>
+        /// 1. 由 PLC_shankhand() 后台线程周期性调用（约每1500ms一次），用于UI/流程层判断工位是否可用。
+        /// 2. 读取线圈：Meter1AvailableAddress、Meter2AvailableAddress，并将读取到的bit取反后写入 TVAvailable（现场信号为“不可用=1”）。
+        /// 3. 同步写入：ShankHandAddress=1（握手）、DeviceAvailableAddress=allow_start（设备可运行标志）。
+        /// 4. 第三台耐压仪已停用：不再读取/判断第三台的PLC状态，且强制 TV3Available=false。
+        /// 5. 失败时最多重试3次；仅在最后一次失败时记录异常日志，避免日志刷屏。
+        /// </remarks>
         public bool PLC_ReadTVAvailable()
         {
             int maxRetry = 3;
