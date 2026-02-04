@@ -18,8 +18,8 @@ namespace BusbarCompressionSystem.ViewModel
         private object writeBug_Locker = new object();
 
         /// <summary>
-        /// 写入日志信息到文件和界面显示
-        /// </summary>
+         /// 写入日志信息到文件和界面显示
+         /// </summary>
         /// <param name="LogContent">日志内容</param>
         /// <param name="showdatarecord">是否在界面上显示日志记录，默认为 true</param>
         /// <remarks>
@@ -57,16 +57,20 @@ namespace BusbarCompressionSystem.ViewModel
                     });
                 }
 
-                string filename = $"{Environment.CurrentDirectory}\\日志\\日志\\{DateTime.Now.ToString("yyyyMMdd")}.txt";
-                string dir = Path.GetDirectoryName(filename);
-                if (!Directory.Exists(dir))
+                // 【日志落盘加锁】现场存在多线程写同一日志文件的情况，不加锁容易产生 txt 写入异常并刷屏
+                lock (writeLog_Locker)
                 {
-                    Directory.CreateDirectory(dir);
-                }
-                using (StreamWriter sw = new StreamWriter(filename, true))
-                {
-                    sw.WriteLine(logstr);
-                    sw.Close();
+                    string filename = $"{Environment.CurrentDirectory}\\日志\\日志\\{DateTime.Now.ToString("yyyyMMdd")}.txt";
+                    string dir = Path.GetDirectoryName(filename);
+                    if (!Directory.Exists(dir))
+                    {
+                        Directory.CreateDirectory(dir);
+                    }
+                    using (StreamWriter sw = new StreamWriter(filename, true))
+                    {
+                        sw.WriteLine(logstr);
+                        sw.Close();
+                    }
                 }
             }
             catch (Exception ex)
@@ -163,22 +167,66 @@ namespace BusbarCompressionSystem.ViewModel
                     }
                     DataModel.Recordmodel.ErrorLog.Insert(0, bugstr);
                 });
-                string filename = $"{Environment.CurrentDirectory}\\日志\\错误\\{DateTime.Now.ToString("yyyyMMdd")}.txt";
-                string dir = Path.GetDirectoryName(filename);
-                if (!Directory.Exists(dir))
+                // 【错误落盘加锁】避免多线程同时写入导致“txt 相关异常”反复出现
+                lock (writeBug_Locker)
                 {
-                    Directory.CreateDirectory(dir);
-                }
-                using (StreamWriter sw = new StreamWriter(filename, true))
-                {
-                    sw.WriteLine(bugstr);
-                    sw.Close();
+                    string filename = $"{Environment.CurrentDirectory}\\日志\\错误\\{DateTime.Now.ToString("yyyyMMdd")}.txt";
+                    string dir = Path.GetDirectoryName(filename);
+                    if (!Directory.Exists(dir))
+                    {
+                        Directory.CreateDirectory(dir);
+                    }
+                    using (StreamWriter sw = new StreamWriter(filename, true))
+                    {
+                        sw.WriteLine(bugstr);
+                        sw.Close();
+                    }
                 }
             }
             catch (Exception)
             {
             }
 
+        }
+
+        /// <summary>
+        /// PLC 相关错误专用落盘：避免高频 PLC 异常刷屏污染“日志\\错误”。
+        /// 输出路径：日志\\PLC异常\\{yyyyMMdd}.txt
+        /// 说明：UI 错误列表仍会显示该条目（便于现场快速看到），但落盘独立归档。
+        /// </summary>
+        internal void writePlcError(string Content)
+        {
+            try
+            {
+                int num = 200;
+                string bugstr = $"[{DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.FFF")}]{Content}";
+                App.Current.Dispatcher.Invoke(() =>
+                {
+                    if (DataModel.Recordmodel.ErrorLog.Count > num)
+                    {
+                        DataModel.Recordmodel.ErrorLog.Clear();
+                    }
+                    DataModel.Recordmodel.ErrorLog.Insert(0, bugstr);
+                });
+
+                lock (writeBug_Locker)
+                {
+                    string filename = $"{Environment.CurrentDirectory}\\日志\\PLC异常\\{DateTime.Now.ToString("yyyyMMdd")}.txt";
+                    string dir = Path.GetDirectoryName(filename);
+                    if (!Directory.Exists(dir))
+                    {
+                        Directory.CreateDirectory(dir);
+                    }
+                    using (StreamWriter sw = new StreamWriter(filename, true))
+                    {
+                        sw.WriteLine(bugstr);
+                        sw.Close();
+                    }
+                }
+            }
+            catch (Exception)
+            {
+            }
         }
         #endregion
     }

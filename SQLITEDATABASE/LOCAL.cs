@@ -29,15 +29,23 @@ namespace SQLITEDATABASE
         /// <summary>
         /// SQLite模块专用错误日志
         /// 独立文件存储，便于问题定位和统计分析
-        /// 输出路径：日志\数据库异常\{日期}.txt
+        /// 输出路径：
+        /// - 异常：日志\数据库异常\{日期}.txt
+        /// - 追踪/信息：日志\数据库追踪\{日期}.txt
         /// </summary>
         public static void WriteErrorLog(string tag, string message, string sn = "", string wocode = "")
         {
             try
             {
                 DateTime now = DateTime.Now;
-                // 独立的数据库异常日志目录
-                string filename = $"{Environment.CurrentDirectory}\\日志\\数据库异常\\{now.ToString("yyyyMMdd")}.txt";
+
+                // 规范化 tag：调用方历史上会传入 “[追踪]xxx”/“[数据库异常]xxx”/“UPDATETV_EXCEPTION”等多种风格，统一成单一格式，便于检索与统计
+                string normalizedTag = NormalizeDbLogTag(tag, out string category);
+                bool isTrace = IsDbTraceCategory(category);
+
+                // 目录分流：把追踪/信息/数据缺失等从“数据库异常”中剥离，避免异常日志被噪声污染
+                string subDir = isTrace ? "数据库追踪" : "数据库异常";
+                string filename = $"{Environment.CurrentDirectory}\\日志\\{subDir}\\{now.ToString("yyyyMMdd")}.txt";
                 string dir = Path.GetDirectoryName(filename);
                 if (!Directory.Exists(dir))
                 {
@@ -46,7 +54,7 @@ namespace SQLITEDATABASE
 
                 StringBuilder logBuilder = new StringBuilder();
                 logBuilder.Append($"[{now.ToString("yyyy-MM-dd HH:mm:ss.fff")}]");
-                logBuilder.Append($"[{tag}]");
+                logBuilder.Append($"[{normalizedTag}]");
                 if (!string.IsNullOrEmpty(sn))
                 {
                     logBuilder.Append($"[SN:{sn}]");
@@ -69,6 +77,69 @@ namespace SQLITEDATABASE
             catch
             {
                 // 日志写入失败不应影响业务
+            }
+        }
+
+        /// <summary>
+        /// 规范化数据库日志 tag，并提取分类（如“追踪/数据库异常/数据缺失”等）。
+        /// 目标：不改变日志整体格式，只把 tag 统一成可检索的稳定形态。
+        /// </summary>
+        private static string NormalizeDbLogTag(string tag, out string category)
+        {
+            category = string.Empty;
+            if (string.IsNullOrWhiteSpace(tag))
+            {
+                return "UNSPECIFIED";
+            }
+
+            string trimmed = tag.Trim();
+
+            // 提取开头的 “[分类]” 前缀
+            if (trimmed.StartsWith("[", StringComparison.Ordinal))
+            {
+                int closeIndex = trimmed.IndexOf(']');
+                if (closeIndex > 1)
+                {
+                    category = trimmed.Substring(1, closeIndex - 1).Trim();
+                    string rest = trimmed.Substring(closeIndex + 1).Trim();
+                    rest = rest.Replace("[", string.Empty).Replace("]", string.Empty).Trim();
+
+                    if (string.IsNullOrEmpty(rest))
+                    {
+                        return category;
+                    }
+
+                    return $"{category}-{rest}";
+                }
+            }
+
+            // 没有分类前缀的，清理掉意外的括号后直接返回
+            return trimmed.Replace("[", string.Empty).Replace("]", string.Empty);
+        }
+
+        /// <summary>
+        /// 判断是否属于“数据库追踪”类别（非异常）。
+        /// </summary>
+        private static bool IsDbTraceCategory(string category)
+        {
+            if (string.IsNullOrWhiteSpace(category))
+            {
+                return false;
+            }
+
+            // 这些类型在现有代码里用于诊断/业务判定/信息记录，不应混入“数据库异常”目录
+            switch (category.Trim())
+            {
+                case "追踪":
+                case "调试信息":
+                case "数据库信息":
+                case "数据缺失":
+                case "数据异常":
+                case "业务判定":
+                case "双测模式":
+                    return true;
+                default:
+                    return false;
             }
         }
 

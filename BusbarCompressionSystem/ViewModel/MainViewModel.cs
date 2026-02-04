@@ -130,9 +130,8 @@ namespace BusbarCompressionSystem.ViewModel
                 writeLog($"写入PLC地址 {DataModel.Settingmodel.AddressSN}: {(plcWriteOk ? "成功" : "失败")} | {snstr};{wocode}");
                 if (!plcWriteOk)
                 {
-                    // 仅记录一次，用于定位“写入失败导致后续拍照读到空/格式错”的偶发问题
-                    SQLITEDATABASE.sqlite.WriteErrorLog("[PLC写入异常]ScanSN-写入AddressSN失败",
-                        $"写入失败: AddressSN={DataModel.Settingmodel.AddressSN}, 内容长度={(($"{snstr};{wocode}")?.Length ?? 0)}", snstr, wocode);
+                    // 【日志归置】PLC 写入异常属于设备/通讯类错误，按约定归到“日志\\错误”，避免污染“数据库异常”
+                    writePlcError($"[PLC写入异常]ScanSN-写入AddressSN失败 | AddressSN={DataModel.Settingmodel.AddressSN}, 内容长度={(($"{snstr};{wocode}")?.Length ?? 0)}, SN={snstr}, WO={wocode}");
                 }
 
                 sqlite.CREATENEWLINE(wocode, partnoid, snstr, DataModel.Settingmodel.SETTING_DATA.StationCode, DataModel.Settingmodel.SETTING_DATA.MachineID, DateTime.Now);
@@ -187,8 +186,8 @@ namespace BusbarCompressionSystem.ViewModel
                 writeLog($"写入PLC地址 {DataModel.Settingmodel.AddressSN}: {(plcWriteOk ? "成功" : "失败")} | {sn};{wocode}");
                 if (!plcWriteOk)
                 {
-                    SQLITEDATABASE.sqlite.WriteErrorLog("[PLC写入异常]ScanSN-写入AddressSN失败",
-                        $"写入失败: AddressSN={DataModel.Settingmodel.AddressSN}, 内容长度={(($"{sn};{wocode}")?.Length ?? 0)}", sn, wocode);
+                    // 【日志归置】PLC 写入异常属于设备/通讯类错误，按约定归到“日志\\错误”，避免污染“数据库异常”
+                    writePlcError($"[PLC写入异常]ScanSN-写入AddressSN失败 | AddressSN={DataModel.Settingmodel.AddressSN}, 内容长度={(($"{sn};{wocode}")?.Length ?? 0)}, SN={sn}, WO={wocode}");
                 }
                 
                 writeLog($"创建数据库记录: wocode={wocode}, partnoid={partnoid}, SN={sn}, 工位={DataModel.Settingmodel.SETTING_DATA.StationCode}, 设备={DataModel.Settingmodel.SETTING_DATA.MachineID}");
@@ -551,9 +550,8 @@ namespace BusbarCompressionSystem.ViewModel
 
                 writeLog($"[拍照留底] ❌ 产品编码读取错误({failureType})! 原始值=[{raw}], 期望格式=[SN;WOCODE], 重试次数={maxReadRetry}, PLC地址=D{DataModel.Settingmodel.AddressSN}", true);
 
-                // 记录到数据库异常日志便于统计
-                SQLITEDATABASE.sqlite.WriteErrorLog("[PLC数据异常]TakePhoto1-产品编码读取失败",
-                    $"失败类型={failureType}, 原始值=[{raw}], 重试次数={maxReadRetry}, PLC地址=D{DataModel.Settingmodel.AddressSN}");
+                // 【日志归置】PLC 数据异常属于设备侧错误，按约定归到“日志\\错误”，避免污染“数据库异常”
+                writePlcError($"[PLC数据异常]TakePhoto1-产品编码读取失败 | 失败类型={failureType}, 原始值=[{raw}], 重试次数={maxReadRetry}, PLC地址=D{DataModel.Settingmodel.AddressSN}");
 
                 // 清空当前产品信息，避免后续误用残留SN
                 DataModel.Processmodel.TakePhotoTestModel.Productinfo = new Model.Record.Productinfo()
@@ -748,8 +746,8 @@ namespace BusbarCompressionSystem.ViewModel
             else
             {
                 writeLog($"[耐压1-{testType}] ❌ 产品编号读取错误! 原始值=[{s}], 期望格式=[SN;WOCODE], 分段数={ss.Length}", true);
-                SQLITEDATABASE.sqlite.WriteErrorLog($"[PLC数据异常]TV1-{testType}-产品编码格式错误", 
-                    $"原始值=[{s}], 分段数={ss.Length}, PLC地址=D{DataModel.Settingmodel.AddressSN + 25}");
+                // 【日志归置】PLC 数据异常属于设备侧错误，按约定归到“日志\\错误”，避免污染“数据库异常”
+                writePlcError($"[PLC数据异常]TV1-{testType}-产品编码格式错误 | 原始值=[{s}], 分段数={ss.Length}, PLC地址=D{DataModel.Settingmodel.AddressSN + 25}");
             }
 
             float res = PLC_ReadFloat(DataModel.Settingmodel.AddressRes);
@@ -928,8 +926,8 @@ namespace BusbarCompressionSystem.ViewModel
             else
             {
                 writeLog($"[耐压1] ❌ 产品编号读取错误! 原始值=[{s}], 期望格式=[SN;WOCODE], 分段数={ss.Length}", true);
-                SQLITEDATABASE.sqlite.WriteErrorLog("[PLC数据异常]TV1-产品编码格式错误", 
-                    $"原始值=[{s}], 分段数={ss.Length}, PLC地址=D{DataModel.Settingmodel.AddressSN + 25}");
+                // 【日志归置】PLC 数据异常属于设备侧错误，按约定归到“日志\\错误”，避免污染“数据库异常”
+                writePlcError($"[PLC数据异常]TV1-产品编码格式错误 | 原始值=[{s}], 分段数={ss.Length}, PLC地址=D{DataModel.Settingmodel.AddressSN + 25}");
             }
 
             float res = PLC_ReadFloat(DataModel.Settingmodel.AddressRes);
@@ -1062,8 +1060,8 @@ namespace BusbarCompressionSystem.ViewModel
             else
             {
                 writeLog($"[耐压2-{testType}] ❌ 产品编号读取错误! 原始值=[{s}], 期望格式=[SN;WOCODE], 分段数={ss.Length}", true);
-                SQLITEDATABASE.sqlite.WriteErrorLog($"[PLC数据异常]TV2-{testType}-产品编码格式错误", 
-                    $"原始值=[{s}], 分段数={ss.Length}, PLC地址=D{DataModel.Settingmodel.AddressSN + 25 * 2}");
+                // 【日志归置】PLC 数据异常属于设备侧错误，按约定归到“日志\\错误”，避免污染“数据库异常”
+                writePlcError($"[PLC数据异常]TV2-{testType}-产品编码格式错误 | 原始值=[{s}], 分段数={ss.Length}, PLC地址=D{DataModel.Settingmodel.AddressSN + 25 * 2}");
             }
 
             float res = PLC_ReadFloat(DataModel.Settingmodel.AddressRes + 1 * 2);
@@ -1181,8 +1179,8 @@ namespace BusbarCompressionSystem.ViewModel
                 //writeLog($"耐压2产品编号读取错误:{s}");
                 writeLog($"[耐压2] ❌ 产品编号读取错误! 原始值=[{s}], 期望格式=[SN;WOCODE], 分段数={ss.Length}", true);
                 writeLog($"[耐压2] PLC地址: D{DataModel.Settingmodel.AddressSN + 25 * 2}, 请检查PLC寄存器值", true);
-                SQLITEDATABASE.sqlite.WriteErrorLog("[PLC数据异常]TV2-产品编码格式错误", 
-                    $"原始值=[{s}], 分段数={ss.Length}, PLC地址=D{DataModel.Settingmodel.AddressSN + 25 * 2}");
+                // 【日志归置】PLC 数据异常属于设备侧错误，按约定归到“日志\\错误”，避免污染“数据库异常”
+                writePlcError($"[PLC数据异常]TV2-产品编码格式错误 | 原始值=[{s}], 分段数={ss.Length}, PLC地址=D{DataModel.Settingmodel.AddressSN + 25 * 2}");
             }
 
             float res = PLC_ReadFloat(DataModel.Settingmodel.AddressRes + 1 * 2);
@@ -1252,8 +1250,8 @@ namespace BusbarCompressionSystem.ViewModel
             {
                 //writeLog($"耐压3产品编号读取错误:{s}");
                 writeLog($"[耐压3] ❌ 产品编号读取错误! 原始值=[{s}], 期望格式=[SN;WOCODE], 分段数={ss.Length}", true);
-                SQLITEDATABASE.sqlite.WriteErrorLog("[PLC数据异常]TV3-产品编码格式错误", 
-                    $"原始值=[{s}], 分段数={ss.Length}, PLC地址=D{DataModel.Settingmodel.AddressSN + 25 * 3}");
+                // 【日志归置】PLC 数据异常属于设备侧错误，按约定归到“日志\\错误”，避免污染“数据库异常”
+                writePlcError($"[PLC数据异常]TV3-产品编码格式错误 | 原始值=[{s}], 分段数={ss.Length}, PLC地址=D{DataModel.Settingmodel.AddressSN + 25 * 3}");
             }
 
             float res = PLC_ReadFloat(DataModel.Settingmodel.AddressRes + 2 * 2);
