@@ -629,6 +629,7 @@ namespace BusbarCompressionSystem.ViewModel
         public bool PLC_Writestring(string address, string data)
         {
             int maxRetry = 3;
+            string lastError = string.Empty;
             for (int i = 0; i < maxRetry; i++)
             {
                 ModbusTcpNet modbusTcp = new ModbusTcpNet();
@@ -649,14 +650,23 @@ namespace BusbarCompressionSystem.ViewModel
                         {
                             return true;
                         }
+                        lastError = r.Message ?? "WriteUnicodeString返回失败";
+                    }
+                    else
+                    {
+                        lastError = connectresult.Message ?? "PLC连接失败";
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
-                    writeLog($"PLC_Writestring写入PLC异常");
+                    // 重试阶段不刷屏，保留最后一次错误信息即可
+                    lastError = ex.Message;
                 }
                 Thread.Sleep(40);
             }
+
+            // 只在最终失败时记录一次日志，用于定位“写入失败 -> 后续读到空/格式错误”的链路问题
+            writeLog($"[PLC通讯] 写入String失败({maxRetry}次重试后仍失败): 地址={address}, 长度={(data?.Length ?? 0)}, 错误={lastError}", true);
             return false;
 
         }

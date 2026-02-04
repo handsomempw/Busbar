@@ -126,8 +126,14 @@ namespace BusbarCompressionSystem.ViewModel
                 string wocode = MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.get_WO_CODE(snstr);
                 string partnoid = MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.get_PartNO_ID(snstr);
 
-                PLC_Writestring(DataModel.Settingmodel.AddressSN.ToString(), $"{snstr};{wocode}");
-                writeLog($"写入PLC地址 {DataModel.Settingmodel.AddressSN}: {snstr};{wocode}");
+                bool plcWriteOk = PLC_Writestring(DataModel.Settingmodel.AddressSN.ToString(), $"{snstr};{wocode}");
+                writeLog($"写入PLC地址 {DataModel.Settingmodel.AddressSN}: {(plcWriteOk ? "成功" : "失败")} | {snstr};{wocode}");
+                if (!plcWriteOk)
+                {
+                    // 仅记录一次，用于定位“写入失败导致后续拍照读到空/格式错”的偶发问题
+                    SQLITEDATABASE.sqlite.WriteErrorLog("[PLC写入异常]ScanSN-写入AddressSN失败",
+                        $"写入失败: AddressSN={DataModel.Settingmodel.AddressSN}, 内容长度={(($"{snstr};{wocode}")?.Length ?? 0)}", snstr, wocode);
+                }
 
                 sqlite.CREATENEWLINE(wocode, partnoid, snstr, DataModel.Settingmodel.SETTING_DATA.StationCode, DataModel.Settingmodel.SETTING_DATA.MachineID, DateTime.Now);
                 writeLog($"创建数据库记录: wocode={wocode}, partnoid={partnoid}, SN={snstr}, 工位={DataModel.Settingmodel.SETTING_DATA.StationCode}, 设备={DataModel.Settingmodel.SETTING_DATA.MachineID}");
@@ -177,8 +183,13 @@ namespace BusbarCompressionSystem.ViewModel
                 }
                 
                 // 写入PLC和数据库
-                writeLog($"写入PLC地址 {DataModel.Settingmodel.AddressSN}: {sn};{wocode}");
-                PLC_Writestring(DataModel.Settingmodel.AddressSN.ToString(), $"{sn};{wocode}");
+                bool plcWriteOk = PLC_Writestring(DataModel.Settingmodel.AddressSN.ToString(), $"{sn};{wocode}");
+                writeLog($"写入PLC地址 {DataModel.Settingmodel.AddressSN}: {(plcWriteOk ? "成功" : "失败")} | {sn};{wocode}");
+                if (!plcWriteOk)
+                {
+                    SQLITEDATABASE.sqlite.WriteErrorLog("[PLC写入异常]ScanSN-写入AddressSN失败",
+                        $"写入失败: AddressSN={DataModel.Settingmodel.AddressSN}, 内容长度={(($"{sn};{wocode}")?.Length ?? 0)}", sn, wocode);
+                }
                 
                 writeLog($"创建数据库记录: wocode={wocode}, partnoid={partnoid}, SN={sn}, 工位={DataModel.Settingmodel.SETTING_DATA.StationCode}, 设备={DataModel.Settingmodel.SETTING_DATA.MachineID}");
                 bool dbResult = sqlite.CREATENEWLINE(wocode, partnoid, sn, DataModel.Settingmodel.SETTING_DATA.StationCode, DataModel.Settingmodel.SETTING_DATA.MachineID, DateTime.Now);
