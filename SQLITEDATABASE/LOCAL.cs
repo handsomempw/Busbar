@@ -10,6 +10,7 @@ using System.IO;
 using System.Reflection.Emit;
 using System.Diagnostics; // 添加Stopwatch用于性能计时
 using System.Threading; // 添加Thread用于获取线程ID
+using System.Globalization; // 使用InvariantCulture格式化浮点数，避免小数点逗号导致SQL解析失败
 
 namespace SQLITEDATABASE
 {
@@ -270,6 +271,38 @@ namespace SQLITEDATABASE
             catch (Exception ex)
             {
                 WriteErrorLog("[数据库异常]UpdateTV失败", $"异常: {ex.Message}", SN, WOCODE);
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// 仅更新阻值(RES)字段
+        /// 业务背景：现场存在“阻值NG导致PLC跳过耐压测试”的流程分支，此时不会调用UpdateTV，
+        /// 若不单独落库阻值，数据库将只保留拍照留底等前置数据，导致追溯缺失。
+        /// </summary>
+        /// <remarks>
+        /// 设计取舍：遵循KISS/YAGNI，只补齐缺失的RES写库，不伪造TVMAXVOLTAGE/TVRESULT等字段。
+        /// </remarks>
+        public static bool UpdateResOnly(string WOCODE, string PARTNOID, string SN, float RES)
+        {
+            try
+            {
+                string _connstr = CheckDataBase(WOCODE, PARTNOID, SN);
+                if (string.IsNullOrEmpty(_connstr))
+                {
+                    WriteErrorLog("[追踪]UpdateResOnly-连接串为空", "CheckDataBase返回空", SN, WOCODE);
+                    return false;
+                }
+
+                // 使用InvariantCulture，避免中文系统下浮点数格式化为“1,23”导致SQLite SQL解析失败
+                string resValue = RES.ToString(CultureInfo.InvariantCulture);
+                string sql = $"UPDATE BusbarCompressionData SET RES={resValue} WHERE id=(SELECT max(id) from BusbarCompressionData WHERE sn='{SN}')";
+                int c = excute_sql(sql, _connstr);
+                return c > 0;
+            }
+            catch (Exception ex)
+            {
+                WriteErrorLog("[数据库异常]UpdateResOnly失败", $"异常: {ex.Message}", SN, WOCODE);
             }
             return false;
         }

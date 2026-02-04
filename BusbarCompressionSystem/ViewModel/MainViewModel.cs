@@ -1320,7 +1320,16 @@ namespace BusbarCompressionSystem.ViewModel
                     if (ss.Length == 2)
                     {
                         string sn = ss[0];
+                        string wocode = ss[1];
                         UpdateResValue(sn, res);
+
+                        // 同步将阻值写入SQLite，避免“阻值NG跳过耐压”导致数据库缺失RES
+                        bool updateResDbOk = sqlite.UpdateResOnly(wocode, DataModel.Processmodel.PartNOID, sn, res);
+                        if (!updateResDbOk)
+                        {
+                            writeLog($"[阻值1] ⚠ UpdateResOnly写库失败：WOCODE={wocode}, SN={sn}, Res={res}", true);
+                        }
+
                         writeLog($"阻值1已更新到记录 SN={sn}, Res={res}");
                     }
                     else
@@ -1361,7 +1370,16 @@ namespace BusbarCompressionSystem.ViewModel
                     if (ss.Length == 2)
                     {
                         string sn = ss[0];
+                        string wocode = ss[1];
                         UpdateResValue(sn, res);
+
+                        // 同步将阻值写入SQLite，避免“阻值NG跳过耐压”导致数据库缺失RES
+                        bool updateResDbOk = sqlite.UpdateResOnly(wocode, DataModel.Processmodel.PartNOID, sn, res);
+                        if (!updateResDbOk)
+                        {
+                            writeLog($"[阻值2] ⚠ UpdateResOnly写库失败：WOCODE={wocode}, SN={sn}, Res={res}", true);
+                        }
+
                         writeLog($"阻值2已更新到记录 SN={sn}, Res={res}");
                     }
                     else
@@ -1402,7 +1420,16 @@ namespace BusbarCompressionSystem.ViewModel
                     if (ss.Length == 2)
                     {
                         string sn = ss[0];
+                        string wocode = ss[1];
                         UpdateResValue(sn, res);
+
+                        // 同步将阻值写入SQLite，避免“阻值NG跳过耐压”导致数据库缺失RES
+                        bool updateResDbOk = sqlite.UpdateResOnly(wocode, DataModel.Processmodel.PartNOID, sn, res);
+                        if (!updateResDbOk)
+                        {
+                            writeLog($"[阻值3] ⚠ UpdateResOnly写库失败：WOCODE={wocode}, SN={sn}, Res={res}", true);
+                        }
+
                         writeLog($"阻值3已更新到记录 SN={sn}, Res={res}");
                     }
                     else
