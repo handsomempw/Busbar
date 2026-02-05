@@ -631,6 +631,9 @@ namespace BusbarCompressionSystem.ViewModel
                                 catch (Exception ex)
                                 {
                                     tool.ToolStatus = ToolStatus.NG2;
+                                    // 明确失败态测量值，避免保留上一次/初始值导致误判
+                                    tool.ActualMeasureValue = -1;
+                                    tool.LastMeasurePixelValue = -1;
                                     writeLog($"尺寸测量失败: {ex.Message}", false);
                                 }
 
@@ -730,6 +733,8 @@ namespace BusbarCompressionSystem.ViewModel
                                     if (!Directory.Exists(dir))
                                     { Directory.CreateDirectory(dir); }
                                     HOperatorSet.WriteImage(Image, "jpg", 0, savefilename);
+                                    // 运行态追溯：记录该工具本次落盘图片路径（便于对齐“日志记录 ↔ 图片文件”）
+                                    tool.LastResultImagePath = savefilename;
                                 }
                             }
                             else
@@ -746,6 +751,8 @@ namespace BusbarCompressionSystem.ViewModel
                                     if (!Directory.Exists(dir))
                                     { Directory.CreateDirectory(dir); }
                                     HOperatorSet.WriteImage(Image, "jpg", 0, savefilename);
+                                    // 运行态追溯：记录该工具本次落盘图片路径（便于对齐“日志记录 ↔ 图片文件”）
+                                    tool.LastResultImagePath = savefilename;
 
                                 }
                             }
@@ -788,8 +795,9 @@ namespace BusbarCompressionSystem.ViewModel
                                     };
                                 }
 
-                                // 写入测量日志
-                                WriteMeasurementLog(tool, productInfo, DateTime.Now);
+                                // 写入测量日志 + 诊断日志（同一把锁、同一时间戳，便于对齐排查）
+                                DateTime measureTime = DateTime.Now;
+                                WriteMeasurementLogs(tool, productInfo, measureTime);
                             }
                             catch (Exception ex)
                             {
@@ -893,6 +901,10 @@ namespace BusbarCompressionSystem.ViewModel
             tool.ActualY = 0;
             tool.ActualAngle = 0;
             tool.ActualDimension = 0;
+            // 清理运行态字段，避免界面/日志误用上一周期残留数据
+            tool.ActualMeasureValue = 0;
+            tool.LastResultImagePath = null;
+            tool.LastMeasurePixelValue = -1;
             tool.ToolStatus = ToolStatus.等待中;
 
         }

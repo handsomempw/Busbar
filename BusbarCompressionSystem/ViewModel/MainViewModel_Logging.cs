@@ -80,54 +80,132 @@ namespace BusbarCompressionSystem.ViewModel
             //}
         }
 
-        #region 尺寸测量日志
+        #region 尺寸测量日志（结果 + 诊断）
         /// <summary>
-        /// 写入尺寸测量结果到日志文件（线程安全）
-        /// 文件路径：日志\尺寸测量结果\{yyyyMMdd}.txt
-        /// 格式：[时间戳] 规格|批号|SN码|工具名称|测量类型|测量范围|真实尺寸|结果
+        /// 尺寸测量日志统一入口：在同一把锁内写入两份文件（结果日志 + 诊断日志）。
+        /// 说明：
+        /// - 结果日志保持简洁，便于现场/报表解析：日志\尺寸测量结果\{yyyyMMdd}.txt
+        /// - 诊断日志用于排查一致性问题：日志\尺寸测量诊断\{yyyyMMdd}.txt
+        /// - 同一把锁/同一时间戳：避免并发写入导致两份日志顺序难对齐
         /// </summary>
-        /// <param name="tool">测量工具模型</param>
-        /// <param name="productInfo">产品信息</param>
-        /// <param name="measureTime">测量时间</param>
-        private void WriteMeasurementLog(ToolModel tool, Productinfo productInfo, DateTime measureTime)
+        private void WriteMeasurementLogs(ToolModel tool, Productinfo productInfo, DateTime measureTime)
         {
-            lock (_measurementLogLock)  // 确保线程安全
+            lock (_measurementLogLock)
             {
-                try
+                AppendDailyLogLine("尺寸测量结果", measureTime, BuildMeasurementResultLine(tool, productInfo, measureTime), "写入尺寸测量日志失败");
+                AppendDailyLogLine("尺寸测量诊断", measureTime, BuildMeasurementDiagnosticLine(tool, productInfo, measureTime), "写入尺寸测量诊断日志失败");
+            }
+        }
+
+        private string BuildMeasurementResultLine(ToolModel tool, Productinfo productInfo, DateTime measureTime)
+        {
+            string partNo = productInfo?.PartNOID ?? string.Empty;
+            string woCode = productInfo?.WOCODE ?? string.Empty;
+            string sn = productInfo?.SN ?? string.Empty;
+            string toolName = tool?.Name ?? string.Empty;
+            string measureType = tool?.MeasureType.ToString() ?? string.Empty;
+            double min = tool?.MinMeasureValue ?? 0;
+            double max = tool?.MaxMeasureValue ?? 0;
+            double actual = tool?.ActualMeasureValue ?? 0;
+            ToolStatus status = tool?.ToolStatus ?? ToolStatus.NG2;
+
+            return $"[{measureTime:yyyy-MM-dd HH:mm:ss.fff}] " +
+                $"{partNo}|" +
+                $"{woCode}|" +
+                $"{sn}|" +
+                $"{toolName}|" +
+                $"{measureType}|" +
+                $"{min:F3}~{max:F3}|" +
+                $"{actual:F3}|" +
+                $"{GetMeasurementStatusText(status)}";
+        }
+
+        private string BuildMeasurementDiagnosticLine(ToolModel tool, Productinfo productInfo, DateTime measureTime)
+        {
+            string partNo = productInfo?.PartNOID ?? string.Empty;
+            string woCode = productInfo?.WOCODE ?? string.Empty;
+            string sn = productInfo?.SN ?? string.Empty;
+            string toolName = tool?.Name ?? string.Empty;
+            string measureType = tool?.MeasureType.ToString() ?? string.Empty;
+
+            double min = tool?.MinMeasureValue ?? 0;
+            double max = tool?.MaxMeasureValue ?? 0;
+            double actual = tool?.ActualMeasureValue ?? 0;
+            ToolStatus status = tool?.ToolStatus ?? ToolStatus.NG2;
+
+            // 图片只记录文件名，便于阅读；目录结构固定时可直接定位。
+            string imageName = string.IsNullOrWhiteSpace(tool?.LastResultImagePath)
+                ? string.Empty
+                : Path.GetFileName(tool.LastResultImagePath);
+
+            double calibratedUmPerPixel = tool?.DimensionK ?? 0;
+            double measuredPixel = tool?.LastMeasurePixelValue ?? -1;
+
+            int threshold = tool?.MetrologyMeasureThreshold ?? 0;
+            string select = tool?.MetrologyMeasureSelect ?? string.Empty;
+            int numMeasures = tool?.MetrologyNumMeasures ?? 0;
+            double minScore = tool?.MetrologyMinScore ?? 0;
+
+            return $"[{measureTime:yyyy-MM-dd HH:mm:ss.fff}] " +
+                $"{partNo}|" +
+                $"{woCode}|" +
+                $"{sn}|" +
+                $"{toolName}|" +
+                $"{measureType}|" +
+                $"{min:F3}~{max:F3}|" +
+                $"{actual:F3}|" +
+                $"{GetMeasurementStatusText(status)}|" +
+                $"图片={imageName}|" +
+                $"标定像素尺寸(um/pixel)={calibratedUmPerPixel:F2}|" +
+                $"原始测量像素值(px)={measuredPixel:F2}|" +
+                $"边缘阈值={threshold}|" +
+                $"边缘选择={select}|" +
+                $"卡尺数量={numMeasures}|" +
+                $"最小得分={minScore:F2}|" +
+                $"ROI1={FormatRoiForLog(tool?.MeasureObject1ROI)}|" +
+                $"ROI2={FormatRoiForLog(tool?.MeasureObject2ROI)}";
+        }
+
+        private void AppendDailyLogLine(string subDirName, DateTime measureTime, string line, string errorPrefix)
+        {
+            try
+            {
+                string filename = $"{Environment.CurrentDirectory}\\日志\\{subDirName}\\{measureTime:yyyyMMdd}.txt";
+                string dir = Path.GetDirectoryName(filename);
+                if (!Directory.Exists(dir))
                 {
-                    // 构建日志内容（单行记录）
-                    string logContent = $"[{measureTime:yyyy-MM-dd HH:mm:ss.fff}] " +
-                        $"{productInfo.PartNOID}|" +
-                        $"{productInfo.WOCODE}|" +
-                        $"{productInfo.SN}|" +
-                        $"{tool.Name}|" +
-                        $"{tool.MeasureType}|" +
-                        $"{tool.MinMeasureValue:F3}~{tool.MaxMeasureValue:F3}|" +
-                        $"{tool.ActualMeasureValue:F3}|" +
-                        $"{GetMeasurementStatusText(tool.ToolStatus)}";
-
-                    // 确定文件路径（按日期分文件）
-                    string filename = $"{Environment.CurrentDirectory}\\日志\\尺寸测量结果\\{measureTime:yyyyMMdd}.txt";
-                    string dir = Path.GetDirectoryName(filename);
-
-                    // 创建目录（如果不存在）
-                    if (!Directory.Exists(dir))
-                    {
-                        Directory.CreateDirectory(dir);
-                    }
-
-                    // 追加写入日志
-                    using (StreamWriter sw = new StreamWriter(filename, true, Encoding.UTF8))
-                    {
-                        sw.WriteLine(logContent);
-                    }
+                    Directory.CreateDirectory(dir);
                 }
-                catch (Exception ex)
+
+                using (StreamWriter sw = new StreamWriter(filename, true, Encoding.UTF8))
                 {
-                    // 写入失败时记录到错误日志，不影响主流程
-                    writeError($"写入尺寸测量日志失败: {ex.Message}\r\n{ex.StackTrace}");
+                    sw.WriteLine(line);
                 }
             }
+            catch (Exception ex)
+            {
+                writeError($"{errorPrefix}: {ex.Message}\r\n{ex.StackTrace}");
+            }
+        }
+        #endregion
+
+        /// <summary>
+        /// 将ROI格式化为可落盘的一行文本，便于现场快速比对是否“同一套ROI”。
+        /// </summary>
+        private static string FormatRoiForLog(ROI roi)
+        {
+            if (roi == null)
+            {
+                return "";
+            }
+
+            if (roi.Type == ROIType.Circle)
+            {
+                return $"C({roi.CircleCenterRow:F1},{roi.CircleCenterCol:F1},r={roi.CircleRadius:F1})";
+            }
+
+            // Rectangle / Line：记录四点坐标（现场足够用）
+            return $"{roi.Type}({roi.Row1},{roi.Col1},{roi.Row2},{roi.Col2})";
         }
 
         /// <summary>
@@ -228,6 +306,5 @@ namespace BusbarCompressionSystem.ViewModel
             {
             }
         }
-        #endregion
     }
 }

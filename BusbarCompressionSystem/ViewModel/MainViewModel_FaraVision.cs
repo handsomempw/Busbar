@@ -1650,6 +1650,9 @@ namespace BusbarCompressionSystem.ViewModel
                         break;
                 }
 
+                // 运行态追溯：记录本次算法输出的原始像素测量值（单位：px，失败为-1）
+                tool.LastMeasurePixelValue = result;
+
                 // 校准模式：返回原始像素值
                 if (calibrationMode)
                 {
@@ -1667,6 +1670,11 @@ namespace BusbarCompressionSystem.ViewModel
             }
             catch (Exception e)
             {
+                // 运行态追溯：异常时明确为失败值，避免残留导致诊断误判
+                if (tool != null)
+                {
+                    tool.LastMeasurePixelValue = -1;
+                }
                 // 重新抛出异常，让UI层显示详细错误信息
                 throw new Exception($"测量失败: {e.Message}", e);
             }

@@ -275,6 +275,21 @@ namespace BusbarCompressionSystem.Model.FaraVision.Tool
         public double ActualMeasureValue { set; get; } = 0;
 
         /// <summary>
+        /// 运行态：本次识别落盘图片路径（用于追溯“日志值 ↔ 图片”是否一致）。
+        /// - 仅运行时使用，不参与工程参数保存/加载。
+        /// </summary>
+        [XmlIgnore]
+        public string LastResultImagePath { set; get; } = null;
+
+        /// <summary>
+        /// 运行态：本次算法输出的原始像素测量值（单位：px）。
+        /// - 仅运行时使用，不参与工程参数保存/加载。
+        /// - 失败时约定为 -1。
+        /// </summary>
+        [XmlIgnore]
+        public double LastMeasurePixelValue { set; get; } = -1;
+
+        /// <summary>
         /// 最小允许值（单位：mm）
         /// </summary>
         [XmlElement("最小测量值mm")]

@@ -1001,7 +1001,7 @@ namespace BusbarCompressionSystem.Model.FaraVision
                 t.DimensionK = (t.CalibrationRealSize / pixelSize) * 1000.0;
                 t.CalibrationPixelSize = pixelSize;
 
-                NoticeBox.Show($"校准成功！\n测量像素值: {pixelSize:F2} pixel\n真实尺寸: {t.CalibrationRealSize:F2} mm\n比例: {t.DimensionK:F2} um/pixel",
+                NoticeBox.Show($"校准成功！\n测量像素值: {pixelSize:F2} pixel\n真实尺寸: {t.CalibrationRealSize:F2} mm\n标定像素尺寸: {t.DimensionK:F2} um/pixel",
                     "校准成功", MessageBoxIcon.Success, true, 8000);
             }
             catch (Exception ex)

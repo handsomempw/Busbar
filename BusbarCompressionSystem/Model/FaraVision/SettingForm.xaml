@@ -242,7 +242,7 @@
                         <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right" >Y偏差范围:</TextBlock>
                         <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right" >角度偏差范围:</TextBlock>
                         <TextBlock Grid.Row="3" Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right">模板匹配分值下限:</TextBlock>
-                        <TextBlock Grid.Row="4" Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right"  Visibility="Collapsed">比例um/pixel:</TextBlock>
+                        <TextBlock Grid.Row="4" Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right"  Visibility="Collapsed">标定像素尺寸(um/pixel):</TextBlock>
                         <TextBlock Grid.Row="5" Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right"  Visibility="Collapsed">X轴取反:</TextBlock>
                         <TextBlock Grid.Row="6" Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right"  Visibility="Collapsed">Y轴取反:</TextBlock>
                         <TextBlock Grid.Row="7" Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right"  Visibility="Collapsed">XY轴对换:</TextBlock>
@@ -637,8 +637,8 @@
                                         <Run Text=" pixel" Foreground="Gray"/>
                                     </TextBlock>
 
-                                    <!-- 比例显示 -->
-                                    <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" Margin="0,5">比例(um/pixel):</TextBlock>
+                                    <!-- 标定像素尺寸显示 -->
+                                    <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" Margin="0,5">标定像素尺寸(um/pixel):</TextBlock>
                                     <TextBlock Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" Margin="2,5" VerticalAlignment="Center"
                                                Foreground="Blue" FontWeight="Bold">
                                         <Run Text="{Binding DimensionK, StringFormat='{}{0:F2}'}"/>
