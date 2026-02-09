@@ -39,13 +39,15 @@
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="Castle.Core">
-      <HintPath>..\oracletest20250506\Castle.Core.dll</HintPath>
+      <!-- 第三方 DLL 统一从仓库内 third_party 引用，便于换电脑直接编译 -->
+      <HintPath>..\third_party\mes\Castle.Core.dll</HintPath>
     </Reference>
     <Reference Include="CommonServiceLocator, Version=2.0.2.0, Culture=neutral, PublicKeyToken=489b6accfaf20ef0, processorArchitecture=MSIL">
       <HintPath>..\packages\CommonServiceLocator.2.0.2\lib\net47\CommonServiceLocator.dll</HintPath>
     </Reference>
     <Reference Include="Faratronic.EquipUtils.Authentication">
-      <HintPath>..\Faratronic.EquipUtils.Authentication 2.0.0\Release\net462\Faratronic.EquipUtils.Authentication.dll</HintPath>
+      <!-- 避免引用 Release 输出目录（会被 .gitignore 忽略，clone 后缺引用） -->
+      <HintPath>..\third_party\faratronic-auth\net462\Faratronic.EquipUtils.Authentication.dll</HintPath>
     </Reference>
     <Reference Include="GalaSoft.MvvmLight, Version=5.4.1.0, Culture=neutral, PublicKeyToken=e7570ab207bcb616, processorArchitecture=MSIL">
       <HintPath>..\packages\MvvmLightLibs.5.4.1.1\lib\net45\GalaSoft.MvvmLight.dll</HintPath>
@@ -57,7 +59,7 @@
       <HintPath>..\packages\MvvmLightLibs.5.4.1.1\lib\net45\GalaSoft.MvvmLight.Platform.dll</HintPath>
     </Reference>
     <Reference Include="GetSNByMP">
-      <HintPath>..\oracletest20250506\GetSNByMP.dll</HintPath>
+      <HintPath>..\third_party\mes\GetSNByMP.dll</HintPath>
     </Reference>
     <Reference Include="halcondotnet">
       <HintPath>dll\halcondotnet.dll</HintPath>
@@ -69,23 +71,24 @@
       <HintPath>dll\Kcommon.dll</HintPath>
     </Reference>
     <Reference Include="log4net">
-      <HintPath>..\Faratronic.EquipUtils.Authentication 2.0.0\Release\net462\log4net.dll</HintPath>
+      <HintPath>..\third_party\faratronic-auth\net462\log4net.dll</HintPath>
     </Reference>
     <Reference Include="MESAutoLineClient">
-      <HintPath>..\oracletest20250506\MESAutoLineClient.dll</HintPath>
+      <!-- MES 通过 NuGet（内网/离线源）还原，避免手动拷贝 DLL -->
+      <HintPath>..\packages\MESAutoLineClient.1.0.86.15454\lib\net45\MESAutoLineClient.dll</HintPath>
     </Reference>
     <Reference Include="MvCameraControl.Net">
       <HintPath>dll\MvCameraControl.Net.dll</HintPath>
     </Reference>
     <Reference Include="Newtonsoft.Json, Version=13.0.0.0, Culture=neutral, PublicKeyToken=30ad4fe6b2a6aeed, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\oracletest20250506\Newtonsoft.Json.dll</HintPath>
+      <HintPath>..\third_party\mes\Newtonsoft.Json.dll</HintPath>
     </Reference>
     <Reference Include="OnlyOnce">
       <HintPath>dll\OnlyOnce.dll</HintPath>
     </Reference>
     <Reference Include="Oracle.ManagedDataAccess">
-      <HintPath>..\oracletest20250506\Oracle.ManagedDataAccess.dll</HintPath>
+      <HintPath>..\third_party\mes\Oracle.ManagedDataAccess.dll</HintPath>
     </Reference>
     <Reference Include="Panuon.WPF, Version=1.0.3.0, Culture=neutral, processorArchitecture=MSIL">
       <HintPath>..\packages\Panuon.WPF.1.0.3\lib\net462\Panuon.WPF.dll</HintPath>

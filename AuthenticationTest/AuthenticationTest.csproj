@@ -35,15 +35,16 @@
   <ItemGroup>
     <Reference Include="Faratronic.EquipUtils.Authentication, Version=2.0.0.0, Culture=neutral, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\Faratronic.EquipUtils.Authentication 2.0.0\Release\net462\Faratronic.EquipUtils.Authentication.dll</HintPath>
+      <!-- 避免引用 Release 输出目录（会被 .gitignore 忽略，clone 后缺引用） -->
+      <HintPath>..\third_party\faratronic-auth\net462\Faratronic.EquipUtils.Authentication.dll</HintPath>
     </Reference>
     <Reference Include="log4net, Version=2.0.17.0, Culture=neutral, PublicKeyToken=669e0ddf0bb1aa2a, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\Faratronic.EquipUtils.Authentication 2.0.0\Release\net462\log4net.dll</HintPath>
+      <HintPath>..\third_party\faratronic-auth\net462\log4net.dll</HintPath>
     </Reference>
     <Reference Include="Newtonsoft.Json, Version=13.0.0.0, Culture=neutral, PublicKeyToken=30ad4fe6b2a6aeed, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\Faratronic.EquipUtils.Authentication 2.0.0\Release\net462\Newtonsoft.Json.dll</HintPath>
+      <HintPath>..\third_party\faratronic-auth\net462\Newtonsoft.Json.dll</HintPath>
     </Reference>
     <Reference Include="System" />
     <Reference Include="System.Configuration" />

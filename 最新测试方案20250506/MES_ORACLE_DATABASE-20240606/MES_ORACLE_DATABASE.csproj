@@ -34,21 +34,23 @@
   <ItemGroup>
     <Reference Include="Castle.Core, Version=4.0.0.0, Culture=neutral, PublicKeyToken=407dd0808d44fbdc, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\mes-equipment-client-new\Castle.Core.dll</HintPath>
+      <!-- 第三方 DLL 统一从仓库内 third_party 引用，便于换电脑直接编译 -->
+      <HintPath>..\..\third_party\mes\Castle.Core.dll</HintPath>
     </Reference>
     <Reference Include="GetSNByMP">
       <HintPath>.\GetSNByMP.dll</HintPath>
     </Reference>
     <Reference Include="MESAutoLineClient, Version=1.0.44.10840, Culture=neutral, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\mes-equipment-client-new\MESAutoLineClient.dll</HintPath>
+      <!-- MES 通过 NuGet（内网/离线源）还原，避免手动拷贝 DLL -->
+      <HintPath>..\..\packages\MESAutoLineClient.1.0.86.15454\lib\net45\MESAutoLineClient.dll</HintPath>
     </Reference>
     <Reference Include="Newtonsoft.Json, Version=13.0.0.0, Culture=neutral, PublicKeyToken=30ad4fe6b2a6aeed, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\mes-equipment-client-new\Newtonsoft.Json.dll</HintPath>
+      <HintPath>..\..\third_party\mes\Newtonsoft.Json.dll</HintPath>
     </Reference>
     <Reference Include="Oracle.ManagedDataAccess, Version=4.122.19.1, Culture=neutral, PublicKeyToken=89b483f429c47342, processorArchitecture=MSIL">
-      <HintPath>..\packages\Oracle.ManagedDataAccess.19.3.0\lib\net40\Oracle.ManagedDataAccess.dll</HintPath>
+      <HintPath>..\..\packages\Oracle.ManagedDataAccess.19.3.0\lib\net40\Oracle.ManagedDataAccess.dll</HintPath>
     </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core" />
