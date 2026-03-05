@@ -758,11 +758,7 @@ namespace MES_ORACLE_DATABASE
                     __CurrentGroupID = r.Data.ProcedureCode;
                     __NextGroupID = r.Data.NextProcedureCode;
                     __QUALITY_STATUS = ((int)r.Data.QualityStatus).ToString();
-
-                    if (!string.IsNullOrEmpty(__NEWSN))
-                    {
-                        return GetNewProductInfo(__NEWSN);
-                    }
+                    // 仅以本次传入SN为准，不再根据 __NEWSN 隐式跳转查询，避免规格被返修链路缓存覆盖。
 
                     return true;
                 }
@@ -973,7 +969,7 @@ namespace MES_ORACLE_DATABASE
         /// <remarks>
         /// 主流程（按优先级）：
         /// 1) 先用 ProductBarcodeResolver 把输入解析为中间码 _msn；
-        /// 2) 若 _msn 为空，走 GetSNByMP（MP/GraphQL）兜底查询；
+        /// 2) 若 _msn 为空，走 GetSNByMP（MES接口）兜底查询；
         /// 3) 在两个分支中都优先尝试 GetLastBindingProductSN 获取最终绑定SN；
         /// 4) 若最终绑定SN不可得，再使用 GetSNbyMSN / 原始SN 作为回退；
         /// 5) CheckSN 仅执行返修链路查询并刷新 __NEWSN 缓存，不直接决定 DecodeSN 返回值；
