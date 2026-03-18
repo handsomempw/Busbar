@@ -1,4 +1,4 @@
-﻿using MES.Barcode;
+using MES.Barcode;
 using MESAutoLineClient;
 using MESAutoLineClient.WorkStationService;
 using Oracle.ManagedDataAccess.Client;
@@ -465,12 +465,24 @@ namespace MES_ORACLE_DATABASE
             }
             catch { }
 
-            if (result == "合格") result = string.Empty;
+            // ReportWorkByProduct 形参顺序为：status, errorType, errorDesc。
+            // 默认参数只在省略参数时生效；显式传入空字符串会覆盖默认值。
+            string rawResult = (result ?? string.Empty).Trim();
+            bool isOk = string.IsNullOrEmpty(rawResult) || rawResult == "合格";
+            string status = isOk ? "OK" : "NG";
+            string errorType = isOk ? string.Empty : PROCEDURE_NAME;
+            string errorDesc = isOk ? string.Empty : rawResult;
             try
             {
-                var r = client.ReportWorkByProduct(M_SN, STATION_CODE, employeeNo, dicStandardGroup[PROCEDURE_NAME], string.Empty, result, result);
-                if (r.Success) { return true; }
-                else { return false; }
+                var r = client.ReportWorkByProduct(
+                    serialNumber: M_SN,
+                    stationCode: STATION_CODE,
+                    employeeNo: employeeNo,
+                    procedureCode: dicStandardGroup[PROCEDURE_NAME],
+                    status: status,
+                    errorType: errorType,
+                    errorDesc: errorDesc);
+                return r.Success;
             }
             catch { return false; }
 

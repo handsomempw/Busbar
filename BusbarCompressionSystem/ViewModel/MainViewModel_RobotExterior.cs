@@ -710,7 +710,7 @@ namespace BusbarCompressionSystem.ViewModel
                 }
                 else
                 {
-                    writeLog($"{sn}:{result};报工:False(业务逻辑问题请查看日志)");
+                    writeLog($"{sn}:{result};报工:False(失败原因见数据库错误日志)");
                 }
                 return r;
             }
@@ -741,7 +741,7 @@ namespace BusbarCompressionSystem.ViewModel
                 }
                 else
                 {
-                    writeLog($"{sn}:{result};报工2:False(业务逻辑问题请查看日志)");
+                    writeLog($"{sn}:{result};报工2:False(失败原因见数据库错误日志)");
                 }
                 return r;
             }

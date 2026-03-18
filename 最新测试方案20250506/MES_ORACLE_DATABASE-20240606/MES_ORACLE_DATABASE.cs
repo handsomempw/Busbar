@@ -1,4 +1,4 @@
-﻿using MES.Barcode;
+using MES.Barcode;
 using MESAutoLineClient;
 using MESAutoLineClient.WorkStationService;
 using Oracle.ManagedDataAccess.Client;
@@ -622,7 +622,14 @@ namespace MES_ORACLE_DATABASE
                 WriteError($"获取员工信息异常: 工位={STATION_CODE}, 异常={ex.Message}, 使用默认员工={employeeNo}", "QueryCurrentOnWorkListByStationCode");
             }
 
-            if (result == "合格") result = string.Empty;
+            // ReportWorkByProduct 形参顺序为：status, errorType, errorDesc。
+            // 注意：默认参数只在“省略参数”时生效，显式传入空字符串会覆盖默认值。
+            // 这里按业务语义显式组装：合格 -> status=OK；不合格 -> status=NG 且必须携带不良类型/描述。
+            string rawResult = (result ?? string.Empty).Trim();
+            bool isOk = string.IsNullOrEmpty(rawResult) || rawResult == "合格";
+            string status = isOk ? "OK" : "NG";
+            string errorType = isOk ? string.Empty : PROCEDURE_NAME;
+            string errorDesc = isOk ? string.Empty : rawResult;
 
             // 验证工序名称是否存在
             if (!dicStandardGroup.ContainsKey(PROCEDURE_NAME))
@@ -633,21 +640,28 @@ namespace MES_ORACLE_DATABASE
 
             try
             {
-                var r = client.ReportWorkByProduct(M_SN, STATION_CODE, employeeNo, dicStandardGroup[PROCEDURE_NAME], string.Empty, result, result);
+                var r = client.ReportWorkByProduct(
+                    serialNumber: M_SN,
+                    stationCode: STATION_CODE,
+                    employeeNo: employeeNo,
+                    procedureCode: dicStandardGroup[PROCEDURE_NAME],
+                    status: status,
+                    errorType: errorType,
+                    errorDesc: errorDesc);
                 if (r.Success)
                 {
-                    WriteError($"报工成功: SN={M_SN}, 工位={STATION_CODE}, 员工={employeeNo}, 工序={PROCEDURE_NAME}, 结果={result}", "ReportWorkByProduct");
+                    WriteError($"报工成功: SN={M_SN}, 工位={STATION_CODE}, 员工={employeeNo}, 工序={PROCEDURE_NAME}, 状态={status}, 不良类型={errorType}, 不良描述={errorDesc}", "ReportWorkByProduct");
                     return true;
                 }
                 else
                 {
-                    WriteError($"报工失败: SN={M_SN}, 工位={STATION_CODE}, 员工={employeeNo}, 工序={PROCEDURE_NAME}, 结果={result}, 错误信息={r.Message}", "ReportWorkByProduct");
+                    WriteError($"报工失败: SN={M_SN}, 工位={STATION_CODE}, 员工={employeeNo}, 工序={PROCEDURE_NAME}, 状态={status}, 不良类型={errorType}, 不良描述={errorDesc}, 错误信息={r.Message}", "ReportWorkByProduct");
                     return false;
                 }
             }
             catch (Exception ex)
             {
-                WriteError($"报工异常: SN={M_SN}, 工位={STATION_CODE}, 员工={employeeNo}, 工序={PROCEDURE_NAME}, 结果={result}, 异常信息={ex.Message}", "ReportWorkByProduct");
+                WriteError($"报工异常: SN={M_SN}, 工位={STATION_CODE}, 员工={employeeNo}, 工序={PROCEDURE_NAME}, 状态={status}, 不良类型={errorType}, 不良描述={errorDesc}, 异常信息={ex.Message}", "ReportWorkByProduct");
                 return false;
             }
 
