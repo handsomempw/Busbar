@@ -1,4 +1,4 @@
-﻿/*
+/*
  * 主要业务逻辑控制器
  *
  * MVVM架构中的ViewModel层核心，负责所有业务逻辑：
@@ -18,6 +18,7 @@ using System.IO;
 using System.Windows;
 using System.Xml.Serialization;
 using System;
+using System.Globalization;
 using AT9620;
 using HslCommunication.ModBus;
 using System.Data;
@@ -247,10 +248,46 @@ namespace BusbarCompressionSystem.ViewModel
             DataModel.Settingmodel.AT9620_3.DataReceived += OnReceive3;
         }
 
-        // 电测原始数据日志（按SN分文件，每天清空目录下所有txt）
+        // 电测原始数据：按日期分子目录（yyyyMMdd），同目录下按 SN 分文件；诊断日志为 {SN}_diag.txt（不含工单料号）
         private readonly object _electricalRawLogLock = new object();
         private static readonly string ElectricalRawLogDir = Path.Combine(Environment.CurrentDirectory, "识别过程日志", "电测原始数据");
-        private static readonly string ElectricalRawLogCleanupMarkerPath = Path.Combine(ElectricalRawLogDir, ".last_cleanup_date");
+        private const int ElectricalLogRetainDays = 7;
+
+        private static string GetElectricalLogDayDirectory()
+        {
+            return Path.Combine(ElectricalRawLogDir, DateTime.Now.ToString("yyyyMMdd", CultureInfo.InvariantCulture));
+        }
+
+        /// <summary>
+        /// 确保当天目录存在，并删除早于保留天数的日期子目录（仅匹配八位 yyyyMMdd 文件夹名）。
+        /// </summary>
+        private static void EnsureElectricalLogInfrastructure()
+        {
+            Directory.CreateDirectory(ElectricalRawLogDir);
+            string todayDir = GetElectricalLogDayDirectory();
+            Directory.CreateDirectory(todayDir);
+
+            try
+            {
+                foreach (var dir in Directory.GetDirectories(ElectricalRawLogDir))
+                {
+                    var name = Path.GetFileName(dir);
+                    if (name != null && name.Length == 8 &&
+                            DateTime.TryParseExact(name, "yyyyMMdd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var d))
+                    {
+                        // 删除「距今已满 retain 天」的日期目录（含边界：满 7 天即删）
+                        if ((DateTime.Today - d).Days >= ElectricalLogRetainDays)
+                        {
+                            try { Directory.Delete(dir, true); } catch { }
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                // 清理失败不阻塞写日志
+            }
+        }
 
         private void WriteElectricalRawDataLog(int tvIndex, Productinfo productInfo, double voltage, double current, double time, string status)
         {
@@ -263,44 +300,12 @@ namespace BusbarCompressionSystem.ViewModel
 
                 lock (_electricalRawLogLock)
                 {
-                    Directory.CreateDirectory(ElectricalRawLogDir);
-
-                    // 每天清空：第一次写入当天日志时，清理目录下所有txt（保留marker文件）
-                    string today = DateTime.Now.ToString("yyyyMMdd");
-                    string lastCleanup = "";
-                    try
-                    {
-                        if (File.Exists(ElectricalRawLogCleanupMarkerPath))
-                        {
-                            lastCleanup = File.ReadAllText(ElectricalRawLogCleanupMarkerPath)?.Trim() ?? "";
-                        }
-                    }
-                    catch
-                    {
-                        // 读marker失败不影响主流程，后续会尝试重新写入
-                    }
-
-                    if (!string.Equals(lastCleanup, today, StringComparison.Ordinal))
-                    {
-                        try
-                        {
-                            foreach (var file in Directory.GetFiles(ElectricalRawLogDir, "*.txt", SearchOption.TopDirectoryOnly))
-                            {
-                                try { File.Delete(file); } catch { }
-                            }
-                        }
-                        catch
-                        {
-                            // 清理失败不影响主流程，至少保证本次能写入
-                        }
-
-                        try { File.WriteAllText(ElectricalRawLogCleanupMarkerPath, today); } catch { }
-                    }
-
-                    string filePath = Path.Combine(ElectricalRawLogDir, $"{productInfo.SN}.txt");
+                    EnsureElectricalLogInfrastructure();
+                    string dayDir = GetElectricalLogDayDirectory();
+                    string filePath = Path.Combine(dayDir, $"{productInfo.SN}.txt");
                     bool isNewFile = !File.Exists(filePath);
 
-                    using (var sw = new StreamWriter(filePath, true))
+                    using (var sw = new StreamWriter(filePath, true, Encoding.UTF8))
                     {
                         if (isNewFile)
                         {
@@ -315,6 +320,76 @@ namespace BusbarCompressionSystem.ViewModel
             catch
             {
                 // 原始数据日志不允许影响主流程，异常直接吞掉
+            }
+        }
+
+        /// <summary>
+        /// 电测诊断日志（一行一条，UTF-8 追加）。与原始数据同日期子目录，文件名为 {SN}_diag.txt。
+        /// </summary>
+        private void WriteElectricalDiagLog(string sn, string line)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(sn) || string.IsNullOrEmpty(line))
+                {
+                    return;
+                }
+
+                lock (_electricalRawLogLock)
+                {
+                    EnsureElectricalLogInfrastructure();
+                    string dayDir = GetElectricalLogDayDirectory();
+                    string filePath = Path.Combine(dayDir, $"{sn.Trim()}_diag.txt");
+                    using (var sw = new StreamWriter(filePath, true, Encoding.UTF8))
+                    {
+                        sw.WriteLine(line);
+                    }
+                }
+            }
+            catch
+            {
+                // 诊断日志不影响主流程
+            }
+        }
+
+        /// <summary>
+        /// 包一层耐压仪 Start：写入会话起止（不含工单/料号），并注入 AT9620 诊断回调。
+        /// </summary>
+        private global::AT9620.Result RunTvMeterStartWithDiagnostics(AT9620.AT9620 meter, string sn, string testModeLabel)
+        {
+            string normSn = (sn ?? string.Empty).Trim();
+            if (meter == null)
+            {
+                return new global::AT9620.Result { Error = "仪器实例为空" };
+            }
+
+            if (string.IsNullOrWhiteSpace(normSn))
+            {
+                return meter.Start();
+            }
+
+            string sessionId = Guid.NewGuid().ToString("N");
+            var tv = meter.TVParameter ?? new TVParameter();
+            float total = tv.TestTime + tv.RiseTime + tv.FallTime;
+            WriteElectricalDiagLog(normSn,
+                $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}\t【会话开始】会话ID={sessionId}\tSN={normSn}\t模式={testModeLabel}\t上升(s)={tv.RiseTime.ToString(CultureInfo.InvariantCulture)}\t保持(s)={tv.TestTime.ToString(CultureInfo.InvariantCulture)}\t下降(s)={tv.FallTime.ToString(CultureInfo.InvariantCulture)}\t理论总时长(s)={total.ToString(CultureInfo.InvariantCulture)}\t超时阈值(s)={(total + 2f).ToString(CultureInfo.InvariantCulture)}\t仪器IP={meter.IP}\t端口={meter.Port}");
+
+            meter.DiagnosticLog = line => WriteElectricalDiagLog(normSn, line);
+            try
+            {
+                var r = meter.Start();
+                string errDisplay = r.Error;
+                if (string.IsNullOrEmpty(errDisplay) && r.Success)
+                {
+                    errDisplay = "合格";
+                }
+                WriteElectricalDiagLog(normSn,
+                    $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}\t【会话结束】会话ID={sessionId}\t成功={(r.Success ? "是" : "否")}\t说明={errDisplay}\t过程串长度={r.Recordstr?.Length ?? 0}");
+                return r;
+            }
+            finally
+            {
+                meter.DiagnosticLog = null;
             }
         }
 
@@ -335,7 +410,7 @@ namespace BusbarCompressionSystem.ViewModel
                 DataModel.Processmodel.TVTestTestModel1.TVMaxCurrent = Math.Max(DataModel.Processmodel.TVTestTestModel1.TVMaxCurrent, DataModel.Processmodel.TVTestTestModel1.Current);
                 DataModel.Processmodel.TVTestTestModel1.TVInfo = myEventArgs.ResultTVProcess.Value.status;
 
-                // 电测阶段原始数据落盘（按SN区分，每天清空）
+                // 电测阶段原始数据落盘（按 SN、按日期子目录）
                 WriteElectricalRawDataLog(1, DataModel.Processmodel.TVTestTestModel1.Productinfo, tv.Voltage, tv.Current, tv.Time, tv.status);
             }
             catch (Exception ex)
@@ -359,7 +434,7 @@ namespace BusbarCompressionSystem.ViewModel
                 DataModel.Processmodel.TVTestTestModel2.TVMaxCurrent = Math.Max(DataModel.Processmodel.TVTestTestModel2.TVMaxCurrent, DataModel.Processmodel.TVTestTestModel2.Current);
                 DataModel.Processmodel.TVTestTestModel2.TVInfo = myEventArgs.ResultTVProcess.Value.status;
 
-                // 电测阶段原始数据落盘（按SN区分，每天清空）
+                // 电测阶段原始数据落盘（按 SN、按日期子目录）
                 WriteElectricalRawDataLog(2, DataModel.Processmodel.TVTestTestModel2.Productinfo, tv.Voltage, tv.Current, tv.Time, tv.status);
             }
             catch (Exception ex)
@@ -383,7 +458,7 @@ namespace BusbarCompressionSystem.ViewModel
                 DataModel.Processmodel.TVTestTestModel3.TVMaxCurrent = Math.Max(DataModel.Processmodel.TVTestTestModel3.TVMaxCurrent, DataModel.Processmodel.TVTestTestModel3.Current);
                 DataModel.Processmodel.TVTestTestModel3.TVInfo = myEventArgs.ResultTVProcess.Value.status;
 
-                // 电测阶段原始数据落盘（按SN区分，每天清空）
+                // 电测阶段原始数据落盘（按 SN、按日期子目录）
                 WriteElectricalRawDataLog(3, DataModel.Processmodel.TVTestTestModel3.Productinfo, tv.Voltage, tv.Current, tv.Time, tv.status);
 
             }
@@ -763,7 +838,7 @@ namespace BusbarCompressionSystem.ViewModel
             DataModel.Processmodel.TVTestTestModel1.Current = 0;
             DataModel.Processmodel.TVTestTestModel1.Time = 0;
 
-            var r = DataModel.Settingmodel.AT9620_1.Start();
+            var r = RunTvMeterStartWithDiagnostics(DataModel.Settingmodel.AT9620_1, DataModel.Processmodel.TVTestTestModel1.Productinfo?.SN, testType);
             // 记录耐压失败原因到界面日志，便于首件异常定位
             if (!r.Success && !string.IsNullOrWhiteSpace(r.Error))
             {
@@ -937,7 +1012,7 @@ namespace BusbarCompressionSystem.ViewModel
             DataModel.Processmodel.TVTestTestModel1.TVMaxCurrent = 0;
 
 
-            var r = DataModel.Settingmodel.AT9620_1.Start();
+            var r = RunTvMeterStartWithDiagnostics(DataModel.Settingmodel.AT9620_1, DataModel.Processmodel.TVTestTestModel1.Productinfo?.SN, DataModel.Processmodel.CurrentTV1TestModeDisplay);
             var localizedTvInfo1 = GetLocalizedTvStatus(DataModel.Processmodel.TVTestTestModel1.TVInfo);
             DataModel.Processmodel.TVTestTestModel1.TVInfo = localizedTvInfo1;
 
@@ -1077,7 +1152,7 @@ namespace BusbarCompressionSystem.ViewModel
             DataModel.Processmodel.TVTestTestModel2.Current = 0;
             DataModel.Processmodel.TVTestTestModel2.Time = 0;
 
-            var r = DataModel.Settingmodel.AT9620_2.Start();
+            var r = RunTvMeterStartWithDiagnostics(DataModel.Settingmodel.AT9620_2, DataModel.Processmodel.TVTestTestModel2.Productinfo?.SN, testType);
             // 记录耐压失败原因到界面日志，便于首件异常定位
             if (!r.Success && !string.IsNullOrWhiteSpace(r.Error))
             {
@@ -1188,7 +1263,7 @@ namespace BusbarCompressionSystem.ViewModel
 
             DataModel.Processmodel.TVTestTestModel2.TVMaxVoltage = 0;
             DataModel.Processmodel.TVTestTestModel2.TVMaxCurrent = 0;
-            var r = DataModel.Settingmodel.AT9620_2.Start();
+            var r = RunTvMeterStartWithDiagnostics(DataModel.Settingmodel.AT9620_2, DataModel.Processmodel.TVTestTestModel2.Productinfo?.SN, DataModel.Processmodel.CurrentTV2TestModeDisplay);
             var localizedTvInfo2 = GetLocalizedTvStatus(DataModel.Processmodel.TVTestTestModel2.TVInfo);
             DataModel.Processmodel.TVTestTestModel2.TVInfo = localizedTvInfo2;
 
@@ -1260,7 +1335,7 @@ namespace BusbarCompressionSystem.ViewModel
             DataModel.Processmodel.TVTestTestModel3.TVMaxVoltage = 0;
             DataModel.Processmodel.TVTestTestModel3.TVMaxCurrent = 0;
 
-            var r = DataModel.Settingmodel.AT9620_3.Start();
+            var r = RunTvMeterStartWithDiagnostics(DataModel.Settingmodel.AT9620_3, DataModel.Processmodel.TVTestTestModel3.Productinfo?.SN, "ACW");
             var localizedTvInfo3 = GetLocalizedTvStatus(DataModel.Processmodel.TVTestTestModel3.TVInfo);
             DataModel.Processmodel.TVTestTestModel3.TVInfo = localizedTvInfo3;
 

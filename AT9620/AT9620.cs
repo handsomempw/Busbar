@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -36,6 +36,21 @@ namespace AT9620
 
         [XmlIgnore]
         public bool isconnected = false;
+
+        /// <summary>
+        /// 耐压测试诊断日志（由上位机在每次测试前注入，测试结束置空）。行内已为「时间戳\t正文」。
+        /// </summary>
+        [XmlIgnore]
+        public Action<string> DiagnosticLog { get; set; }
+
+        /// <summary>最近一次 Fetch? 返回的原始字符串（供诊断；失败时可能为空）。</summary>
+        [XmlIgnore]
+        public string LastFetchRaw { get; private set; } = string.Empty;
+
+        private void Diag(string message)
+        {
+            DiagnosticLog?.Invoke($"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}\t{message}");
+        }
 
         // 日志方法
         private void WriteLog(string message)
@@ -222,11 +237,13 @@ namespace AT9620
             var r1 = Get_StepNum();
             if (!r1.Success)
             {
+                Diag($"【启动中止】步骤数量读取失败：{r1.Error}");
                 r.Error = r1.Error;
                 return r;
             }
             if (r1.Value != 1)
             {
+                Diag($"【启动中止】测试工艺步骤数量{r1.Value}，不等于1");
                 r.Error = $"测试工艺步骤数量{r1.Value}，不等于1";
                 return r;
             }
@@ -237,12 +254,14 @@ namespace AT9620
             var r2 = Get_String("rp? 1\n");
             if (!r2.Success)
             {
+                Diag($"【启动中止】回读工艺参数失败：{r2.Error}");
                 r.Error = r2.Error;
                 return r;
             }
             var r3 = TVParameter.compare(r2.Value);
             if (!r3.Success)
             {
+                Diag($"【启动中止】本机工艺参数与仪器回读不一致");
                 r.Error = $"测试工艺参数不一致，请重新下发工艺参数\r\n{r3.Error}";
                 return r;
             }
@@ -257,6 +276,7 @@ namespace AT9620
             DateTime dt = DateTime.Now; // 记录测试开始时间
             // 计算理论测试总时间 = 上升时间 + 保持时间 + 下降时间
             float totaltime = TVParameter.TestTime + TVParameter.RiseTime + TVParameter.FallTime;
+            Diag($"【进入监控】已发 FUNCtion:STARt，理论总时长={totaltime}s（上升{TVParameter.RiseTime}+保持{TVParameter.TestTime}+下降{TVParameter.FallTime}），上位机超时判定={totaltime + 2}s（+2s缓冲）");
 
             #region 清空数据
             // 清空历史测试记录，为新的测试过程做准备
@@ -265,6 +285,23 @@ namespace AT9620
 
             // 初始化停止标志
             stop = false;
+
+            // 用于「阶段变化时记录仪器原文」：与上一次成功解析的阶段比较
+            string lastStatusForRawCapture = null;
+            // 最近一次成功解析的阶段（用于超时/异常时的说明）
+            string lastSuccessParsedStatus = null;
+            int successPollCount = 0;
+            float lastSampleV = 0, lastSampleI = 0, lastSampleT = 0;
+            string lastSampleStatus = null;
+            double lastSampleElapsedPc = 0;
+
+            void TryDiagLastSample()
+            {
+                if (successPollCount > 1)
+                {
+                    Diag($"【采样-末条】阶段={lastSampleStatus}，电压={lastSampleV}，电流={lastSampleI}，仪器时间={lastSampleT}s，PC已耗时={lastSampleElapsedPc:F2}s");
+                }
+            }
 
             // 步骤4：进入测试监控主循环
             // 实时监控测试过程，直到测试完成或超时
@@ -275,6 +312,7 @@ namespace AT9620
                     // 检查是否有外部停止信号
                     if (stop)
                     {
+                        Diag("【外部停止】收到 stop 标志，已发送 FUNCtion:STOP");
                         var stopr = Send("FUNCtion:STOP\n"); // 发送停止测试命令
                     }
 
@@ -282,6 +320,38 @@ namespace AT9620
                     resultTVProcess = GetProcess();
                     if (resultTVProcess.Success)
                     {
+                        var st = resultTVProcess.Value.status;
+                        lastSuccessParsedStatus = st;
+                        double elapsedPc = (DateTime.Now - dt).TotalSeconds;
+                        var v = resultTVProcess.Value.Voltage;
+                        var cur = resultTVProcess.Value.Current;
+                        var instrT = resultTVProcess.Value.Time;
+
+                        successPollCount++;
+                        if (successPollCount == 1)
+                        {
+                            Diag($"【采样-首条】阶段={st}，电压={v}，电流={cur}，仪器时间={instrT}s，PC已耗时={elapsedPc:F2}s");
+                        }
+
+                        if (st != lastStatusForRawCapture)
+                        {
+                            if (lastStatusForRawCapture != null)
+                            {
+                                Diag($"【阶段变化】{lastStatusForRawCapture}→{st}，电压={v}，电流={cur}，仪器时间={instrT}s，PC已耗时={elapsedPc:F2}s");
+                            }
+                            if (!string.IsNullOrEmpty(LastFetchRaw))
+                            {
+                                Diag($"【仪器原文（阶段变化时记录）】{LastFetchRaw}");
+                            }
+                            lastStatusForRawCapture = st;
+                        }
+
+                        lastSampleV = v;
+                        lastSampleI = cur;
+                        lastSampleT = instrT;
+                        lastSampleStatus = st;
+                        lastSampleElapsedPc = elapsedPc;
+
                         // 触发数据接收事件，通知上层应用更新界面显示
                         DataReceived.Invoke(this, new AT9620EventArgs()
                         {
@@ -303,13 +373,30 @@ namespace AT9620
                             if (resultTVProcess.Value.status == "PASS")
                             {
                                 r.Success = true; // 测试通过
+                                Diag("【结束】仪器返回结束状态 PASS");
                             }
                             else
                             {
                                 // 测试失败，记录具体的失败原因
                                 r.Error = resultTVProcess.Value.status;
+                                Diag($"【结束】仪器返回结束状态：{resultTVProcess.Value.status}");
                             }
+                            TryDiagLastSample();
                             break; // 退出监控循环
+                        }
+                    }
+                    else
+                    {
+                        double failElapsedPc = (DateTime.Now - dt).TotalSeconds;
+                        string rawPart = string.IsNullOrEmpty(LastFetchRaw) ? "(空)" : LastFetchRaw;
+                        string phaseRef = lastSuccessParsedStatus ?? "尚无成功解析";
+                        if (successPollCount > 0)
+                        {
+                            Diag($"【采样失败】原因={resultTVProcess.Error ?? "未知"}，仪器原文={rawPart}，同一测试内参考阶段={phaseRef}，最近一次成功值 电压={lastSampleV} 电流={lastSampleI} 仪器时间={lastSampleT}s，PC已耗时={failElapsedPc:F2}s（若阶段未变而出现多条本行，多为间歇通信/缓冲脏数据）");
+                        }
+                        else
+                        {
+                            Diag($"【采样失败】原因={resultTVProcess.Error ?? "未知"}，仪器原文={rawPart}，尚未有成功Fetch，PC已耗时={failElapsedPc:F2}s");
                         }
                     }
 
@@ -318,11 +405,14 @@ namespace AT9620
                     if ((DateTime.Now - dt).TotalSeconds > totaltime + 2)
                     {
                         r.Error = "测试超时未完成";
+                        Diag($"【结束】上位机判定超时（PC已耗时 > {totaltime + 2}s），最后成功解析阶段={lastSuccessParsedStatus ?? "无"}");
+                        TryDiagLastSample();
                         break;
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
+                    Diag($"【监控异常】已忽略并继续轮询：{ex.Message}");
                     // 捕获异常但不中断测试，继续监控
                     // 这是为了防止网络波动等临时问题导致测试中断
                     continue;
@@ -455,6 +545,7 @@ namespace AT9620
             var re = Get_String("Fetch?\n");
             if (re.Success)
             {
+                LastFetchRaw = re.Value ?? string.Empty;
                 strrecord += re.Value + "/";
                 string[] ss = re.Value.Split(',');
                 if (ss.Length == 6)
@@ -476,10 +567,15 @@ namespace AT9620
                         ResultTVProcess.Error = "字符串格式错误";
                     }
                 }
+                else
+                {
+                    ResultTVProcess.Error = $"字段数量异常({ss.Length})，预期6段";
+                }
 
             }
             else
             {
+                LastFetchRaw = string.Empty;
                 ResultTVProcess.Error = re.Error;
 
             }
