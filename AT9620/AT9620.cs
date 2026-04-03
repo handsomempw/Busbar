@@ -43,6 +43,12 @@ namespace AT9620
         [XmlIgnore]
         public Action<string> DiagnosticLog { get; set; }
 
+        /// <summary>
+        /// 通信级日志（由上位机在每次测试前注入），用于记录发送的指令和原始接收字符串。行内已为「时间戳\t正文」。
+        /// </summary>
+        [XmlIgnore]
+        public Action<string> CommunicationLog { get; set; }
+
         /// <summary>最近一次 Fetch? 返回的原始字符串（供诊断；失败时可能为空）。</summary>
         [XmlIgnore]
         public string LastFetchRaw { get; private set; } = string.Empty;
@@ -50,6 +56,11 @@ namespace AT9620
         private void Diag(string message)
         {
             DiagnosticLog?.Invoke($"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}\t{message}");
+        }
+
+        private void Comm(string message)
+        {
+            CommunicationLog?.Invoke($"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}\t{message}");
         }
 
         // 日志方法
@@ -437,23 +448,25 @@ namespace AT9620
                 if (isconnected)
                 {
                     #region 读取数值
-                    //string steprquestcmd = "FUNC:SOUR:STEP?\n";
-                    //tcp.Client.Send(Encoding.ASCII.GetBytes($"{steprquestcmd}"));
+                    // 发送命令
+                    Comm($"发送: {cmd.Replace("\n", "\\n")}");
                     tcp.Client.Send(Encoding.ASCII.GetBytes($"{cmd}"));
 
                     Thread.Sleep(100);
                     byte[] receive = new byte[1024];
-                    tcp.Client.Receive(receive);
+                    int bytesRead = tcp.Client.Receive(receive);
 
-                    string result_str = System.Text.Encoding.ASCII.GetString(receive).Replace("\0", "").Replace("\r", "").Replace("\n", "");
+                    string result_str = System.Text.Encoding.ASCII.GetString(receive, 0, bytesRead).Replace("\0", "").Replace("\r", "").Replace("\n", "");
                     if (string.IsNullOrEmpty(result_str))
                     {
                         r.Error = "接收数据为空";
+                        Comm("接收失败: 接收数据为空");
                     }
                     else
                     {
                         r.Value = result_str;
                         r.Success = true;
+                        Comm($"接收成功({result_str.Length}字符): {result_str}");
                     }
                     #endregion
 
@@ -462,6 +475,7 @@ namespace AT9620
             catch (Exception ex)
             {
                 r.Error = ex.ToString();
+                Comm($"接收异常: {ex.Message}");
             }
             return r;
 

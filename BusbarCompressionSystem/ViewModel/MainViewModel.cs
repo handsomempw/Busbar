@@ -248,10 +248,10 @@ namespace BusbarCompressionSystem.ViewModel
             DataModel.Settingmodel.AT9620_3.DataReceived += OnReceive3;
         }
 
-        // 电测原始数据：按日期分子目录（yyyyMMdd），同目录下按 SN 分文件；诊断日志为 {SN}_diag.txt（不含工单料号）
+        // 电测原始数据：按日期分子目录（yyyyMMdd），同目录下按 SN 分文件；诊断日志为 {SN}_diag.txt（不含工单料号），通信日志为 {SN}_comm.txt
         private readonly object _electricalRawLogLock = new object();
         private static readonly string ElectricalRawLogDir = Path.Combine(Environment.CurrentDirectory, "识别过程日志", "电测原始数据");
-        private const int ElectricalLogRetainDays = 7;
+        private const int ElectricalLogRetainDays = 3;
 
         private static string GetElectricalLogDayDirectory()
         {
@@ -353,6 +353,35 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
+        /// 电测通信日志（一行一条，UTF-8 追加）。与原始数据同日期子目录，文件名为 {SN}_comm.txt。
+        /// </summary>
+        private void WriteElectricalCommLog(string sn, string line)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(sn) || string.IsNullOrEmpty(line))
+                {
+                    return;
+                }
+
+                lock (_electricalRawLogLock)
+                {
+                    EnsureElectricalLogInfrastructure();
+                    string dayDir = GetElectricalLogDayDirectory();
+                    string filePath = Path.Combine(dayDir, $"{sn.Trim()}_comm.txt");
+                    using (var sw = new StreamWriter(filePath, true, Encoding.UTF8))
+                    {
+                        sw.WriteLine(line);
+                    }
+                }
+            }
+            catch
+            {
+                // 通信日志不影响主流程
+            }
+        }
+
+        /// <summary>
         /// 包一层耐压仪 Start：写入会话起止（不含工单/料号），并注入 AT9620 诊断回调。
         /// </summary>
         private global::AT9620.Result RunTvMeterStartWithDiagnostics(AT9620.AT9620 meter, string sn, string testModeLabel)
@@ -375,6 +404,7 @@ namespace BusbarCompressionSystem.ViewModel
                 $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}\t【会话开始】会话ID={sessionId}\tSN={normSn}\t模式={testModeLabel}\t上升(s)={tv.RiseTime.ToString(CultureInfo.InvariantCulture)}\t保持(s)={tv.TestTime.ToString(CultureInfo.InvariantCulture)}\t下降(s)={tv.FallTime.ToString(CultureInfo.InvariantCulture)}\t理论总时长(s)={total.ToString(CultureInfo.InvariantCulture)}\t超时阈值(s)={(total + 2f).ToString(CultureInfo.InvariantCulture)}\t仪器IP={meter.IP}\t端口={meter.Port}");
 
             meter.DiagnosticLog = line => WriteElectricalDiagLog(normSn, line);
+            meter.CommunicationLog = line => WriteElectricalCommLog(normSn, line);
             try
             {
                 var r = meter.Start();
@@ -390,6 +420,7 @@ namespace BusbarCompressionSystem.ViewModel
             finally
             {
                 meter.DiagnosticLog = null;
+                meter.CommunicationLog = null;
             }
         }
 
