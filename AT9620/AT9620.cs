@@ -49,6 +49,23 @@ namespace AT9620
         [XmlIgnore]
         public Action<string> CommunicationLog { get; set; }
 
+        /// <summary>Fetch? 单次 Socket 接收超时（毫秒）。</summary>
+        public int FetchReceiveTimeoutMs { get; set; } = 200;
+
+        /// <summary>
+        /// Fetch? 最大尝试次数（含首次）：共 N 次 = 1 次首发 + (N - 1) 次重试。
+        /// </summary>
+        public int FetchMaxAttempts { get; set; } = 3;
+
+        /// <summary>Fetch? 失败后到下一次重新发送前的间隔（毫秒）。</summary>
+        public int FetchRetryDelayMs { get; set; } = 100;
+
+        /// <summary>rp?、FUNC:SOUR:STEP? 等单次接收超时（毫秒）。</summary>
+        public int OtherCommandReceiveTimeoutMs { get; set; } = 3000;
+
+        /// <summary>发送后、Receive 前的等待（毫秒）。</summary>
+        public int PostSendDelayMs { get; set; } = 100;
+
         /// <summary>最近一次 Fetch? 返回的原始字符串（供诊断；失败时可能为空）。</summary>
         [XmlIgnore]
         public string LastFetchRaw { get; private set; } = string.Empty;
@@ -69,6 +86,13 @@ namespace AT9620
             LogMessage?.Invoke(this, new LogEventArgs { Message = message });
         }
 
+        /// <summary>
+        /// 建立到耐压仪的 TCP 连接并更新 <see cref="isconnected"/>。
+        /// 用 <see cref="OtherCommandReceiveTimeoutMs"/> 与
+        /// <see cref="FetchReceiveTimeoutMs"/> 的较大值（异常为非正时回退 5s）作为 <see cref="TcpClient.ReceiveTimeout"/> 初值，
+        /// 避免连接建立后底层仍处于过长阻塞；实际每次读仍在 <see cref="SendAndReceiveOnce"/> 里按指令类型单独设置超时，
+        /// 以满足总测试时间较短时 Fetch 轮询不能单次卡死过久的需求。
+        /// </summary>
         public bool connect(string _IPaddress, int _Port, int _receivetimeout = 5000)
         {
             try
@@ -79,7 +103,12 @@ namespace AT9620
                 if ((tcp.Client == null) || (!tcp.Connected))
                 {
                     tcp = new TcpClient();
-                    tcp.ReceiveTimeout = 10000;
+                    int rx = Math.Max(OtherCommandReceiveTimeoutMs, FetchReceiveTimeoutMs);
+                    if (rx <= 0)
+                    {
+                        rx = 5000;
+                    }
+                    tcp.ReceiveTimeout = rx;
                     tcp.ConnectAsync(IP, Port).Wait(200);
                 }
                 isconnected = tcp.Connected;
@@ -440,36 +469,97 @@ namespace AT9620
             // 返回测试结果
             return r;
         }
+
+        /// <summary>
+        /// 向已连接仪器发送一条指令并同步读取应答（ASCII，去 \r\n）。
+        /// <list type="bullet">
+        /// <item>
+        /// <description>
+        /// 轮询用 <c>Fetch?</c>：单次 <see cref="Socket.Receive"/> 使用较短超时（<see cref="FetchReceiveTimeoutMs"/>），
+        /// 避免在总测试仅约十多秒的场景下单次等待 10s 占满时间窗；失败则按 <see cref="FetchRetryDelayMs"/> 间隔再发起整轮「发送→等待→接收」，
+        /// 最多 <see cref="FetchMaxAttempts"/> 次（含首次）；用尽仍失败时记一条「Fetch? 重试用尽」通信日志便于检索。
+        /// </description>
+        /// </item>
+        /// <item>
+        /// <description>
+        /// <c>rp?</c>、<c>FUNC:SOUR:STEP?</c> 等其它命令：只执行单轮收发，使用 <see cref="OtherCommandReceiveTimeoutMs"/>，不自动重试。
+        /// </description>
+        /// </item>
+        /// </list>
+        /// </summary>
         public Result Get_String(string cmd)
+        {
+            if (IsFetchQueryCommand(cmd))
+            {
+                Result last = new Result();
+                int attempts = Math.Max(1, FetchMaxAttempts);
+                for (int attempt = 1; attempt <= attempts; attempt++)
+                {
+                    last = SendAndReceiveOnce(cmd, FetchReceiveTimeoutMs);
+                    if (last.Success)
+                    {
+                        return last;
+                    }
+                    if (attempt < attempts)
+                    {
+                        Thread.Sleep(Math.Max(0, FetchRetryDelayMs));
+                    }
+                }
+
+                Comm($"Fetch? 重试用尽: {last.Error ?? "失败"}");
+                return last;
+            }
+
+            return SendAndReceiveOnce(cmd, OtherCommandReceiveTimeoutMs);
+        }
+
+        /// <summary>
+        /// 是否为 <c>Fetch?</c> 查询：去掉尾部空白后以 OrdinalIgnoreCase 比较，供 <see cref="Get_String"/> 选择短超时加重试分支。
+        /// </summary>
+        private static bool IsFetchQueryCommand(string cmd)
+        {
+            if (string.IsNullOrEmpty(cmd))
+            {
+                return false;
+            }
+
+            string t = cmd.TrimEnd('\r', '\n', ' ', '\t');
+            return string.Equals(t, "Fetch?", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// 单轮通信：打发送日志 → 设置本次 <see cref="Socket.ReceiveTimeout"/> → 发送 → <see cref="PostSendDelayMs"/> 等待 → 接收 → 成功/空包/异常日志。
+        /// 每次 Receive 前单独设置超时，使同一 TCP 连接上对 Fetch 与其它 SCPI 可使用不同时长上限，而不必在 <see cref="connect"/> 里写死一种值。
+        /// </summary>
+        private Result SendAndReceiveOnce(string cmd, int receiveTimeoutMs)
         {
             Result r = new Result();
             try
             {
-                if (isconnected)
+                if (!isconnected)
                 {
-                    #region 读取数值
-                    // 发送命令
-                    Comm($"发送: {cmd.Replace("\n", "\\n")}");
-                    tcp.Client.Send(Encoding.ASCII.GetBytes($"{cmd}"));
+                    return r;
+                }
 
-                    Thread.Sleep(100);
-                    byte[] receive = new byte[1024];
-                    int bytesRead = tcp.Client.Receive(receive);
+                Comm($"发送: {cmd.Replace("\n", "\\n")}");
+                tcp.Client.ReceiveTimeout = receiveTimeoutMs;
+                tcp.Client.Send(Encoding.ASCII.GetBytes($"{cmd}"));
 
-                    string result_str = System.Text.Encoding.ASCII.GetString(receive, 0, bytesRead).Replace("\0", "").Replace("\r", "").Replace("\n", "");
-                    if (string.IsNullOrEmpty(result_str))
-                    {
-                        r.Error = "接收数据为空";
-                        Comm("接收失败: 接收数据为空");
-                    }
-                    else
-                    {
-                        r.Value = result_str;
-                        r.Success = true;
-                        Comm($"接收成功({result_str.Length}字符): {result_str}");
-                    }
-                    #endregion
+                Thread.Sleep(Math.Max(0, PostSendDelayMs));
+                byte[] receive = new byte[1024];
+                int bytesRead = tcp.Client.Receive(receive);
 
+                string result_str = Encoding.ASCII.GetString(receive, 0, bytesRead).Replace("\0", "").Replace("\r", "").Replace("\n", "");
+                if (string.IsNullOrEmpty(result_str))
+                {
+                    r.Error = "接收数据为空";
+                    Comm("接收失败: 接收数据为空");
+                }
+                else
+                {
+                    r.Value = result_str;
+                    r.Success = true;
+                    Comm($"接收成功({result_str.Length}字符): {result_str}");
                 }
             }
             catch (Exception ex)
@@ -477,9 +567,8 @@ namespace AT9620
                 r.Error = ex.ToString();
                 Comm($"接收异常: {ex.Message}");
             }
+
             return r;
-
-
         }
 
         public Resultint Get_StepNum()

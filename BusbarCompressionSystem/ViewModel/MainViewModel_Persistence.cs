@@ -1,5 +1,6 @@
-﻿using BusbarCompressionSystem.Model;
+using BusbarCompressionSystem.Model;
 using BusbarCompressionSystem.Model.Record;
+using BusbarCompressionSystem.Model.Setting1;
 using BusbarCompressionSystem.Utils;
 using GalaSoft.MvvmLight;
 using System;
@@ -126,6 +127,7 @@ namespace BusbarCompressionSystem.ViewModel
                 
                 // 加载独立的耐压状态映射配置文件
                 LoadTvStatusMappings();
+                LoadHipotCommParameters();
             }
             catch (Exception ex)
             {
@@ -135,6 +137,7 @@ namespace BusbarCompressionSystem.ViewModel
                 
                 // 加载独立的耐压状态映射配置文件
                 LoadTvStatusMappings();
+                LoadHipotCommParameters();
             }
             
             // 订阅AT9620日志事件，将设备日志转发到应用日志
@@ -221,6 +224,70 @@ namespace BusbarCompressionSystem.ViewModel
             {
                 writeLog($"耐压状态映射配置处理异常: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// 加载耐压仪 TCP 通信参数（Fetch 短超时、重试次数与间隔、其它命令超时、发送后等待等），并通过
+        /// <see cref="ApplyHipotCommParametersToAllMeters"/> 写入各台 <see cref="AT9620.AT9620"/> 实例属性。
+        /// 文件路径：<c>配置\耐压仪通信参数.xml</c>，与 <c>配置数据.xml</c> 分离，元素标签中文便于现场直接编辑。
+        /// 若文件不存在：用默认 <see cref="HipotCommParameters"/> 经 <see cref="SaveXmlSafely{T}"/> 生成模板。
+        /// 反序列化或 IO 异常时记录日志并回退为默认参数，避免软件无法启动。
+        /// </summary>
+        private void LoadHipotCommParameters()
+        {
+            try
+            {
+                string xmlPath = Path.Combine(Environment.CurrentDirectory, "配置", "耐压仪通信参数.xml");
+                HipotCommParameters p;
+
+                if (!File.Exists(xmlPath))
+                {
+                    p = new HipotCommParameters();
+                    SaveXmlSafely(xmlPath, p);
+                    writeLog($"已生成默认耐压仪通信参数: {xmlPath}");
+                }
+                else
+                {
+                    using (var stream = File.OpenRead(xmlPath))
+                    {
+                        var serializer = new XmlSerializer(typeof(HipotCommParameters));
+                        p = serializer.Deserialize(stream) as HipotCommParameters ?? new HipotCommParameters();
+                    }
+                    writeLog($"已加载耐压仪通信参数: {xmlPath}");
+                }
+
+                ApplyHipotCommParametersToAllMeters(p);
+            }
+            catch (Exception ex)
+            {
+                writeLog($"耐压仪通信参数处理异常: {ex.Message}");
+                ApplyHipotCommParametersToAllMeters(new HipotCommParameters());
+            }
+        }
+
+        /// <summary>
+        /// 将同一份 XML 解析结果同步到当前 <see cref="DataModel.Settingmodel"/> 下的各台耐压仪对象。
+        /// 所有耐压仪表共用一份 <c>耐压仪通信参数.xml</c>，现场改一处即可统一行为；仪器侧属性名为英文，与中文标签 XML 由 POCO 映射。
+        /// </summary>
+        private void ApplyHipotCommParametersToAllMeters(HipotCommParameters p)
+        {
+            if (p == null)
+            {
+                p = new HipotCommParameters();
+            }
+
+            void applyOne(AT9620.AT9620 m)
+            {
+                m.FetchReceiveTimeoutMs = p.FetchReceiveTimeoutMs;
+                m.FetchMaxAttempts = p.FetchMaxAttempts;
+                m.FetchRetryDelayMs = p.FetchRetryDelayMs;
+                m.OtherCommandReceiveTimeoutMs = p.OtherCommandReceiveTimeoutMs;
+                m.PostSendDelayMs = p.PostSendDelayMs;
+            }
+
+            applyOne(DataModel.Settingmodel.AT9620_1);
+            applyOne(DataModel.Settingmodel.AT9620_2);
+            //applyOne(DataModel.Settingmodel.AT9620_3);
         }
 
         private string GetLocalizedTvStatus(string status)
