@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Linq;
@@ -379,6 +379,55 @@ namespace SQLITEDATABASE
         }
 
         /// <summary>
+        /// 按 SN 从数据库中获取最近一条记录的 RES（接触电阻/阻值）。
+        /// 兜底场景：PLC 读取阻值失败/未写入时，IR 测试仍希望复用同一产品 ACW/DCW 等记录中的 RES。
+        /// </summary>
+        public static bool TryGetLatestRes(string WOCODE, string PARTNOID, string SN, out float res)
+        {
+            res = -1;
+            try
+            {
+                string _connstr = CheckDataBase(WOCODE, PARTNOID, SN);
+                if (string.IsNullOrEmpty(_connstr))
+                {
+                    WriteErrorLog("[追踪]TryGetLatestRes-连接串为空", "CheckDataBase返回空", SN, WOCODE);
+                    return false;
+                }
+
+                string sql = $"SELECT RES FROM BusbarCompressionData WHERE sn='{SN}' ORDER BY id DESC LIMIT 1";
+                DataTable dt = Read(sql, _connstr);
+                if (dt == null || dt.Rows.Count == 0)
+                {
+                    WriteErrorLog("[追踪]TryGetLatestRes-无记录", "未查到任何记录用于兜底RES", SN, WOCODE);
+                    return false;
+                }
+
+                string raw = dt.Rows[0]["RES"]?.ToString();
+                if (string.IsNullOrWhiteSpace(raw))
+                {
+                    WriteErrorLog("[追踪]TryGetLatestRes-RES为空", "最近记录RES字段为空", SN, WOCODE);
+                    return false;
+                }
+
+                // 兼容本地数据库中可能出现的不同小数点格式
+                if (!float.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out res) &&
+                    !float.TryParse(raw, NumberStyles.Float, CultureInfo.CurrentCulture, out res))
+                {
+                    WriteErrorLog("[追踪]TryGetLatestRes-RES解析失败", $"原始值=[{raw}]", SN, WOCODE);
+                    return false;
+                }
+
+                return res > 0;
+            }
+            catch (Exception ex)
+            {
+                WriteErrorLog("[数据库异常]TryGetLatestRes失败", $"异常: {ex.Message}", SN, WOCODE);
+            }
+
+            return false;
+        }
+
+        /// <summary>
         /// 为双测模式的第二次测试插入新记录
         /// 业务逻辑：当产品需要进行两次电测（先ACW后DCW或先DCW后ACW）时，
         /// 第二次测试需要插入新记录而不是更新现有记录，以保留两次测试的完整数据
@@ -441,6 +490,21 @@ namespace SQLITEDATABASE
                 WriteErrorLog("[数据库异常]InsertTV_SecondTest失败", $"异常: {ex.Message}", SN, WOCODE);
             }
             return false;
+        }
+
+        /// <summary>
+        /// 插入 IR 绝缘电阻测试结果行（复用 InsertTV_SecondTest 逻辑）
+        /// 列映射：
+        /// - TVMAXVOLTAGE ← 绝缘电阻（Ohm）
+        /// - TVMAXCURRENT ← 漏电流（A）
+        /// - TVRESULT ← 合格/不合格
+        /// - TVInfo ← 以 "[IR]" 前缀区分（如 "[IR] GD" / "[IR] NG"）
+        /// </summary>
+        public static bool InsertIR_Test(string WOCODE, string PARTNOID, string SN, string STATIONCODE, string EQUIPMENTID,
+            float RES, float MaxVoltage, bool TVResult, float MaxCurrent, string TVInfo, string TVMeterID)
+        {
+            return InsertTV_SecondTest(WOCODE, PARTNOID, SN, STATIONCODE, EQUIPMENTID,
+                RES, MaxVoltage, TVResult, MaxCurrent, TVInfo, TVMeterID);
         }
 
         /// <summary>
@@ -509,8 +573,7 @@ namespace SQLITEDATABASE
                     for (int i = 0; i < dt.Rows.Count; i++)
                     {
                         string tvInfo = dt.Rows[i]["TVInfo"]?.ToString() ?? "";
-                        bool tvResult = false;
-                        bool.TryParse(dt.Rows[i]["TVRESULT"]?.ToString(), out tvResult);
+                        bool tvResult = TryParseDbBool(dt.Rows[i]["TVRESULT"]);
                         float tvMaxVoltage = 0;
                         float.TryParse(dt.Rows[i]["TVMAXVOLTAGE"]?.ToString(), out tvMaxVoltage);
 
@@ -535,6 +598,135 @@ namespace SQLITEDATABASE
                 WriteErrorLog("[数据库异常]GetDualTestResult失败", $"异常: {ex.Message}", SN, WOCODE);
                 return 2;
             }
+        }
+
+        /// <summary>
+        /// 检查产品是否为多测模式（同一SN有两条或以上记录，可能包含[ACW]/[DCW]/[IR]）
+        /// </summary>
+        public static bool IsMultiTestMode(string WOCODE, string PARTNOID, string SN)
+        {
+            try
+            {
+                string _connstr = CheckDataBase(WOCODE, PARTNOID, SN);
+                if (string.IsNullOrEmpty(_connstr)) return false;
+
+                // LIMIT 3：覆盖 ACW + DCW + IR 最多三行
+                string sql = $"SELECT TVInfo FROM BusbarCompressionData WHERE sn='{SN}' ORDER BY id DESC LIMIT 3";
+                DataTable dt = Read(sql, _connstr);
+
+                if (dt == null || dt.Rows.Count < 2) return false;
+
+                bool hasACW = false, hasDCW = false, hasIR = false;
+                for (int i = 0; i < dt.Rows.Count; i++)
+                {
+                    string tvInfo = dt.Rows[i]["TVInfo"]?.ToString() ?? "";
+                    if (tvInfo.StartsWith("[ACW]")) hasACW = true;
+                    else if (tvInfo.StartsWith("[DCW]")) hasDCW = true;
+                    else if (tvInfo.StartsWith("[IR]")) hasIR = true;
+                }
+
+                int typeCount = (hasACW ? 1 : 0) + (hasDCW ? 1 : 0) + (hasIR ? 1 : 0);
+                return typeCount >= 2;
+            }
+            catch (Exception ex)
+            {
+                WriteErrorLog("[数据库异常]IsMultiTestMode检查失败", $"异常: {ex.Message}", SN, WOCODE);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 获取多测模式下的综合测试结果（ACW/DCW/IR）
+        /// 只有找到的所有测试类型均合格时才返回合格，否则返回 NG2（耐压不合格）
+        /// </summary>
+        public static int GetMultiTestResult(string WOCODE, string PARTNOID, string SN,
+            out bool acwResult, out bool dcwResult, out bool irResult)
+        {
+            acwResult = false;
+            dcwResult = false;
+            irResult = false;
+
+            try
+            {
+                string _connstr = CheckDataBase(WOCODE, PARTNOID, SN);
+                if (string.IsNullOrEmpty(_connstr)) return 2;
+
+                string sql = $"SELECT TVInfo, TVRESULT, TVMAXVOLTAGE FROM BusbarCompressionData WHERE sn='{SN}' ORDER BY id DESC LIMIT 3";
+                DataTable dt = Read(sql, _connstr);
+                if (dt == null) return 2;
+
+                bool acwFound = false, dcwFound = false, irFound = false;
+
+                for (int i = 0; i < dt.Rows.Count; i++)
+                {
+                    string tvInfo = dt.Rows[i]["TVInfo"]?.ToString() ?? "";
+                    bool tvResult = TryParseDbBool(dt.Rows[i]["TVRESULT"]);
+
+                    float tvMaxVoltage = 0;
+                    float.TryParse(dt.Rows[i]["TVMAXVOLTAGE"]?.ToString(), out tvMaxVoltage);
+
+                    bool isPass = tvResult && tvMaxVoltage > 0;
+
+                    if (tvInfo.StartsWith("[ACW]"))
+                    {
+                        acwFound = true;
+                        // ACW/DCW：tvMaxVoltage=-1 或 0 视为无效
+                        acwResult = isPass && tvMaxVoltage != -1;
+                    }
+                    else if (tvInfo.StartsWith("[DCW]"))
+                    {
+                        dcwFound = true;
+                        dcwResult = isPass && tvMaxVoltage != -1;
+                    }
+                    else if (tvInfo.StartsWith("[IR]"))
+                    {
+                        irFound = true;
+                        // IR：tvMaxVoltage 存储绝缘电阻（>0 即有效）
+                        irResult = tvResult && tvMaxVoltage > 0;
+                    }
+                }
+
+                // 所有找到的测试类型都必须通过
+                bool allPass = (!acwFound || acwResult) && (!dcwFound || dcwResult) && (!irFound || irResult);
+                return allPass ? 0 : 2;
+            }
+            catch (Exception ex)
+            {
+                WriteErrorLog("[数据库异常]GetMultiTestResult失败", $"异常: {ex.Message}", SN, WOCODE);
+                return 2;
+            }
+        }
+
+        /// <summary>
+        /// 解析数据库中的“布尔”字段：兼容 1/0、true/false、True/False 等历史写法。
+        /// </summary>
+        private static bool TryParseDbBool(object value)
+        {
+            try
+            {
+                if (value == null || value == DBNull.Value) return false;
+
+                // 先按整数解析（SQLite里常见 1/0）
+                if (value is long l) return l != 0;
+                if (value is int i) return i != 0;
+                if (value is short s) return s != 0;
+                if (value is byte b) return b != 0;
+
+                var text = value.ToString()?.Trim();
+                if (string.IsNullOrEmpty(text)) return false;
+
+                if (int.TryParse(text, out var n)) return n != 0;
+                if (bool.TryParse(text, out var bb)) return bb;
+
+                // 一些奇怪的写法兜底
+                if (string.Equals(text, "Y", StringComparison.OrdinalIgnoreCase)) return true;
+                if (string.Equals(text, "N", StringComparison.OrdinalIgnoreCase)) return false;
+            }
+            catch
+            {
+                // ignore
+            }
+            return false;
         }
 
         /// <summary>
@@ -816,16 +1008,16 @@ namespace SQLITEDATABASE
                         }
 
                         // 7. 检查是否为双测模式
-                        if (IsDualTestMode(WOCODE, PARTNOID, SN))
+                        if (IsMultiTestMode(WOCODE, PARTNOID, SN))
                         {
-                            bool acwResult, dcwResult;
-                            int dualResult = GetDualTestResult(WOCODE, PARTNOID, SN, out acwResult, out dcwResult);
-                            if (dualResult != 0)
+                            bool acwResult, dcwResult, irResult;
+                            int multiResult = GetMultiTestResult(WOCODE, PARTNOID, SN, out acwResult, out dcwResult, out irResult);
+                            if (multiResult != 0)
                             {
-                                WriteErrorLog("[双测模式]CHECK1-综合判断",
-                                    $"ACW结果={acwResult}, DCW结果={dcwResult}, 综合结果={dualResult}",
+                                WriteErrorLog("[多测模式]CHECK-综合判断",
+                                    $"ACW={acwResult}, DCW={dcwResult}, IR={irResult}, 综合={multiResult}",
                                     SN, WOCODE);
-                                return dualResult;
+                                return multiResult;
                             }
                         }
 
@@ -1055,16 +1247,16 @@ namespace SQLITEDATABASE
                         }
 
                         // 8. 检查是否为双测模式（AOI-only模式下跳过电测，因此无需做双测综合判断）
-                        if (!aoiOnlyMode && IsDualTestMode(WOCODE, PARTNOID, SN))
+                        if (!aoiOnlyMode && IsMultiTestMode(WOCODE, PARTNOID, SN))
                         {
-                            bool acwResult, dcwResult;
-                            int dualResult = GetDualTestResult(WOCODE, PARTNOID, SN, out acwResult, out dcwResult);
-                            if (dualResult != 0)
+                            bool acwResult, dcwResult, irResult;
+                            int multiResult = GetMultiTestResult(WOCODE, PARTNOID, SN, out acwResult, out dcwResult, out irResult);
+                            if (multiResult != 0)
                             {
-                                WriteErrorLog("[双测模式]CHECK2-综合判断",
-                                    $"ACW结果={acwResult}, DCW结果={dcwResult}, 综合结果={dualResult}",
+                                WriteErrorLog("[多测模式]CHECK2-综合判断",
+                                    $"ACW={acwResult}, DCW={dcwResult}, IR={irResult}, 综合={multiResult}",
                                     SN, WOCODE);
-                                return dualResult;
+                                return multiResult;
                             }
                         }
 
