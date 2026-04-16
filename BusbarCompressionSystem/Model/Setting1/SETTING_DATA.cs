@@ -1,4 +1,4 @@
-﻿using GalaSoft.MvvmLight;
+using GalaSoft.MvvmLight;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -51,6 +51,19 @@ namespace BusbarCompressionSystem.Model.Setting1
         public string TVMeterID2 { set; get; } = "TVMETERID2";
         [XmlElement("仪器编号3")]
         public string TVMeterID3 { set; get; } = "TVMETERID3";
+
+        /// <summary>
+        /// 绝缘电阻仪编号（用于 IR 结果追溯：SQLite/F7/MES 归档区分）
+        /// </summary>
+        [XmlElement("IR仪器编号")]
+        public string IRMeterID { set; get; } = "IRMETERID";
+
+        /// <summary>
+        /// IR(AT6835FL) 参数下发/通信调试开关：
+        /// 打开后会生成独立调试日志文件，并在串口收发路径记录轮询快照（体积较大，仅排障时开启）。
+        /// </summary>
+        [XmlElement("IR参数下发调试日志")]
+        public bool IrDownloadDebugLog { get; set; } = false;
 
 
         [XmlElement("仪器类型1")]

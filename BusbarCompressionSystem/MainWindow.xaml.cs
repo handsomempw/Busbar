@@ -1,4 +1,4 @@
-﻿/*
+/*
  * 主窗口控制器
  *
  * MVVM架构中的View层代码，主要负责：
@@ -76,6 +76,7 @@ namespace BusbarCompressionSystem
 
             inittvparameter();
             vml.Main.InitAt9620();
+            vml.Main.InitAT6835FL();
             vml.Main.PLC_shankhand();
             vml.Main.PLC_Start();
             vml.Main.InitCamera();

@@ -248,6 +248,57 @@ namespace BusbarCompressionSystem.ViewModel
             DataModel.Settingmodel.AT9620_3.DataReceived += OnReceive3;
         }
 
+        /// <summary>
+        /// 初始化 AT6835FL 绝缘电阻测试仪：订阅串口日志事件
+        /// </summary>
+        public void InitAT6835FL()
+        {
+            DataModel.Settingmodel.AT6835FL_1.LogMessage += (s, e) =>
+            {
+                writeLog($"[IR测试] {e.Message}");
+            };
+
+            // 将 SETTING_DATA 中的 IR 串口调试开关同步到驱动运行时属性（避免“界面已勾选但驱动仍为非详细模式”）
+            SyncIrAt6835RuntimeFlagsFromSettings("[启动]");
+        }
+
+        /// <summary>
+        /// 同步 IR(AT6835FL) 驱动的运行时调试/通讯策略开关（来源：<see cref="SettingModel.SETTING_DATA"/>）。
+        /// 说明：这些字段使用 XmlIgnore，不会随仪器串口 XML 一起持久化，因此每次通讯前同步最可靠。
+        /// </summary>
+        /// <param name="reason">简短原因标签，便于在主日志中定位调用点</param>
+        public void SyncIrAt6835RuntimeFlagsFromSettings(string reason)
+        {
+            try
+            {
+                var sd = DataModel.Settingmodel?.SETTING_DATA;
+                var ir = DataModel.Settingmodel?.AT6835FL_1;
+                if (sd == null || ir == null)
+                {
+                    return;
+                }
+
+                // 仅保留一个 XML 开关：是否生成详细调试日志
+                ir.VerboseSerialDebug = sd.IrDownloadDebugLog;
+
+                // 固化生产策略：写前清空输入缓冲 + 下发时自检
+                ir.DiscardInBufferBeforeWrite = true;
+                ir.DownloadSelfCheck = true;
+
+                string day = DateTime.Now.ToString("yyyyMMdd", CultureInfo.InvariantCulture);
+                string dbgDir = Path.Combine(Environment.CurrentDirectory, "日志", "IR串口调试", day);
+                writeLog($"{reason}[IR驱动] 运行时开关: Verbose={ir.VerboseSerialDebug}, DiscardIn={ir.DiscardInBufferBeforeWrite}, DownloadSelfCheck={ir.DownloadSelfCheck}");
+                if (ir.VerboseSerialDebug)
+                {
+                    writeLog($"{reason}[IR驱动] 详细串口日志目录: {dbgDir}（文件名 IR_Serial_HHmmss_fff.txt，每次打开串口会新建会话）");
+                }
+            }
+            catch
+            {
+                // 同步失败不影响主流程
+            }
+        }
+
         // 电测原始数据：按日期分子目录（yyyyMMdd），同目录下按 SN 分文件；诊断日志为 {SN}_diag.txt（不含工单料号），通信日志为 {SN}_comm.txt
         private readonly object _electricalRawLogLock = new object();
         private static readonly string ElectricalRawLogDir = Path.Combine(Environment.CurrentDirectory, "识别过程日志", "电测原始数据");
@@ -795,6 +846,8 @@ namespace BusbarCompressionSystem.ViewModel
             if (!downloadResult.Success)
             {
                 writeLog($"[耐压1-ACW] ❌ ACW参数下发失败: {downloadResult.Error}", true);
+                // 参数下发失败视为该工位耐压 NG：通知 PLC 不要启用 IR
+                WriteTvOkSignalForIrEnable(1, false);
                 PLC_write((DataModel.Settingmodel.AddressStart + 7).ToString(), (UInt16)2);
                 return;
             }
@@ -824,6 +877,8 @@ namespace BusbarCompressionSystem.ViewModel
             if (!downloadResult.Success)
             {
                 writeLog($"[耐压1-DCW] ❌ DCW参数下发失败: {downloadResult.Error}", true);
+                // 参数下发失败视为该工位耐压 NG：通知 PLC 不要启用 IR
+                WriteTvOkSignalForIrEnable(1, false);
                 PLC_write((DataModel.Settingmodel.AddressStart + 7).ToString(), (UInt16)2);
                 return;
             }
@@ -949,6 +1004,8 @@ namespace BusbarCompressionSystem.ViewModel
             }
 
             writeLog($"[耐压1-{testType}] 测试完成，结果: {(r.Success ? "PASS" : "FAIL")}");
+            // 将工位1耐压结果写入 PLC（用于决定是否启用 IR）
+            WriteTvOkSignalForIrEnable(1, r.Success);
             PLC_write((DataModel.Settingmodel.AddressStart + 7).ToString(), 1);
         }
 
@@ -1109,6 +1166,8 @@ namespace BusbarCompressionSystem.ViewModel
             if (!downloadResult.Success)
             {
                 writeLog($"[耐压2-ACW] ❌ ACW参数下发失败: {downloadResult.Error}", true);
+                // 参数下发失败视为该工位耐压 NG：通知 PLC 不要启用 IR
+                WriteTvOkSignalForIrEnable(2, false);
                 PLC_write((DataModel.Settingmodel.AddressStart + 9).ToString(), (UInt16)2);
                 return;
             }
@@ -1138,6 +1197,8 @@ namespace BusbarCompressionSystem.ViewModel
             if (!downloadResult.Success)
             {
                 writeLog($"[耐压2-DCW] ❌ DCW参数下发失败: {downloadResult.Error}", true);
+                // 参数下发失败视为该工位耐压 NG：通知 PLC 不要启用 IR
+                WriteTvOkSignalForIrEnable(2, false);
                 PLC_write((DataModel.Settingmodel.AddressStart + 9).ToString(), (UInt16)2);
                 return;
             }
@@ -1263,6 +1324,8 @@ namespace BusbarCompressionSystem.ViewModel
             }
 
             writeLog($"[耐压2-{testType}] 测试完成，结果: {(r.Success ? "PASS" : "FAIL")}");
+            // 将工位2耐压结果写入 PLC（用于决定是否启用 IR）
+            WriteTvOkSignalForIrEnable(2, r.Success);
             PLC_write((DataModel.Settingmodel.AddressStart + 9).ToString(), 1);
         }
 
@@ -1411,6 +1474,110 @@ namespace BusbarCompressionSystem.ViewModel
             }
             PLC_write((DataModel.Settingmodel.AddressStart + 11).ToString(), 1);
 
+        }
+
+        /// <summary>
+        /// IR绝缘电阻测试流程（工位3）
+        /// 触发后执行：PLC读SN/阻值 -> AT6835FL_1.Start() -> SQLite写入 -> F7失败追溯 -> UI更新 -> 写PLC结果
+        /// </summary>
+        public void IRProcess()
+        {
+            writeLog("[IR测试] 收到PLC触发信号，开始绝缘电阻测试");
+
+            // 1) 从PLC读取产品SN（复用工位3 SN地址）
+            string s = PLC_Readstring(DataModel.Settingmodel.AddressSN + 25 * 3);
+            string sn = string.Empty;
+            string wocode = string.Empty;
+            string partnoid = DataModel.Processmodel.PartNOID;
+
+            string[] ss = (s ?? string.Empty).Split(';');
+            if (ss.Length == 2)
+            {
+                sn = ss[0];
+                wocode = ss[1];
+            }
+            else
+            {
+                writeLog($"[IR测试] ❌ 产品编号读取错误! 原始值=[{s}], 分段数={ss.Length}", true);
+                writePlcError($"[PLC数据异常]IR-产品编码格式错误 | 原始值=[{s}], 分段数={ss.Length}, PLC地址=D{DataModel.Settingmodel.AddressSN + 25 * 3}");
+                // 无法定位产品时直接回写NG，避免PLC卡住
+                PLC_write(DataModel.Settingmodel.IRResultAddress.ToString(), 2);
+                return;
+            }
+
+            // 2) 读取接触电阻/阻值（写入 RES 列供 CHECK 使用）
+            // 注意：这不是 IR 仪器返回的绝缘电阻（绝缘电阻在 r.Resistance 中）。
+            float res = PLC_ReadFloat(DataModel.Settingmodel.AddressRes + 2 * 2);
+            if (float.IsNaN(res) || res <= 0)
+            {
+                // 兜底：若 PLC 未写入或通讯异常，尝试从同一 SN 的最近一条数据库记录复用 RES（例如 ACW/DCW 行）。
+                try
+                {
+                    float dbRes;
+                    if (SQLITEDATABASE.sqlite.TryGetLatestRes(wocode, partnoid, sn, out dbRes))
+                    {
+                        res = dbRes;
+                        writeLog($"[IR测试] ⚠ PLC阻值无效，已从数据库兜底复用RES={res}（SN={sn}）", true);
+                    }
+                    else
+                    {
+                        res = -1;
+                        writeLog($"[IR测试] ⚠ PLC阻值无效且数据库兜底失败，RES置为-1（SN={sn}）", true);
+                    }
+                }
+                catch
+                {
+                    res = -1;
+                }
+            }
+
+            // 3) 执行IR测试（AT6835FL Start 内部包含自检/放电/触发/结果读取）
+            SyncIrAt6835RuntimeFlagsFromSettings("[IR自动测试]");
+            var r = DataModel.Settingmodel.AT6835FL_1.Start();
+
+            // 4) 构造区分信息：写入 TVInfo 用于多测判定
+            string irInfo = $"[IR] {(r.Success ? r.Judgment : r.Error)}";
+
+            // 5) SQLite：插入IR行（复用 InsertTV_SecondTest 逻辑，区别靠 TVInfo 前缀）
+            bool dbOk = sqlite.InsertIR_Test(
+                wocode,
+                partnoid,
+                sn,
+                DataModel.Settingmodel.SETTING_DATA.StationCode,
+                DataModel.Settingmodel.SETTING_DATA.MachineID,
+                res,
+                (float)r.Resistance,
+                r.Success,
+                (float)r.LeakCurrent,
+                irInfo,
+                DataModel.Settingmodel.SETTING_DATA.IRMeterID);
+
+            if (!dbOk)
+            {
+                writeLog($"[IR测试] ⚠ SQLite InsertIR_Test失败! SN={sn}", true);
+            }
+
+            // 6) F7失败追溯（仅失败时）
+            if (!r.Success)
+            {
+                // 与耐压失败追溯保持同一落库入口：dr_TVProcess
+                // （通过 TVMETERID + FTVResult（RESULT字段）区分IR）
+                DataModel.Settingmodel.Sqlserver.Save_TVProcessData(
+                    wocode,
+                    sn,
+                    DataModel.Settingmodel.SETTING_DATA.ProcedureName,
+                    irInfo,
+                    DataModel.Settingmodel.SETTING_DATA.WorkerID,
+                    DateTime.Now,
+                    DataModel.Settingmodel.SETTING_DATA.IRMeterID,
+                    r.Recordstr);
+            }
+
+            // 7) 更新界面（新增 TestMode=IR 的独立行）
+            updateir(sn, res, (float)r.Resistance, r.Success, (float)r.LeakCurrent, irInfo, DataModel.Settingmodel.SETTING_DATA.IRMeterID);
+
+            // 8) PLC回写 D1015: 1=OK, 2=NG
+            PLC_write(DataModel.Settingmodel.IRResultAddress.ToString(), (UInt16)(r.Success ? 1 : 2));
         }
 
         /// <summary>
@@ -1662,6 +1829,76 @@ namespace BusbarCompressionSystem.ViewModel
                 catch (Exception ex)
                 {
                     sqlite.WriteErrorLog("UPDATETV_EXCEPTION", $"更新耐压/阻值数据失败: {ex.Message}", SN);
+                }
+            }));
+        }
+
+        /// <summary>
+        /// IR绝缘电阻测试结果 UI 更新：新增/更新 TestMode="IR" 的独立行
+        /// </summary>
+        private void updateir(string SN, float res, float resistance, bool result,
+                              float leakCurrent, string irInfo, string irMeterID)
+        {
+            App.Current.Dispatcher.BeginInvoke(new Action(() =>
+            {
+                try
+                {
+                    // 查找同SN的IR记录（若存在则更新；不存在则从第一条记录复制基础信息并插入）
+                    ProductInfoRecord target = null;
+                    ProductInfoRecord firstSnRecord = null;
+
+                    foreach (var p in DataModel.Recordmodel.ProductInfoRecords)
+                    {
+                        if (p?.Productinfo?.SN != SN) continue;
+                        if (firstSnRecord == null) firstSnRecord = p;
+
+                        if (string.Equals(p.TestMode, "IR", StringComparison.OrdinalIgnoreCase))
+                        {
+                            target = p;
+                            break;
+                        }
+                    }
+
+                    // 未找到IR记录 -> 创建新的IR行
+                    if (target == null && firstSnRecord != null)
+                    {
+                        target = new ProductInfoRecord
+                        {
+                            Productinfo = firstSnRecord.Productinfo,
+                            StationCode = firstSnRecord.StationCode,
+                            EQUIPMENTID = firstSnRecord.EQUIPMENTID,
+                            TakePhoto1 = firstSnRecord.TakePhoto1,
+                            Pressure_Max = firstSnRecord.Pressure_Max,
+                            Pressure_Average = firstSnRecord.Pressure_Average,
+                            Pressure_Min = firstSnRecord.Pressure_Min,
+                            Pressure_Result = firstSnRecord.Pressure_Result,
+                            Report = firstSnRecord.Report,
+                            TestMode = "IR"
+                        };
+
+                        // 列表头插入：与 updatetv 的“双测第二行可追溯显示”一致
+                        DataModel.Recordmodel.ProductInfoRecords.Insert(0, target);
+                    }
+
+                    if (target != null)
+                    {
+                        target.TestMode = "IR";
+                        target.Res = res;
+                        target.TVMaxVoltage = resistance;   // 绝缘电阻 -> TVMaxVoltage显示
+                        target.TVMaxCurrent = leakCurrent;  // 漏电流 -> TVMaxCurrent显示
+                        target.TVResult = result;
+                        target.TVInfo = irInfo;
+                        target.TVMeterID = irMeterID;
+                        target.DateTime = DateTime.Now;
+                    }
+                    else
+                    {
+                        writeLog($"[IR] ⚠ 未找到内存记录，无法更新界面IR结果：SN={SN}", true);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    sqlite.WriteErrorLog("UPDATEIR_EXCEPTION", $"更新IR界面失败: {ex.Message}", SN);
                 }
             }));
         }

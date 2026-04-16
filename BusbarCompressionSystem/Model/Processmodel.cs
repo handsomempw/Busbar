@@ -1,4 +1,4 @@
-﻿/*
+/*
  * 生产流程参数模型
  *
  * MVVM架构中的Model层，管理生产过程中的动态数据：
@@ -136,6 +136,11 @@ namespace BusbarCompressionSystem.Model
         public TVTestTestModel TVTestTestModel2 { set; get; } = new TVTestTestModel();
         public TVTestTestModel TVTestTestModel3 { set; get; } = new TVTestTestModel();
         public TakePhotoTestModel TakePhotoTestMode2 { set; get; } = new TakePhotoTestModel();
+
+        /// <summary>
+        /// IR绝缘电阻测试实时数据（用于 UI 展示与点检判定）
+        /// </summary>
+        public IRTestModel IRTestModel { set; get; } = new IRTestModel();
         #endregion
         public string CMD { set; get; } = "";
 
@@ -163,6 +168,13 @@ namespace BusbarCompressionSystem.Model
         [XmlElement("耐压3触发")]
         public IO TV3_Trig_IO { get; set; } = new IO();
 
+        /// <summary>
+        /// IR绝缘电阻测试触发信号（PLC→PC，1启动 2停止）
+        /// </summary>
+        [XmlIgnore]
+        [XmlElement("绝缘电阻触发")]
+        public IO IR_Trig_IO { get; set; } = new IO();
+
         [XmlIgnore]
         [XmlElement("阻值1触发")]
         public IO Res1_Trig_IO { get; set; } = new IO();
@@ -181,6 +193,10 @@ namespace BusbarCompressionSystem.Model
         public UInt16 allow_start { set; get; } = 1;
         public CheckList CheckList { set; get; } = new CheckList();
 
+        /// <summary>
+        /// IR绝缘电阻测试参数（MES下发或默认值，用于 Download() 前置校验）
+        /// </summary>
+        public AT6835FL.IRParameter IRParameter { set; get; } = new AT6835FL.IRParameter();
 
     }
 
@@ -232,6 +248,17 @@ namespace BusbarCompressionSystem.Model
         public bool TV1Available { set; get; } = true;
         public bool TV2Available { set; get; } = true;
         public bool TV3Available { set; get; } = true;
+
+        /// <summary>
+        /// IR绝缘电阻仪可用标志（由 M3033 写入）
+        /// </summary>
+        public bool IRAvailable { set; get; } = false;
+
+        /// <summary>
+        /// IR可用信号原始线圈值（PLC侧：通常“不可用=1”）
+        /// 仅用于日志/诊断，不参与业务判断。
+        /// </summary>
+        public bool IRAvailableRawCoil { set; get; } = false;
 
     }
 

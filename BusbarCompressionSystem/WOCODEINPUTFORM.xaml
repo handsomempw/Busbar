@@ -9,12 +9,13 @@
         p:WindowXCaption.Background="Orange"
         p:WindowXCaption.Foreground="White"
         p:WindowXCaption.Height="60"
-        Title="输入批号" Height="250" Width="350"
+        Title="输入批号" Height="290" Width="350"
            WindowStartupLocation="CenterScreen"
            DataContext="{Binding Source={StaticResource Locator},Path=Main.DataModel}"
            >
     <Grid Margin="5">
         <Grid.RowDefinitions>
+            <RowDefinition/>
             <RowDefinition/>
             <RowDefinition/>
             <RowDefinition/>
@@ -33,8 +34,9 @@
 
         <Button Margin="5 "  Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2" p:ButtonHelper.CornerRadius="15" Background="OrangeRed" Foreground="White" Click="Button_Click">下发参数</Button>
 
+        <Button Margin="5 "  Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="2" p:ButtonHelper.CornerRadius="15" Background="SteelBlue" Foreground="White" Click="Button_Click_IrDownload">手动下发IR参数</Button>
 
-        <Button Margin="5 "  Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="2" p:ButtonHelper.CornerRadius="15" Background="DodgerBlue" Foreground="White" Click="Button_Click_Manual">加载手动参数</Button>
+        <Button Margin="5 "  Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="2" p:ButtonHelper.CornerRadius="15" Background="DodgerBlue" Foreground="White" Click="Button_Click_Manual">加载手动参数</Button>
 
     </Grid>
 </p:WindowX>

@@ -11,6 +11,7 @@
  */
 
 using AT9620;
+using AT6835FL;
 using BusbarCompressionSystem.Model;
 using BusbarCompressionSystem.ViewModel;
 using HalconDotNet;
@@ -41,6 +42,43 @@ namespace BusbarCompressionSystem
         {
             InitializeComponent();
             vml = (ViewModelLocator)this.FindResource("Locator");
+        }
+
+        /// <summary>
+        /// 手动下发 IR 参数：用于现场快速验证 IR 串口链路与指令集（不依赖 PLC M3033）。
+        /// </summary>
+        private void Button_Click_IrDownload(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                vml.Main.writeLog("[IR] 手动下发参数");
+                vml.Main.writeLog($"[IR] 参数: 电压={vml.Main.DataModel.Processmodel.IRParameter.Voltage}V, 时间={vml.Main.DataModel.Processmodel.IRParameter.TestTime}s, " +
+                    $"下限={vml.Main.DataModel.Processmodel.IRParameter.ResLow}, 上限={vml.Main.DataModel.Processmodel.IRParameter.ResHigh}, " +
+                    $"电压下限={vml.Main.DataModel.Processmodel.IRParameter.VoltageLow}V, 电压上限={vml.Main.DataModel.Processmodel.IRParameter.VoltageHigh}V, " +
+                    $"(下发阈值={vml.Main.DataModel.Processmodel.IRParameter.CompRes})");
+
+                // 同步唯一开关：是否生成详细调试日志文件（其余策略固定为：下发自检 + 写前清缓冲）
+                vml.Main.SyncIrAt6835RuntimeFlagsFromSettings("[IR手动下发]");
+                vml.Main.DataModel.Settingmodel.AT6835FL_1.IRParameter = vml.Main.DataModel.Processmodel.IRParameter;
+
+                int oldTimeout = vml.Main.DataModel.Settingmodel.AT6835FL_1.ReceiveTimeoutMs;
+                vml.Main.DataModel.Settingmodel.AT6835FL_1.ReceiveTimeoutMs = Math.Max(oldTimeout, 8000);
+                var r = vml.Main.DataModel.Settingmodel.AT6835FL_1.Download();
+                vml.Main.DataModel.Settingmodel.AT6835FL_1.ReceiveTimeoutMs = oldTimeout;
+
+                if (r.Success)
+                {
+                    NoticeBox.Show("IR参数手动下发成功", "成功", MessageBoxIcon.Success, true, 5000);
+                }
+                else
+                {
+                    NoticeBox.Show($"IR参数手动下发失败: {r.Error}", "错误", MessageBoxIcon.Error);
+                }
+            }
+            catch (Exception ex)
+            {
+                NoticeBox.Show($"IR参数手动下发异常: {ex.Message}", "错误", MessageBoxIcon.Error);
+            }
         }
 
         private void Button_Click(object sender, RoutedEventArgs e)
@@ -83,7 +121,7 @@ namespace BusbarCompressionSystem
                     vml.Main.writeLog($"[MES参数日志] 序列化异常: {logEx.Message}");
                 }
 
-                // ACW交流参数
+                    // ACW交流参数
                 var r1 = ps.Where(p => p.ParameterName == "测试电压");
                 var r2 = ps.Where(p => p.ParameterName == "测试模式");
                 var r3 = ps.Where(p => p.ParameterName == "上升时间");
@@ -106,6 +144,14 @@ namespace BusbarCompressionSystem
                 var dcw7 = ps.Where(p => p.ParameterName == "直流极壳压力");
                 var dcw8 = ps.Where(p => p.ParameterName == "直流极壳压力上限");
                 var dcw9 = ps.Where(p => p.ParameterName == "直流极壳压力下限");
+
+                // IR绝缘电阻参数（按 20260414 实际 MES 字段）
+                var irVolt = ps.Where(p => p.ParameterName == "IR测试电压");
+                var irTime = ps.Where(p => p.ParameterName == "IR测试时间");
+                var irResLow = ps.Where(p => p.ParameterName == "IR下限");
+                var irResHigh = ps.Where(p => p.ParameterName == "IR上限");
+                var irVoltLow = ps.Where(p => p.ParameterName == "IR测试电压下限");
+                var irVoltHigh = ps.Where(p => p.ParameterName == "IR测试电压上限");
 
                 // 首先检查测试模式参数是否存在
                 if (r2.Count() == 0)
@@ -297,6 +343,26 @@ namespace BusbarCompressionSystem
                         vml.Main.DataModel.Processmodel.TVParameter.Arc = vml.Main.DataModel.Processmodel.DCWParameter.Arc;
                     }
 
+                    // 解析IR参数（仅当MES返回了IR相关参数时覆盖默认值）
+                    if (irVolt.Any())
+                        vml.Main.DataModel.Processmodel.IRParameter.Voltage = Convert.ToInt32(irVolt.First().TargetValue);
+                    if (irTime.Any())
+                        vml.Main.DataModel.Processmodel.IRParameter.TestTime = Convert.ToInt32(irTime.First().TargetValue);
+
+                    // 备注：当前 AT6835FL 下发只使用“电压/时间/电阻阈值(CompRes)”三类。
+                    // MES给了上下限/电压上下限，先保存到参数对象中供日志/后续扩展使用。
+                    if (irResLow.Any())
+                    {
+                        vml.Main.DataModel.Processmodel.IRParameter.ResLow = irResLow.First().TargetValue;
+                        vml.Main.DataModel.Processmodel.IRParameter.CompRes = vml.Main.DataModel.Processmodel.IRParameter.ResLow;
+                    }
+                    if (irResHigh.Any())
+                        vml.Main.DataModel.Processmodel.IRParameter.ResHigh = irResHigh.First().TargetValue;
+                    if (irVoltLow.Any())
+                        vml.Main.DataModel.Processmodel.IRParameter.VoltageLow = Convert.ToInt32(irVoltLow.First().TargetValue);
+                    if (irVoltHigh.Any())
+                        vml.Main.DataModel.Processmodel.IRParameter.VoltageHigh = Convert.ToInt32(irVoltHigh.First().TargetValue);
+
                     // 根据测试模式选择压力参数（交流或直流）
                     // 测试模式: 0=只测交流, 1=只测直流, 2=先交后直, 3=先直后交
                     if (testModeValue == 0 || testModeValue == 2) // 只测交流 或 先交后直 → 使用交流压力参数
@@ -312,7 +378,35 @@ namespace BusbarCompressionSystem
                         vml.Main.DataModel.Processmodel.PressureParamter.Max_Pressure = Convert.ToSingle(dcw8.First().TargetValue);
                         vml.Main.DataModel.Processmodel.PressureParamter.Min_Pressure = Convert.ToSingle(dcw9.First().TargetValue);
                         vml.Main.writeLog($"[压力参数] 使用直流压力参数: 压力={dcw7.First().TargetValue}, 上限={dcw8.First().TargetValue}, 下限={dcw9.First().TargetValue}");
-                    }    
+                    }
+
+                    // IR绝缘电阻仪参数下发
+                    AT6835FL.Result rdIR;
+                    vml.Main.writeLog($"[IR] 可用判定: IRAvailable={vml.Main.DataModel.Processmodel.TVAvailable.IRAvailable}, " +
+                        $"M{vml.Main.DataModel.Settingmodel.IRMeterAvailableAddress}(Raw)={vml.Main.DataModel.Processmodel.TVAvailable.IRAvailableRawCoil}");
+                    vml.Main.writeLog($"[IR] 现场信号约定: M{vml.Main.DataModel.Settingmodel.IRMeterAvailableAddress}=1 表示开启/可用（IR 与耐压可用逻辑相反）");
+                    if (vml.Main.DataModel.Processmodel.TVAvailable.IRAvailable)
+                    {
+                        vml.Main.writeLog($"[IR] 开始下发参数: 电压={vml.Main.DataModel.Processmodel.IRParameter.Voltage}V, " +
+                            $"时间={vml.Main.DataModel.Processmodel.IRParameter.TestTime}s, " +
+                            $"下限={vml.Main.DataModel.Processmodel.IRParameter.ResLow}, 上限={vml.Main.DataModel.Processmodel.IRParameter.ResHigh}, " +
+                            $"电压下限={vml.Main.DataModel.Processmodel.IRParameter.VoltageLow}V, 电压上限={vml.Main.DataModel.Processmodel.IRParameter.VoltageHigh}V, " +
+                            $"(下发阈值={vml.Main.DataModel.Processmodel.IRParameter.CompRes})");
+
+                        vml.Main.SyncIrAt6835RuntimeFlagsFromSettings("[MES参数下发]");
+                        vml.Main.DataModel.Settingmodel.AT6835FL_1.IRParameter = vml.Main.DataModel.Processmodel.IRParameter;
+                        rdIR = vml.Main.DataModel.Settingmodel.AT6835FL_1.Download();
+
+                        if (rdIR.Success)
+                            vml.Main.writeLog($"[IR] 参数下发成功");
+                        else
+                            vml.Main.writeLog($"[IR] 参数下发失败: {rdIR.Error}");
+                    }
+                    else
+                    {
+                        vml.Main.writeLog($"[IR] 绝缘电阻仪不可用，跳过参数下发（依据: IRAvailable=false）");
+                        rdIR = new AT6835FL.Result() { Success = true };
+                    }
 
                     // 根据测试模式提前下发参数，避免等到触发时才下发
                     // 测试模式: 0=只测交流, 1=只测直流, 2=先交后直, 3=先直后交
@@ -431,6 +525,10 @@ namespace BusbarCompressionSystem
                     else if ((!rd3.Success) && vml.Main.DataModel.Processmodel.TVAvailable.TV3Available)
                     {
                         NoticeBox.Show("耐压工位3参数下发失败", "错误", MessageBoxIcon.Error);
+                    }
+                    else if ((!rdIR.Success) && vml.Main.DataModel.Processmodel.TVAvailable.IRAvailable)
+                    {
+                        NoticeBox.Show("绝缘电阻仪参数下发失败", "错误", MessageBoxIcon.Error);
                     }
                     else if (!rd4)
                     {

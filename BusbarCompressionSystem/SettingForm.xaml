@@ -8,7 +8,7 @@
         xmlns:sys="clr-namespace:System;assembly=mscorlib"
            xmlns:model="clr-namespace:BusbarCompressionSystem.Model"
         mc:Ignorable="d"
-        Title="仪器配置" Height="250" Width="400"
+        Title="仪器配置" Height="360" Width="420"
         WindowStartupLocation="CenterScreen"
         Loaded="WindowX_Loaded"    
         Closing="WindowX_Closing"
@@ -29,9 +29,9 @@
                     <RowDefinition/>
                     <RowDefinition/>
                     <RowDefinition/>
-                    <RowDefinition/>
                     <RowDefinition Height="auto"/>
-
+                    <RowDefinition Height="auto"/>
+                    <RowDefinition Height="auto"/>
                 </Grid.RowDefinitions>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="auto"/>
@@ -52,11 +52,17 @@
                 <ComboBox IsEditable="true" MinWidth="80" Grid.Row="2" Grid.Column="2" Margin="5"  Text="{Binding Settingmodel.SETTING_DATA.TVMeterType3}" ItemsSource="{Binding  Source={StaticResource  TVmodes}}"/>
 
 
-                <TextBlock Grid.Row="3"  Grid.Column="0" Text="仪器扫描时间:"></TextBlock>
-                <TextBlock Grid.Row="3"  Grid.Column="1" Text="{Binding Processmodel.CheckData.TVMeterCheckTime}" ></TextBlock>
+                <CheckBox Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="3" Margin="5,2"
+                          IsChecked="{Binding Settingmodel.SETTING_DATA.IrDownloadDebugLog}"
+                          ToolTip="打开后会在“日志\\IR串口调试”目录生成详细串口轮询调试日志文件（体积较大，仅排障时开启）">
+                    IR参数下发调试日志（生成独立日志文件）
+                </CheckBox>
+
+                <TextBlock Grid.Row="4"  Grid.Column="0" Text="仪器扫描时间:"></TextBlock>
+                <TextBlock Grid.Row="4"  Grid.Column="1" Text="{Binding Processmodel.CheckData.TVMeterCheckTime}" ></TextBlock>
                 
                 
-                <Button x:Name="config1"  Grid.Row="4" Grid.ColumnSpan="3" Margin="5"  Padding="10,5"
+                <Button x:Name="config1"  Grid.Row="5" Grid.ColumnSpan="3" Margin="5"  Padding="10,5"
                          p:ButtonHelper.CornerRadius="15" Foreground="White" Background="Orange"
                          Click="config1_Click"
                         >确定更新仪器配置</Button>

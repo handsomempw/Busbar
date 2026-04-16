@@ -1,4 +1,4 @@
-﻿using GalaSoft.MvvmLight;
+using GalaSoft.MvvmLight;
 using HslCommunication.ModBus;
 using System.Threading;
 using System;
@@ -10,6 +10,14 @@ namespace BusbarCompressionSystem.ViewModel
     {
         // 用于跟踪PLC连接状态，避免重复记录日志
         private bool _lastPLCConnectedStatus = false;
+
+        // IR可用状态：仅在变化时记录日志，避免刷屏
+        private bool? _lastIrAvailable = null;
+        private bool? _lastIrRawCoil = null;
+
+        // TV1/TV2耐压结果（用于PLC决定是否启用IR）：仅在变化时写入/记录
+        private bool? _lastTv1OkForIrEnable = null;
+        private bool? _lastTv2OkForIrEnable = null;
 
         /// <summary>
         /// AOI-only模式判定：当耐压1/耐压2工位均不可用时，视为仅走AOI流程。
@@ -74,6 +82,8 @@ namespace BusbarCompressionSystem.ViewModel
                             int TakePhoto1Trig = readresult.Content[2];
                             int TV1Trig = readresult.Content[6];
                             int TV2Trig = readresult.Content[8];
+                            // IR触发（D1014）：1=启动 2=停止
+                            int IRTrig = readresult.Content[14];
                             // 【优化】不再读取第三个耐压仪器的触发信号（设备已更新，不再使用第三个仪器）
                             // int TV3Trig = readresult.Content[10];
 
@@ -175,6 +185,27 @@ namespace BusbarCompressionSystem.ViewModel
                                 }
                             }
                             catch {; }
+                            #endregion
+
+                            #region IR绝缘电阻测试触发（需 M3033 有效）
+                            try
+                            {
+                                if (DataModel.Processmodel.TVAvailable.IRAvailable)
+                                {
+                                    // 1=启动：仅当上一次状态为0（低电平）时触发，避免重复启动
+                                    if (IRTrig == 1 & DataModel.Processmodel.IR_Trig_IO.IOstatus == 0)
+                                    {
+                                        new Thread(() => { IRProcess(); }).Start();
+                                    }
+
+                                    // 2=停止：置位 stop，设备内部 STAT:DIS 放电退出
+                                    if (IRTrig == 2 & DataModel.Processmodel.IR_Trig_IO.IOstatus != IRTrig)
+                                    {
+                                        DataModel.Settingmodel.AT6835FL_1.stop = true;
+                                    }
+                                }
+                            }
+                            catch { ; }
                             #endregion
 
                             #region 耐压3触发【已禁用】
@@ -281,6 +312,8 @@ namespace BusbarCompressionSystem.ViewModel
                             DataModel.Processmodel.TakePhoto1_Trig_IO.IOstatus = TakePhoto1Trig;
                             DataModel.Processmodel.TV1_Trig_IO.IOstatus = TV1Trig;
                             DataModel.Processmodel.TV2_Trig_IO.IOstatus = TV2Trig;
+                            // IR 触发状态复制刷新（D1014）
+                            DataModel.Processmodel.IR_Trig_IO.IOstatus = IRTrig;
                             // 【优化】第三个耐压仪器已禁用，设置状态为-1（不可用）
                             DataModel.Processmodel.TV3_Trig_IO.IOstatus = -1;
                             DataModel.Processmodel.Res1_Trig_IO.IOstatus = Res1Trig;
@@ -300,6 +333,7 @@ namespace BusbarCompressionSystem.ViewModel
                         DataModel.Processmodel.TakePhoto1_Trig_IO.IOstatus = -1;
                         DataModel.Processmodel.TV1_Trig_IO.IOstatus = -1;
                         DataModel.Processmodel.TV2_Trig_IO.IOstatus = -1;
+                        DataModel.Processmodel.IR_Trig_IO.IOstatus = -1;
                         DataModel.Processmodel.TV3_Trig_IO.IOstatus = -1;
                         DataModel.Processmodel.Res1_Trig_IO.IOstatus = -1;
                         DataModel.Processmodel.Res2_Trig_IO.IOstatus = -1;
@@ -450,6 +484,70 @@ namespace BusbarCompressionSystem.ViewModel
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// 向PLC写入“耐压结果→是否允许IR”的线圈信号。
+        /// M3041: TV1耐压结果（0=NG,1=OK）
+        /// M3042: TV2耐压结果（0=NG,1=OK）
+        /// </summary>
+        private void WriteTvOkSignalForIrEnable(int stationIndex, bool isOk)
+        {
+            try
+            {
+                int addr = 0;
+                if (stationIndex == 1)
+                {
+                    addr = DataModel.Settingmodel.IrEnableByTv1ResultAddress;
+                    if (_lastTv1OkForIrEnable != null && _lastTv1OkForIrEnable.Value == isOk)
+                    {
+                        return;
+                    }
+                }
+                else if (stationIndex == 2)
+                {
+                    addr = DataModel.Settingmodel.IrEnableByTv2ResultAddress;
+                    if (_lastTv2OkForIrEnable != null && _lastTv2OkForIrEnable.Value == isOk)
+                    {
+                        return;
+                    }
+                }
+                else
+                {
+                    return;
+                }
+
+                ModbusTcpNet modbusTcp = new ModbusTcpNet();
+                modbusTcp.ConnectTimeOut = 1;
+                modbusTcp.ReceiveTimeOut = 1;
+                modbusTcp.IpAddress = DataModel.Settingmodel.PLC_IP;
+                modbusTcp.Port = DataModel.Settingmodel.PLC_Port;
+                modbusTcp.DataFormat = HslCommunication.Core.DataFormat.CDAB;
+
+                var connectresult = modbusTcp.ConnectServer();
+                if (!connectresult.IsSuccess)
+                {
+                    writeLog($"[IR启用判定] PLC连接失败，无法写入M{addr}={ (isOk ? 1 : 0) }（工位{stationIndex}耐压结果）: {connectresult.Message}", true);
+                    return;
+                }
+
+                var writeResult = modbusTcp.WriteCoil(addr.ToString(), isOk);
+                modbusTcp.ConnectClose();
+                if (writeResult.IsSuccess)
+                {
+                    if (stationIndex == 1) _lastTv1OkForIrEnable = isOk;
+                    if (stationIndex == 2) _lastTv2OkForIrEnable = isOk;
+                    writeLog($"[IR启用判定] 已写入M{addr}={(isOk ? 1 : 0)}（工位{stationIndex}耐压结果：{(isOk ? "OK" : "NG")}）");
+                }
+                else
+                {
+                    writeLog($"[IR启用判定] 写入M{addr}失败（工位{stationIndex}耐压结果：{(isOk ? "OK" : "NG")}）: {writeResult.Message}", true);
+                }
+            }
+            catch (Exception ex)
+            {
+                writeLog($"[IR启用判定] 写入PLC异常（工位{stationIndex}）: {ex.Message}", true);
+            }
         }
         public UInt16 PLC_ReadUint16(int address)
         {
@@ -678,8 +776,9 @@ namespace BusbarCompressionSystem.ViewModel
         /// <remarks>
         /// 1. 由 PLC_shankhand() 后台线程周期性调用（约每1500ms一次），用于UI/流程层判断工位是否可用。
         /// 2. 读取线圈：Meter1AvailableAddress、Meter2AvailableAddress，并将读取到的bit取反后写入 TVAvailable（现场信号为“不可用=1”）。
+        ///    IR(M3033) 逻辑相反：现场确认 1 表示“开启/可用”，不取反。
         /// 3. 同步写入：ShankHandAddress=1（握手）、DeviceAvailableAddress=allow_start（设备可运行标志）。
-        /// 4. 第三台耐压仪已停用：不再读取/判断第三台的PLC状态，且强制 TV3Available=false。
+        /// 4. 第三台耐压仪：当前不再读取第三台的PLC线圈状态，但保留 UI 勾选/配置的可用状态（不再强制置 false），避免界面无法勾选。
         /// 5. 失败时最多重试3次；仅在最后一次失败时记录异常日志，避免日志刷屏。
         /// </remarks>
         public bool PLC_ReadTVAvailable()
@@ -701,6 +800,8 @@ namespace BusbarCompressionSystem.ViewModel
                     {
                         var r1 = modbusTcp.ReadCoil(DataModel.Settingmodel.Meter1AvailableAddress.ToString(), 1);
                         var r2 = modbusTcp.ReadCoil(DataModel.Settingmodel.Meter2AvailableAddress.ToString(), 1);
+                        // IR绝缘电阻仪可用状态（M3033）
+                        var rIR = modbusTcp.ReadCoil(DataModel.Settingmodel.IRMeterAvailableAddress.ToString(), 1);
                         // 【优化】不再读取第三个耐压仪器的PLC状态（设备已更新，不再使用第三个仪器）
                         // var r3 = modbusTcp.ReadCoil(DataModel.Settingmodel.Meter3AvailableAddress.ToString(), 1);
                         modbusTcp.Write(DataModel.Settingmodel.ShankHandAddress.ToString(), (UInt16)1);
@@ -710,8 +811,39 @@ namespace BusbarCompressionSystem.ViewModel
                         {
                             DataModel.Processmodel.TVAvailable.TV1Available = !r1.Content[0];
                             DataModel.Processmodel.TVAvailable.TV2Available = !r2.Content[0];
-                            // 【优化】强制设置第三个仪器为不可用状态
-                            DataModel.Processmodel.TVAvailable.TV3Available = false;
+                        }
+
+                        // 同步更新IR可用状态（M3033）
+                        if (rIR.IsSuccess)
+                        {
+                            // 记录原始线圈值（用于诊断）
+                            bool raw = rIR.Content[0];
+                            DataModel.Processmodel.TVAvailable.IRAvailableRawCoil = raw;
+
+                            // 现场确认：IR(M3033) 与耐压可用信号逻辑相反——1 表示“开启/可用”
+                            bool available = raw;
+                            DataModel.Processmodel.TVAvailable.IRAvailable = available;
+
+                            // 仅在状态变化时打印一次，避免刷屏
+                            if (_lastIrAvailable == null || _lastIrAvailable.Value != available ||
+                                _lastIrRawCoil == null || _lastIrRawCoil.Value != raw)
+                            {
+                                _lastIrAvailable = available;
+                                _lastIrRawCoil = raw;
+                                writeLog($"[IR可用状态] 读取M{DataModel.Settingmodel.IRMeterAvailableAddress}={raw}（原始线圈） -> IRAvailable={available}");
+                            }
+                        }
+                        else
+                        {
+                            DataModel.Processmodel.TVAvailable.IRAvailable = false;
+                            DataModel.Processmodel.TVAvailable.IRAvailableRawCoil = false;
+
+                            if (_lastIrAvailable == null || _lastIrAvailable.Value != false)
+                            {
+                                _lastIrAvailable = false;
+                                _lastIrRawCoil = null;
+                                writeLog($"[IR可用状态] 读取M{DataModel.Settingmodel.IRMeterAvailableAddress}失败，IRAvailable=false");
+                            }
                         }
 
                         // 【优化】只返回前两个仪器的状态，不再检查第三个仪器

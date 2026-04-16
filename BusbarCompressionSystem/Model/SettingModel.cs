@@ -1,4 +1,4 @@
-﻿/*
+/*
  * =====================================================================
  * 系统配置模型（混合模式）
  * =====================================================================
@@ -251,6 +251,57 @@ namespace BusbarCompressionSystem.Model
         public int AddressPressure { set; get; } = 1600;
 
         /// <summary>
+        /// IR 绝缘电阻测试触发地址（D 寄存器，PLC→PC）
+        /// </summary>
+        /// <remarks>
+        /// D1014：
+        /// 1 = 启动绝缘电阻测试
+        /// 2 = 停止绝缘电阻测试
+        /// </remarks>
+        [XmlElement("IR测试触发地址")]
+        public int IRTrigAddress { get; set; } = 1014;
+
+        /// <summary>
+        /// IR 绝缘电阻测试结果地址（D 寄存器，PC→PLC）
+        /// </summary>
+        /// <remarks>
+        /// D1015：
+        /// 1 = OK
+        /// 2 = NG
+        /// </remarks>
+        [XmlElement("IR测试结果地址")]
+        public int IRResultAddress { get; set; } = 1015;
+
+        /// <summary>
+        /// IR 仪器可用标志地址（M 寄存器，PLC→PC）
+        /// </summary>
+        /// <remarks>
+        /// M3033：
+        /// 1 = 仪器开启/可用（现场确认：IR 与耐压可用逻辑相反）
+        /// 0 = 仪器关闭/不可用
+        /// </remarks>
+        [XmlElement("IR仪器启用地址")]
+        public int IRMeterAvailableAddress { get; set; } = 3033;
+
+        /// <summary>
+        /// TV1 耐压结果反馈给 PLC（用于决定是否启用 IR 测试）
+        /// </summary>
+        /// <remarks>
+        /// M3041：0=不合格(NG)，1=合格(OK)
+        /// </remarks>
+        [XmlElement("IR启用判断-TV1耐压结果地址")]
+        public int IrEnableByTv1ResultAddress { get; set; } = 3041;
+
+        /// <summary>
+        /// TV2 耐压结果反馈给 PLC（用于决定是否启用 IR 测试）
+        /// </summary>
+        /// <remarks>
+        /// M3042：0=不合格(NG)，1=合格(OK)
+        /// </remarks>
+        [XmlElement("IR启用判断-TV2耐压结果地址")]
+        public int IrEnableByTv2ResultAddress { get; set; } = 3042;
+
+        /// <summary>
         /// 压力上限参数地址（用于判定压力是否超标）
         /// </summary>
         [XmlElement("压力上限地址")]
@@ -436,7 +487,7 @@ namespace BusbarCompressionSystem.Model
 
         #endregion
 
-        #region ==================== 耐压测试设备（配置+设备对象，部分序列化） ====================
+        #region ==================== 耐压/绝缘测试设备（配置+设备对象，部分序列化） ====================
 
         /// <summary>
         /// 耐压仪1（工位1使用）
@@ -467,6 +518,22 @@ namespace BusbarCompressionSystem.Model
         /// <remarks>配置和功能同AT9620_1，在TV3Process()中调用</remarks>
         [XmlElement("耐压3")]
         public AT9620.AT9620 AT9620_3 = new AT9620.AT9620();
+
+        /// <summary>
+        /// 绝缘电阻仪（工位3使用）
+        /// </summary>
+        /// <remarks>
+        /// 【设备类型】绝缘电阻测试仪 AT6835FL
+        /// 【通信方式】串口（默认9600,8,N,1）
+        /// 【序列化内容】串口号、波特率、测试参数（IRParameter）
+        /// 【主要方法】
+        /// - Start(): 启动绝缘电阻测试，阻塞等待测试完成
+        /// - Download(): 下发测试参数到设备
+        /// - stop: 设置为true可中止测试并放电
+        /// 【调用位置】IRProcess() 中调用
+        /// </remarks>
+        [XmlElement("绝缘电阻仪")]
+        public AT6835FL.AT6835FL AT6835FL_1 = new AT6835FL.AT6835FL();
 
         #endregion
 
