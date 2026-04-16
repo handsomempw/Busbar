@@ -163,6 +163,7 @@
     <Compile Include="Model\Record1\ProductInfoRecord.cs" />
     <Compile Include="Model\Record1\Record.cs" />
     <Compile Include="Model\Record1\TestModel.cs" />
+    <Compile Include="Model\Record1\IRTestModel.cs" />
     <Compile Include="Model\RecordModel.cs" />
     <Compile Include="Model\Setting1\ImageSaveSetting.cs" />
     <Compile Include="Model\Setting1\DynamicPasswordAuthenticationSetting.cs" />
@@ -305,6 +306,10 @@
     <ProjectReference Include="..\最新测试方案20250506\MES_ORACLE_DATABASE-20240606\MES_ORACLE_DATABASE.csproj">
       <Project>{f1aabad4-eed4-4977-9154-b8c7e4ee8ce6}</Project>
       <Name>MES_ORACLE_DATABASE</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\AT6835FL\AT6835FL.csproj">
+      <Project>{9F4B2F9E-6E6C-4E6E-AF0C-9B2D3D0F7E11}</Project>
+      <Name>AT6835FL</Name>
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>
