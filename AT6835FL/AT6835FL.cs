@@ -83,6 +83,12 @@ namespace AT6835FL
         [XmlIgnore]
         private SerialPort _serialPort;
 
+        // 上一次身份回读（IDN）通过时间：用于“正式测试触发”场景降低重复自检开销
+        // 说明：*IDN?/IDN? 主要用于确认链路与型号，生产节拍下每次触发都做回读意义不大；
+        //       真正影响状态机与安全的步骤是：STAT?/STAT:DISC、TRIG:SOUR internal、ERR:SHAK OFF。
+        [XmlIgnore]
+        private DateTime? _lastIdnOkAt;
+
         /// <summary>
         /// 单条命令发送后等待回复的超时时间（毫秒）
         /// </summary>
@@ -463,15 +469,46 @@ namespace AT6835FL
                 WriteLog($"发送: {toSend.Replace("\n", "\\n")}");
                 SerialDebugTrace($"> {toSend.Replace("\n", "\\n")}");
 
-                var read = ReadLineVerbose($"GET {normalizedCmd}");
-                if (!read.Success)
+                // 关键增强：
+                // 某些固件在上一轮测试后仍会持续回传“结果流”（如 res,cur,GD），这会干扰 query 回读（如 time?/volt?）。
+                // 这里在 ReceiveTimeoutMs 窗口内允许读多行，并过滤掉明显的“结果流”行，直到拿到真正的回包。
+                int deadline = Environment.TickCount + Math.Max(200, ReceiveTimeoutMs);
+                int originalTimeout = ReceiveTimeoutMs;
+                try
                 {
-                    r.Error = read.Error;
-                    return r;
+                    while (Environment.TickCount - deadline < 0)
+                    {
+                        int remaining = deadline - Environment.TickCount;
+                        int slice = Math.Max(200, Math.Min(800, remaining));
+                        ReceiveTimeoutMs = slice;
+
+                        var read = ReadLineVerbose($"GET {normalizedCmd}");
+                        if (!read.Success)
+                        {
+                            // 分片超时：继续在剩余窗口内等待
+                            continue;
+                        }
+
+                        string line = read.Value ?? string.Empty;
+                        // 典型结果流：电阻,电流,判定（示例：1.008860e+09,9.912178e-08,GD）
+                        if (TryParseResultLine(line, out _, out _, out _))
+                        {
+                            SerialDebugTrace($"过滤结果流行 (query={normalizedCmd}): {line}");
+                            continue;
+                        }
+
+                        r.Success = true;
+                        r.Value = line;
+                        return r;
+                    }
+                }
+                finally
+                {
+                    ReceiveTimeoutMs = originalTimeout;
                 }
 
-                r.Success = true;
-                r.Value = read.Value;
+                r.Error = $"接收超时(>{originalTimeout}ms)";
+                WriteLog(r.Error);
                 return r;
             }
             catch (Exception ex)
@@ -515,36 +552,66 @@ namespace AT6835FL
         #region 自检 / 参数下发 / 测试流程
 
         /// <summary>
-        /// 自检流程：确认链路和基本状态正常
+        /// 自检流程：确认链路和基本状态正常。
+        ///
+        /// 按《AT6835FL串口配置以及功能命令集.md》：
+        /// - 空闲应处于 discharge；若不是，需 STAT:DISC 放电切回，避免高压风险与状态机异常。
+        /// - 触发源设为 internal：现场验证 hold 模式不稳定，internal 可正常自动测试。
+        /// - 关闭字符回送，避免回送字符干扰结果行解析。
+        /// - *IDN?/IDN? 仅用于身份确认；正式测试触发时可降频执行（默认跳过）。
         /// </summary>
-        public Result SelfCheck()
+        public Result SelfCheck(bool verifyIdentity = true)
         {
             var r = new Result();
             strrecord = string.Empty;
 
             try
             {
-                // IDN 确认设备身份：部分设备不支持 *IDN?，因此兼容两种写法
-                var idn = Get_String("*IDN?");
-                if (!idn.Success)
+                // 身份确认（可降频/可跳过）：仅用于确认链路与型号，不直接影响状态机。
+                // 正式触发测试时，为减少不必要的回读/超时风险，默认跳过；但若调试开启或长时间未校验，则仍会执行一次。
+                bool needIdn = verifyIdentity;
+                if (!needIdn)
                 {
-                    WriteLog($"*IDN? 不支持或超时，改用 IDN? 重试: {idn.Error}");
-                    idn = Get_String("IDN?");
+                    if (VerboseSerialDebug)
+                    {
+                        needIdn = true;
+                    }
+                    else if (_lastIdnOkAt == null || (DateTime.Now - _lastIdnOkAt.Value).TotalMinutes >= 10)
+                    {
+                        needIdn = true;
+                    }
                 }
 
-                if (!idn.Success)
+                if (needIdn)
                 {
-                    r.Error = $"自检失败: {idn.Error}";
-                    return r;
-                }
+                    // IDN 确认设备身份：部分设备不支持 *IDN?，因此兼容两种写法
+                    var idn = Get_String("*IDN?");
+                    if (!idn.Success)
+                    {
+                        WriteLog($"*IDN? 不支持或超时，改用 IDN? 重试: {idn.Error}");
+                        idn = Get_String("IDN?");
+                    }
 
-                // 兼容不同固件回包格式：只要包含 6835 或 6835FL 即认为是目标设备
-                string idnVal = idn.Value ?? string.Empty;
-                if (!(idnVal.IndexOf("6835FL", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                      idnVal.IndexOf("6835", StringComparison.OrdinalIgnoreCase) >= 0))
+                    if (!idn.Success)
+                    {
+                        r.Error = $"自检失败: {idn.Error}";
+                        return r;
+                    }
+
+                    // 兼容不同固件回包格式：只要包含 6835 或 6835FL 即认为是目标设备
+                    string idnVal = idn.Value ?? string.Empty;
+                    if (!(idnVal.IndexOf("6835FL", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                          idnVal.IndexOf("6835", StringComparison.OrdinalIgnoreCase) >= 0))
+                    {
+                        r.Error = $"自检失败: 识别到的设备为 \"{idn.Value}\"";
+                        return r;
+                    }
+
+                    _lastIdnOkAt = DateTime.Now;
+                }
+                else
                 {
-                    r.Error = $"自检失败: 识别到的设备为 \"{idn.Value}\"";
-                    return r;
+                    WriteLog("自检简化：跳过*IDN?/IDN?身份回读（正式触发场景降频）");
                 }
 
                 // STAT? 检查放电状态；如非 discharge，则强制放电
@@ -557,8 +624,8 @@ namespace AT6835FL
 
                 if (!string.Equals(s1.Value.Trim(), "discharge", StringComparison.OrdinalIgnoreCase))
                 {
-                    WriteLog($"当前状态为 {s1.Value}，发送 STAT:DIS 切换到放电");
-                    var dis = Send("STAT:DIS");
+                    WriteLog($"当前状态为 {s1.Value}，发送 STAT:DISC 切换到放电");
+                    var dis = Send("STAT:DISC");
                     if (!dis.Success)
                     {
                         r.Error = $"自检失败: 放电命令失败({dis.Error})";
@@ -574,8 +641,8 @@ namespace AT6835FL
                     }
                 }
 
-                // 触发源设为 hold
-                var src = Send("TRIG:SOUR hold");
+                // 触发源设为 internal（现场验证：hold 模式不行）
+                var src = Send("TRIG:SOUR internal");
                 if (!src.Success)
                 {
                     r.Error = $"自检失败: 设置触发源失败({src.Error})";
@@ -584,9 +651,9 @@ namespace AT6835FL
 
                 Thread.Sleep(100);
                 var srcq = Get_String("TRIG:SOUR?");
-                if (!srcq.Success || !string.Equals(srcq.Value.Trim(), "hold", StringComparison.OrdinalIgnoreCase))
+                if (!srcq.Success || !string.Equals(srcq.Value.Trim(), "internal", StringComparison.OrdinalIgnoreCase))
                 {
-                    r.Error = $"自检失败: 触发源回读不为 hold({srcq.Value})";
+                    r.Error = $"自检失败: 触发源回读不为 internal({srcq.Value})";
                     return r;
                 }
 
@@ -658,8 +725,8 @@ namespace AT6835FL
                     SerialDebugTrace("下发前自检已跳过（执行最小初始化）");
                     try
                     {
-                        // 触发源设为 hold（与 SelfCheck 保持一致）
-                        Send("TRIG:SOUR hold");
+                        // 触发源设为 internal（与 SelfCheck 保持一致）
+                        Send("TRIG:SOUR internal");
                         Thread.Sleep(50);
                         // 关闭字符回送（与 SelfCheck 保持一致）
                         Send("ERR:SHAK OFF");
@@ -737,7 +804,12 @@ namespace AT6835FL
         }
 
         /// <summary>
-        /// 外部调用入口：一次完整的自检 + 下发 + 测试流程
+        /// 外部调用入口：一次完整的 IR 仪表测试。
+        ///
+        /// 业务含义：
+        /// - 上层 IRProcess 只关心本方法返回的绝缘电阻、漏电流和合格判定；
+        /// - 串口连接/释放在这里闭环，避免上层流程异常时遗留连接状态；
+        /// - 具体仪表状态机由 _Start() 负责，当前现场路径使用 internal + STAT:CHAR 自动测试模式。
         /// </summary>
         public Result Start()
         {
@@ -762,7 +834,10 @@ namespace AT6835FL
         }
 
         /// <summary>
-        /// 内部核心测试流程
+        /// 内部核心测试流程。
+        ///
+        /// 当前 AT6835FL 采用 internal 触发源：STAT:CHAR 后仪表会在设定测试时间内持续回传结果流。
+        /// 因此这里按 TIME 窗口接收多行结果并取最后一条有效值，而不是依赖 STAT? 轮询单次状态。
         /// </summary>
         public Result _Start()
         {
@@ -772,23 +847,30 @@ namespace AT6835FL
 
             try
             {
-                // 1. 自检
-                var sc = SelfCheck();
+                WriteLog("开始正式测试流程：自检→下发→STAT:CHAR自动测试→按设定时间取稳定值→放电");
+
+                // 1. 自检（正式触发流程：保留“状态机/安全”必要项，跳过/降频身份回读）
+                WriteLog("步骤1/7：自检开始（简化：保留STAT/TRIG/回送设置，身份回读降频）");
+                var sc = SelfCheck(verifyIdentity: false);
                 if (!sc.Success)
                 {
                     r.Error = sc.Error;
                     return r;
                 }
+                WriteLog("步骤1/7：自检通过");
 
                 // 2. 下发参数
+                WriteLog("步骤2/7：下发参数开始");
                 var dl = DownloadCore();
                 if (!dl.Success)
                 {
                     r.Error = dl.Error;
                     return r;
                 }
+                WriteLog("步骤2/7：下发参数完成");
 
-                // 3. 切换到充电/测试状态
+                // 3. 切换到充电/测试状态（internal 模式下，STAT:CHAR 后仪器会自动进行充电→测试→放电，并持续回传多组结果）
+                WriteLog("步骤3/6：发送STAT:CHAR进入自动测试流程（internal，无需*TRG）");
                 var ch = Send("STAT:CHAR");
                 if (!ch.Success)
                 {
@@ -796,125 +878,97 @@ namespace AT6835FL
                     return r;
                 }
 
-                // 4. 轮询 STAT? 等待进入 test，期间可响应 stop
-                int chargeElapsed = 0;
-                while (true)
+                // 4. 接收“结果流”：仪器会不断回传多组数据，等待设定时间后取稳定值（通常取最后一条有效结果）
+                // 注意：这一步不依赖 STAT?，避免在充电/测试态下 query 偶发不回包导致流程中断。
+                var p = IRParameter ?? new IRParameter();
+                int waitMs = Math.Max(1, p.TestTime) * 1000;
+                WriteLog($"步骤4/6：接收结果流并等待稳定（waitMs={waitMs}，TestTime={p.TestTime}s）");
+
+                // 进入自动流程后，先清空一次输入缓冲，避免读到 STAT:CHAR 之前残留的回包
+                try { _serialPort.DiscardInBuffer(); } catch { }
+
+                int originalTimeoutMs = ReceiveTimeoutMs;
+                int originalReadTimeoutMs = 0;
+                try { originalReadTimeoutMs = _serialPort.ReadTimeout; } catch { originalReadTimeoutMs = originalTimeoutMs; }
+
+                string lastValidLine = null;
+                double lastRes = 0;
+                double lastCur = 0;
+                string lastJud = string.Empty;
+                int validCount = 0;
+                int parseFailCount = 0;
+
+                // 流式读：用较短的接收超时，避免“没有新行”时阻塞太久，导致 stop 不及时
+                int streamTimeoutMs = Math.Min(1000, Math.Max(200, PollIntervalMs * 2));
+                ReceiveTimeoutMs = streamTimeoutMs;
+                try { _serialPort.ReadTimeout = streamTimeoutMs; } catch { }
+
+                try
                 {
-                    if (stop)
+                    int start = Environment.TickCount;
+                    int lastProgressLogAt = -1000000;
+                    while (Environment.TickCount - start < waitMs)
                     {
-                        WriteLog("收到停止信号，执行放电退出");
-                        Send("STAT:DIS");
-                        r.Error = "测试被外部停止";
-                        return r;
-                    }
+                        if (stop)
+                        {
+                            WriteLog("收到停止信号，执行放电退出");
+                            Send("STAT:DISC");
+                            r.Error = "测试被外部停止";
+                            return r;
+                        }
 
-                    var st = Get_String("STAT?");
-                    if (!st.Success)
-                    {
-                        r.Error = $"STAT? 读取失败: {st.Error}";
-                        return r;
-                    }
-
-                    var state = st.Value.Trim().ToLowerInvariant();
-                    if (state == "test")
-                    {
-                        break;
-                    }
-
-                    Thread.Sleep(PollIntervalMs);
-                    chargeElapsed += PollIntervalMs;
-                    if (chargeElapsed > MaxChargeSeconds * 1000)
-                    {
-                        Send("STAT:DIS");
-                        r.Error = "充电超时";
-                        return r;
-                    }
-                }
-
-                // 5. *TRG 触发测试并等待结果
-                var trgSend = Send("*TRG");
-                if (!trgSend.Success)
-                {
-                    r.Error = $"*TRG 发送失败: {trgSend.Error}";
-                    Send("STAT:DIS");
-                    return r;
-                }
-
-                string resultLine = null;
-                int testElapsed = 0;
-                while (true)
-                {
-                    if (stop)
-                    {
-                        WriteLog("收到停止信号，测试阶段执行放电退出");
-                        Send("STAT:DIS");
-                        r.Error = "测试被外部停止";
-                        return r;
-                    }
-
-                    try
-                    {
-                        var rr = ReadLineOnly(); // 直接 ReadLine，一些设备 *TRG 后直接返回
+                        var rr = ReadLineOnly(); // 读取一行结果（超时视为“本周期无新数据”）
                         if (rr.Success && !string.IsNullOrWhiteSpace(rr.Value))
                         {
-                            resultLine = rr.Value;
-                            break;
+                            // 结果格式：电阻,电流,判定（示例：1.008860e+09,9.912178e-08,GD）
+                            if (TryParseResultLine(rr.Value, out var resVal, out var curVal, out var judVal))
+                            {
+                                lastValidLine = rr.Value;
+                                lastRes = resVal;
+                                lastCur = curVal;
+                                lastJud = judVal;
+                                validCount++;
+                            }
+                            else
+                            {
+                                parseFailCount++;
+                            }
+                        }
+
+                        int elapsed = Environment.TickCount - start;
+                        if (elapsed - lastProgressLogAt >= 2000)
+                        {
+                            lastProgressLogAt = elapsed;
+                            WriteLog($"步骤4/6：等待稳定中 elapsedMs={elapsed}/{waitMs} valid={validCount} parseFail={parseFailCount}");
                         }
                     }
-                    catch
-                    {
-                        // 忽略单次异常，尝试 FETCH?
-                    }
-
-                    // 尝试 FETCH? 获取结果
-                    var fr = Get_String("FETCH?");
-                    if (fr.Success && !string.IsNullOrWhiteSpace(fr.Value))
-                    {
-                        resultLine = fr.Value;
-                        break;
-                    }
-
-                    Thread.Sleep(PollIntervalMs);
-                    testElapsed += PollIntervalMs;
-                    if (testElapsed > MaxTestSeconds * 1000)
-                    {
-                        Send("STAT:DIS");
-                        r.Error = "测试结果获取超时";
-                        return r;
-                    }
+                }
+                finally
+                {
+                    // 恢复超时配置（避免影响后续 query 的超时策略）
+                    ReceiveTimeoutMs = originalTimeoutMs;
+                    try { _serialPort.ReadTimeout = originalReadTimeoutMs; } catch { }
                 }
 
-                // 6. 解析结果：电阻,电流,判定
-                if (string.IsNullOrWhiteSpace(resultLine))
+                // 5. 选取稳定值并判定
+                WriteLog("步骤5/6：选取稳定值并判定");
+                if (string.IsNullOrWhiteSpace(lastValidLine))
                 {
-                    r.Error = "结果字符串为空";
-                    Send("STAT:DIS");
+                    r.Error = $"未收到有效结果（valid=0, parseFail={parseFailCount}）";
+                    Send("STAT:DISC");
                     return r;
                 }
 
-                var parts = resultLine.Split(',');
-                if (parts.Length < 3)
-                {
-                    r.Error = $"结果格式错误: {resultLine}";
-                    Send("STAT:DIS");
-                    return r;
-                }
-
-                if (double.TryParse(parts[0], out var res))
-                {
-                    r.Resistance = res;
-                }
-                if (double.TryParse(parts[1], out var cur))
-                {
-                    r.LeakCurrent = cur;
-                }
-
-                r.Judgment = parts[2].Trim();
+                r.Resistance = lastRes;
+                r.LeakCurrent = lastCur;
+                r.Judgment = lastJud;
                 r.Success = string.Equals(r.Judgment, "GD", StringComparison.OrdinalIgnoreCase);
                 r.Recordstr = strrecord;
+                WriteLog($"稳定结果 line={lastValidLine} => R={r.Resistance} I={r.LeakCurrent} Jud={r.Judgment} => {(r.Success ? "OK" : "NG")}");
 
-                // 7. 放电收尾
-                Send("STAT:DIS");
+                // 6. 放电收尾（即使仪器会自动放电，也主动下发一次，确保回到 discharge，降低高压风险）
+                WriteLog("步骤6/6：发送STAT:DISC放电收尾");
+                Send("STAT:DISC");
                 var sFinal = Get_String("STAT?");
                 if (!sFinal.Success || !string.Equals(sFinal.Value.Trim(), "discharge", StringComparison.OrdinalIgnoreCase))
                 {
@@ -929,11 +983,41 @@ namespace AT6835FL
                 WriteLog(r.Error);
                 try
                 {
-                    Send("STAT:DIS");
+                    Send("STAT:DISC");
                 }
                 catch { }
                 return r;
             }
+        }
+
+        private static bool TryParseResultLine(string line, out double resistance, out double leakCurrent, out string judgment)
+        {
+            resistance = 0;
+            leakCurrent = 0;
+            judgment = string.Empty;
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                return false;
+            }
+
+            var parts = line.Split(',');
+            if (parts.Length < 3)
+            {
+                return false;
+            }
+
+            if (!double.TryParse(parts[0].Trim(), NumberStyles.Float | NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out resistance))
+            {
+                return false;
+            }
+
+            if (!double.TryParse(parts[1].Trim(), NumberStyles.Float | NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out leakCurrent))
+            {
+                return false;
+            }
+
+            judgment = parts[2].Trim();
+            return !string.IsNullOrEmpty(judgment);
         }
 
         #endregion
@@ -1081,4 +1165,3 @@ namespace AT6835FL
         public string Message { get; set; }
     }
 }
-

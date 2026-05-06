@@ -145,13 +145,17 @@ namespace BusbarCompressionSystem
                 var dcw8 = ps.Where(p => p.ParameterName == "直流极壳压力上限");
                 var dcw9 = ps.Where(p => p.ParameterName == "直流极壳压力下限");
 
-                // IR绝缘电阻参数（按 20260414 实际 MES 字段）
-                var irVolt = ps.Where(p => p.ParameterName == "IR测试电压");
-                var irTime = ps.Where(p => p.ParameterName == "IR测试时间");
-                var irResLow = ps.Where(p => p.ParameterName == "IR下限");
-                var irResHigh = ps.Where(p => p.ParameterName == "IR上限");
-                var irVoltLow = ps.Where(p => p.ParameterName == "IR测试电压下限");
-                var irVoltHigh = ps.Where(p => p.ParameterName == "IR测试电压上限");
+                // IR绝缘电阻参数（MES字段可能随版本变化：用“精确名 + 包含匹配”双保险）
+                var irVolt = ps.Where(p => p.ParameterName == "IR测试电压" || (p.ParameterName?.Contains("IR") == true && p.ParameterName.Contains("测试电压")));
+                var irTime = ps.Where(p => p.ParameterName == "IR测试时间" || (p.ParameterName?.Contains("IR") == true && p.ParameterName.Contains("测试时间")));
+                var irResLow = ps.Where(p => p.ParameterName == "IR下限" ||
+                                             p.ParameterName == "IR电阻下限" ||
+                                             (p.ParameterName?.Contains("IR") == true && (p.ParameterName.Contains("下限") || p.ParameterName.Contains("电阻"))));
+                var irResHigh = ps.Where(p => p.ParameterName == "IR上限" ||
+                                              p.ParameterName == "IR电阻上限" ||
+                                              (p.ParameterName?.Contains("IR") == true && p.ParameterName.Contains("上限")));
+                var irVoltLow = ps.Where(p => p.ParameterName == "IR测试电压下限" || (p.ParameterName?.Contains("IR") == true && p.ParameterName.Contains("电压下限")));
+                var irVoltHigh = ps.Where(p => p.ParameterName == "IR测试电压上限" || (p.ParameterName?.Contains("IR") == true && p.ParameterName.Contains("电压上限")));
 
                 // 首先检查测试模式参数是否存在
                 if (r2.Count() == 0)
@@ -353,8 +357,13 @@ namespace BusbarCompressionSystem
                     // MES给了上下限/电压上下限，先保存到参数对象中供日志/后续扩展使用。
                     if (irResLow.Any())
                     {
-                        vml.Main.DataModel.Processmodel.IRParameter.ResLow = irResLow.First().TargetValue;
-                        vml.Main.DataModel.Processmodel.IRParameter.CompRes = vml.Main.DataModel.Processmodel.IRParameter.ResLow;
+                        var pLow = irResLow.First();
+                        vml.Main.DataModel.Processmodel.IRParameter.ResLow = pLow.TargetValue;
+
+                        // 自适应单位：历史为“欧(Ω)”下发 1000；新版可能为“G欧”下发 1（应转换为 1g）
+                        string unit = GetMesParameterUnit(pLow);
+                        vml.Main.DataModel.Processmodel.IRParameter.CompRes = BuildIrCompRes(pLow.TargetValue, unit);
+                        vml.Main.writeLog($"[IR] 下限单位自适应: value={pLow.TargetValue}, unit={unit} => CompRes={vml.Main.DataModel.Processmodel.IRParameter.CompRes}");
                     }
                     if (irResHigh.Any())
                         vml.Main.DataModel.Processmodel.IRParameter.ResHigh = irResHigh.First().TargetValue;
@@ -428,12 +437,12 @@ namespace BusbarCompressionSystem
                             $"电流上限={vml.Main.DataModel.Processmodel.ACWParameter.High}mA, " +
                             $"电流下限={vml.Main.DataModel.Processmodel.ACWParameter.Low}mA, " +
                             $"频率={vml.Main.DataModel.Processmodel.ACWParameter.Freq}Hz");
-                        
+
                         // 设置ACW参数并下发
                         vml.Main.DataModel.Settingmodel.AT9620_1.TVParameter = vml.Main.DataModel.Processmodel.ACWParameter;
                         vml.Main.DataModel.Settingmodel.AT9620_2.TVParameter = vml.Main.DataModel.Processmodel.ACWParameter;
                         vml.Main.DataModel.Settingmodel.AT9620_3.TVParameter = vml.Main.DataModel.Processmodel.ACWParameter;
-                        
+
                         // 记录当前模式为ACW
                         vml.Main.DataModel.Processmodel.LastTV1TestMode = AT9620.TestMode.ACW;
                         vml.Main.DataModel.Processmodel.LastTV2TestMode = AT9620.TestMode.ACW;
@@ -757,6 +766,60 @@ namespace BusbarCompressionSystem
             {
                 MessageBoxX.Show($"加载配置文件失败：{ex.Message}", MessageBoxIcon.Error);
             }
+        }
+
+        private static string GetMesParameterUnit(object mesParam)
+        {
+            try
+            {
+                if (mesParam == null) return string.Empty;
+                var t = mesParam.GetType();
+                // 常见属性名：Unit / unit
+                var p1 = t.GetProperty("Unit");
+                if (p1 != null)
+                {
+                    return (p1.GetValue(mesParam) as string) ?? string.Empty;
+                }
+                var p2 = t.GetProperty("unit");
+                if (p2 != null)
+                {
+                    return (p2.GetValue(mesParam) as string) ?? string.Empty;
+                }
+            }
+            catch { }
+            return string.Empty;
+        }
+
+        /// <summary>
+        /// 将 MES 下发的“IR下限数值+单位”转换为 AT6835FL 可接受的 COMP:RES 下发字符串。
+        /// - 欧(Ω)：直接下发数值（如 1000）
+        /// - G欧：下发 {value}g（如 1 + G欧 => 1g）
+        /// </summary>
+        private static string BuildIrCompRes(string value, string unit)
+        {
+            string v = (value ?? string.Empty).Trim();
+            string u = (unit ?? string.Empty).Trim();
+            if (string.IsNullOrEmpty(v))
+            {
+                return v;
+            }
+
+            // unit 为空：保持旧行为（不猜测单位）
+            if (string.IsNullOrEmpty(u))
+            {
+                return v;
+            }
+
+            // 统一单位文本：兼容 Ω/欧/G欧/GΩ
+            string u2 = u.Replace("Ω", "欧");
+            if (u2.IndexOf("G欧", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                // 数值尽量保持原样（1 / 1.0 / 0.5）
+                return $"{v}g";
+            }
+
+            // 其余情况（欧/Ω等）：直接下发数值
+            return v;
         }
 
         /// <summary>
