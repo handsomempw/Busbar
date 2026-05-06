@@ -824,7 +824,7 @@ namespace SQLITEDATABASE
         /// 注意：所有系统异常都会被映射为业务不良返回，通过独立日志详细记录实际原因
         /// </summary>
         /// <returns>错误代码：0=合格，1=拍照不良，2=耐压不良，3=阻值不良</returns>
-        public static int Check1(string WOCODE, string PARTNOID, string SN, bool aoiOnlyMode = false)
+        public static int Check1(string WOCODE, string PARTNOID, string SN, float resMax = 50, bool aoiOnlyMode = false)
         {
             try
             {
@@ -875,13 +875,7 @@ namespace SQLITEDATABASE
                             return 1;
                         }
 
-                        if (!bool.TryParse(s_takephoto1, out _takephoto1))
-                        {
-                            WriteErrorLog("[数据异常]CHECK1-字段解析错误-TAKEPHOTO1",
-                                $"TAKEPHOTO1字段解析失败，原始值=[{s_takephoto1}]，返回值=1",
-                                SN, WOCODE);
-                            return 1;
-                        }
+                        _takephoto1 = TryParseDbBool(dt.Rows[0]["TAKEPHOTO1"]);
 
                         if (!_takephoto1)
                         {
@@ -919,8 +913,11 @@ namespace SQLITEDATABASE
                         }
 
                         // 3. 优先判断阻值，阻值不良时无需检查耐压（PLC可能未执行耐压测试）
-                        if (_res > 14)
+                        if (_res > resMax)
                         {
+                            WriteErrorLog("[追踪]CHECK1-阻值阈值判定NG3",
+                                $"RES={_res} > resMax={resMax}，直接返回=3(阻值不合格)",
+                                SN, WOCODE);
                             return 3;
                         }
 
@@ -955,13 +952,7 @@ namespace SQLITEDATABASE
                                 return 2;
                             }
 
-                            if (!bool.TryParse(s_tvresult, out _tvresult))
-                            {
-                                WriteErrorLog("[数据异常]CHECK1-字段解析错误-TVRESULT",
-                                    $"TVRESULT字段解析失败，原始值=[{s_tvresult}]，返回值=2",
-                                    SN, WOCODE);
-                                return 2;
-                            }
+                            _tvresult = TryParseDbBool(dt.Rows[0]["TVRESULT"]);
 
                             // 5. 判断耐压测试结果
                             if (_tvmaxvoltage == 0 || _tvmaxvoltage == -1)
@@ -1051,7 +1042,7 @@ namespace SQLITEDATABASE
         /// 注意：所有系统异常都会被映射为业务不良返回，通过独立日志详细记录实际原因
         /// </summary>
         /// <returns>错误代码：0=合格，1~3同Check1，4=外观不良</returns>
-        public static int Check2(string WOCODE, string PARTNOID, string SN, bool aoiOnlyMode = false)
+        public static int Check2(string WOCODE, string PARTNOID, string SN, float resMax = 50, bool aoiOnlyMode = false)
         {
             try
             {
@@ -1095,13 +1086,7 @@ namespace SQLITEDATABASE
                             return 1;
                         }
 
-                        if (!bool.TryParse(s_takephoto1, out _takephoto1))
-                        {
-                            WriteErrorLog("[数据异常]CHECK2-字段解析错误-TAKEPHOTO1",
-                                $"TAKEPHOTO1字段解析失败，原始值=[{s_takephoto1}]，返回值:1",
-                                SN, WOCODE);
-                            return 1;
-                        }
+                        _takephoto1 = TryParseDbBool(dt.Rows[0]["TAKEPHOTO1"]);
 
                         if (!_takephoto1)
                         {
@@ -1133,8 +1118,11 @@ namespace SQLITEDATABASE
                             }
 
                             // 3. 优先判断阻值，阻值不良时无需检查耐压（PLC可能未执行耐压测试）
-                            if (_res > 14)
+                            if (_res > resMax)
                             {
+                                WriteErrorLog("[追踪]CHECK2-阻值阈值判定NG3",
+                                    $"RES={_res} > resMax={resMax}，直接返回=3(阻值不合格)",
+                                    SN, WOCODE);
                                 return 3;
                             }
 
@@ -1168,13 +1156,7 @@ namespace SQLITEDATABASE
                                     return 2;
                                 }
 
-                                if (!bool.TryParse(s_tvresult, out _tvresult))
-                                {
-                                    WriteErrorLog("[数据异常]CHECK2-字段解析错误-TVRESULT",
-                                        $"TVRESULT字段解析失败，原始值=[{s_tvresult}]，返回值:2",
-                                        SN, WOCODE);
-                                    return 2;
-                                }
+                                _tvresult = TryParseDbBool(dt.Rows[0]["TVRESULT"]);
 
                                 // 5. 判断耐压测试结果
                                 if (_tvmaxvoltage == 0 || _tvmaxvoltage == -1)
@@ -1233,13 +1215,7 @@ namespace SQLITEDATABASE
                             return 4;
                         }
 
-                        if (!bool.TryParse(s_takephoto2, out _takephoto2))
-                        {
-                            WriteErrorLog("[数据异常]CHECK2-字段解析错误-TAKEPHOTO2",
-                                $"TAKEPHOTO2字段解析失败，原始值=[{s_takephoto2}]，返回值:4",
-                                SN, WOCODE);
-                            return 4;
-                        }
+                        _takephoto2 = TryParseDbBool(dt.Rows[0]["TAKEPHOTO2"]);
 
                         if (!_takephoto2)
                         {

@@ -274,7 +274,9 @@ namespace BusbarCompressionSystem.Model
     }
     public class ResParameter : ObservableObject
     {
-        public float Max_Res { set; get; } = 20;
+        // 阻值上限阈值：用于 RES OK/NG 判定
+        // 兜底默认值：当 PLC D2020 读取失败时使用
+        public float Max_Res { set; get; } = 50;
         public float Min_Res { set; get; } = 14;
     }
 

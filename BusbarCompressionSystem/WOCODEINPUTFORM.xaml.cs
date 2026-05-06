@@ -537,6 +537,57 @@ namespace BusbarCompressionSystem
                     else
                     {
                         NoticeBox.Show("参数下发完成", "成功", MessageBoxIcon.Success, true, 5000);
+
+                        // 参数下发成功后读取阻值上限阈值（D2020=Res_Max_Address），缓存到内存供后续 RES OK/NG 判定使用
+                        float resMaxThreshold = vml.Main.DataModel.Processmodel.ResParameter.Max_Res;
+                        float originalResMaxThreshold = resMaxThreshold;
+                        string resMaxSource = "内存默认";
+                        try
+                        {
+                            float fromFloat = vml.Main.PLC_ReadFloat(vml.Main.DataModel.Settingmodel.Res_Max_Address);
+                            // 简单范围校验，避免浮点读取地址类型不匹配导致的异常值
+                            if (fromFloat > 0 && fromFloat < 1000)
+                            {
+                                resMaxThreshold = fromFloat;
+                                resMaxSource = "D2020(float)";
+                            }
+                            else
+                            {
+                                throw new Exception("PLC_ReadFloat范围不合理");
+                            }
+                        }
+                        catch (Exception exFloat)
+                        {
+                            try
+                            {
+                                UInt16 fromU16 = vml.Main.PLC_ReadUint16(vml.Main.DataModel.Settingmodel.Res_Max_Address);
+                                // 兼容“14”和“14*1000”两种可能的存储方式（例如 14000 => 14.0）
+                                if (fromU16 > 0 && fromU16 < 1000)
+                                {
+                                    resMaxThreshold = fromU16;
+                                    resMaxSource = "D2020(uint16)";
+                                }
+                                else if (fromU16 >= 1000)
+                                {
+                                    resMaxThreshold = fromU16 / 1000f;
+                                    resMaxSource = "D2020(uint16/scale)";
+                                }
+                                else
+                                {
+                                    throw new Exception("PLC_ReadUint16范围不合理");
+                                }
+                            }
+                            catch (Exception exU16)
+                            {
+                                // 读取失败时保持当前内存默认值，避免阻值判定被中断
+                                vml.Main.writeLog(
+                                    $"[阻值阈值] 读取PLC D{vml.Main.DataModel.Settingmodel.Res_Max_Address}失败( Float:{exFloat.Message}; U16:{exU16.Message} )，使用旧值 Max_Res={originalResMaxThreshold}",
+                                    true);
+                            }
+                        }
+
+                        vml.Main.DataModel.Processmodel.ResParameter.Max_Res = resMaxThreshold;
+                        vml.Main.writeLog($"[阻值阈值] 读取PLC D{vml.Main.DataModel.Settingmodel.Res_Max_Address} -> Max_Res={resMaxThreshold} ({resMaxSource})");
                         vml.Main.DataModel.Processmodel.PartNOID = partnoid;
                     }
                 }
@@ -654,6 +705,51 @@ namespace BusbarCompressionSystem
                     else
                     {
                         NoticeBox.Show($"手动参数下发完成\n配置：{config.ConfigName}", "成功", MessageBoxIcon.Success, true, 5000);
+
+                        // 手动下发成功后，同步刷新阻值阈值（D2020=Res_Max_Address）
+                        float resMaxThreshold = vml.Main.DataModel.Processmodel.ResParameter.Max_Res;
+                        float originalResMaxThreshold = resMaxThreshold;
+                        string resMaxSource = "内存默认";
+                        try
+                        {
+                            float fromFloat = vml.Main.PLC_ReadFloat(vml.Main.DataModel.Settingmodel.Res_Max_Address);
+                            if (fromFloat > 0 && fromFloat < 1000)
+                            {
+                                resMaxThreshold = fromFloat;
+                                resMaxSource = "D2020(float)";
+                            }
+                            else
+                            {
+                                throw new Exception("PLC_ReadFloat范围不合理");
+                            }
+                        }
+                        catch (Exception exFloat)
+                        {
+                            try
+                            {
+                                UInt16 fromU16 = vml.Main.PLC_ReadUint16(vml.Main.DataModel.Settingmodel.Res_Max_Address);
+                                if (fromU16 > 0 && fromU16 < 1000)
+                                {
+                                    resMaxThreshold = fromU16;
+                                    resMaxSource = "D2020(uint16)";
+                                }
+                                else if (fromU16 >= 1000)
+                                {
+                                    resMaxThreshold = fromU16 / 1000f;
+                                    resMaxSource = "D2020(uint16/scale)";
+                                }
+                            }
+                            catch (Exception exU16)
+                            {
+                                // 读取失败时保持当前内存默认值
+                                vml.Main.writeLog(
+                                    $"[阻值阈值] 手动刷新-读取PLC D{vml.Main.DataModel.Settingmodel.Res_Max_Address}失败( Float:{exFloat.Message}; U16:{exU16.Message} )，使用旧值 Max_Res={originalResMaxThreshold}",
+                                    true);
+                            }
+                        }
+
+                        vml.Main.DataModel.Processmodel.ResParameter.Max_Res = resMaxThreshold;
+                        vml.Main.writeLog($"[阻值阈值] 手动刷新PLC D{vml.Main.DataModel.Settingmodel.Res_Max_Address} -> Max_Res={resMaxThreshold} ({resMaxSource})");
                     }
                 }
             }

@@ -320,9 +320,12 @@ namespace BusbarCompressionSystem.ViewModel
                                     MSG = "NG1";
                                     resultstr = "拍照留底不良";
                                 }
-                                // 先判断阻值，再判断耐压，阻值大于14为不合格
-                                else if (pi.Res > 14)
+                                // 先判断阻值，再判断耐压；RES 大于阈值为不合格
+                                else if (pi.Res > DataModel.Processmodel.ResParameter.Max_Res)
                                 {
+                                    sqlite.WriteErrorLog("[追踪]点检阻值阈值判定NG3",
+                                        $"RES={pi.Res} > Max_Res={DataModel.Processmodel.ResParameter.Max_Res}",
+                                        pi.Productinfo?.SN ?? "", pi.Productinfo?.WOCODE ?? "");
                                     MSG = "NG3";
                                     resultstr = "阻值或压力测试不合格";
                                 }
@@ -397,6 +400,7 @@ namespace BusbarCompressionSystem.ViewModel
                             DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE,
                             DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID,
                             DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN,
+                            DataModel.Processmodel.ResParameter.Max_Res,
                             aoiOnlyMode: isAoiOnlyMode);
                         string MSG = "NG1";
                         // 初始化resultstr为"拍照留底不良"作为默认值（兜底）
@@ -562,9 +566,12 @@ namespace BusbarCompressionSystem.ViewModel
                                     MSG = "NG1";
                                     resultstr = "拍照留底不良";
                                 }
-                                // 先判断阻值，再判断耐压，阻值大于14为不合格
-                                else if (pi.Res > 14)
+                                // 先判断阻值，再判断耐压；RES 大于阈值为不合格
+                                else if (pi.Res > DataModel.Processmodel.ResParameter.Max_Res)
                                 {
+                                    sqlite.WriteErrorLog("[追踪]点检阻值阈值判定NG3",
+                                        $"RES={pi.Res} > Max_Res={DataModel.Processmodel.ResParameter.Max_Res}",
+                                        pi.Productinfo?.SN ?? "", pi.Productinfo?.WOCODE ?? "");
                                     MSG = "NG3";
                                     resultstr = "阻值或压力测试不合格";
                                 }
@@ -618,6 +625,7 @@ namespace BusbarCompressionSystem.ViewModel
                             DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE,
                             DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID,
                             DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN,
+                            DataModel.Processmodel.ResParameter.Max_Res,
                             aoiOnlyMode: isAoiOnlyMode);
                         string MSG = "NG1";
                         string resultstr = "拍照留底不良";
