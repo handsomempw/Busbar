@@ -1,4 +1,4 @@
-﻿using BusbarCompressionSystem.Model.FaraVision.Tool.QRCode;
+using BusbarCompressionSystem.Model.FaraVision.Tool.QRCode;
 using BusbarCompressionSystem.Model.FaraVision.Tool;
 using BusbarCompressionSystem.Model.FaraVision;
 using BusbarCompressionSystem.Model.Record;
@@ -25,6 +25,55 @@ namespace BusbarCompressionSystem.ViewModel
     public partial class MainViewModel : ViewModelBase
     {
         // 相机相关方法拆分到独立文件，便于维护
+        // 运行态日志节流：避免相机回调高频导致日志刷屏（尤其在无产品/空跑时）
+        private readonly object _cameraReceiveLogLock = new object();
+        private DateTime[] _lastCameraReceiveLogUtc = new DateTime[6]; // 1..5使用
+
+        private void LogCameraReceiveThrottled(int cameraIndex, bool onlyWhenExpectingShot)
+        {
+            // cameraIndex: 1..5
+            if (cameraIndex < 1 || cameraIndex > 5) { return; }
+
+            // 对拍照留底(1~3)：仅在“本次流程确实在等照片”(finished=false)时记录一次
+            if (onlyWhenExpectingShot)
+            {
+                try
+                {
+                    bool finished;
+                    if (cameraIndex == 1)
+                        finished = DataModel.Settingmodel.camedata1.CameraModel.finished;
+                    else if (cameraIndex == 2)
+                        finished = DataModel.Settingmodel.camedata2.CameraModel.finished;
+                    else if (cameraIndex == 3)
+                        finished = DataModel.Settingmodel.camedata3.CameraModel.finished;
+                    else
+                        finished = true;
+                    if (finished)
+                    {
+                        return;
+                    }
+                }
+                catch
+                {
+                    // 任何异常都不影响拍照回调主流程
+                }
+            }
+
+            // 对AOI/其他(4~5) 或者异常触发：做时间节流，默认 1s 最多一次
+            DateTime nowUtc = DateTime.UtcNow;
+            lock (_cameraReceiveLogLock)
+            {
+                if (_lastCameraReceiveLogUtc[cameraIndex] != default
+                    && (nowUtc - _lastCameraReceiveLogUtc[cameraIndex]).TotalMilliseconds < 1000)
+                {
+                    return;
+                }
+                _lastCameraReceiveLogUtc[cameraIndex] = nowUtc;
+            }
+
+            writeLog($"相机->视觉:接收照片(C{cameraIndex})", false);
+        }
+
         #region 相机初始化
         public void InitCamera()
         {
@@ -97,7 +146,7 @@ namespace BusbarCompressionSystem.ViewModel
 
             try
             {
-                writeLog($"相机->视觉:接收照片", false);
+                LogCameraReceiveThrottled(1, onlyWhenExpectingShot: true);
 
                 MyEventArgs myEventArgs = e as MyEventArgs;
 
@@ -121,7 +170,7 @@ namespace BusbarCompressionSystem.ViewModel
 
             try
             {
-                writeLog($"相机->视觉:接收照片", false);
+                LogCameraReceiveThrottled(2, onlyWhenExpectingShot: true);
 
                 MyEventArgs myEventArgs = e as MyEventArgs;
 
@@ -163,7 +212,7 @@ namespace BusbarCompressionSystem.ViewModel
         {
             try
             {
-                writeLog($"相机->视觉:接收照片", false);
+                LogCameraReceiveThrottled(3, onlyWhenExpectingShot: true);
 
                 MyEventArgs myEventArgs = e as MyEventArgs;
 
@@ -187,7 +236,7 @@ namespace BusbarCompressionSystem.ViewModel
 
             try
             {
-                writeLog($"相机->视觉:接收照片", false);
+                LogCameraReceiveThrottled(4, onlyWhenExpectingShot: false);
 
                 MyEventArgs myEventArgs = e as MyEventArgs;
 
@@ -220,7 +269,7 @@ namespace BusbarCompressionSystem.ViewModel
 
             try
             {
-                writeLog($"相机->视觉:接收照片", false);
+                LogCameraReceiveThrottled(5, onlyWhenExpectingShot: false);
                 MyEventArgs myEventArgs = e as MyEventArgs;
                 App.Current.Dispatcher.BeginInvoke(new Action(() =>
                 {
