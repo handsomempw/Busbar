@@ -140,11 +140,12 @@ namespace BusbarCompressionSystem.ViewModel
         /// </summary>
         private void RobotTcpServer_MessageReceived(TCPServerH sender, object e)
         {
+            string cmd = string.Empty;
             try
             {
 
                 TCPevent TCPevent = (TCPevent)e;
-                string cmd = (string)TCPevent.Msg;
+                cmd = (string)TCPevent.Msg;
                 writeLog($"机器人->视觉:{cmd}");
                 DataModel.Processmodel.CMD = cmd;
                 DataModel.FaraVisionDataModel.Processmodel.RCMD = cmd;
@@ -225,28 +226,32 @@ namespace BusbarCompressionSystem.ViewModel
                     string s = s_100;
                     */
 
+                    // CHECK1是机器人交互关口：读码失败时不使用旧SN，也不主动回NG。
+                    // 现场约定是不回机器人结果即可阻止继续流转，由机器人/PLC超时或重试机制接管。
                     // writeLog($"[CHECK1 Debug] PLC原始读取值: [{s}]"); // 上方已记录，此行可省略
-                    string s = PLC_Readstring(DataModel.Settingmodel.AddressSN + 100);
-                    string[] ss = s.Split(';');
-                    if (ss.Length == 2)
+                    string snCode;
+                    string woCode;
+                    string rawCode;
+                    if (!TryReadProductCodeFromPlc(DataModel.Settingmodel.AddressSN + 100, "CHECK1", out snCode, out woCode, out rawCode, 3, 500))
                     {
-                        //DataModel.Processmodel.TakePhotoTestModel.Productinfo = new Model.Record.Productinfo() { SN = ss[0], WOCODE = ss[1], PartNOID = "" };
-                        DataModel.Processmodel.TakePhotoTestMode2.Productinfo = new Productinfo() { SN = ss[0], WOCODE = ss[1], PartNOID = DataModel.Processmodel.PartNOID };
-                        App.Current.Dispatcher.BeginInvoke((Action)(() =>
+                        DataModel.Processmodel.TakePhotoTestMode2.Productinfo = new Productinfo()
                         {
+                            SN = string.Empty,
+                            WOCODE = string.Empty,
+                            PartNOID = DataModel.Processmodel.PartNOID
+                        };
+                        writeLog("[CHECK1] 产品编码读取失败，已中止本次CHECK1且不回机器人结果，等待现场超时/重试机制接管。", true);
+                        return;
+                    }
 
-                            DataModel.FaraVisionDataModel.Processmodel.SNList.Clear();
-                            DataModel.FaraVisionDataModel.Processmodel.SNList.Add(ss[0]);
-                        }));
-                    }
-                    else
+                    string[] ss = new string[] { snCode, woCode };
+                    //DataModel.Processmodel.TakePhotoTestModel.Productinfo = new Model.Record.Productinfo() { SN = ss[0], WOCODE = ss[1], PartNOID = "" };
+                    DataModel.Processmodel.TakePhotoTestMode2.Productinfo = new Productinfo() { SN = snCode, WOCODE = woCode, PartNOID = DataModel.Processmodel.PartNOID };
+                    App.Current.Dispatcher.BeginInvoke((Action)(() =>
                     {
-                        writeLog($"视觉检测产品编号读取错误! 原始内容:[{s}], 分割长度:{ss.Length}", true);
-                        for (int k = 0; k < ss.Length; k++)
-                        {
-                            writeLog($"  -> 分割项[{k}]: {ss[k]}", false);
-                        }
-                    }
+                        DataModel.FaraVisionDataModel.Processmodel.SNList.Clear();
+                        DataModel.FaraVisionDataModel.Processmodel.SNList.Add(snCode);
+                    }));
 
                     #endregion
 
@@ -691,7 +696,11 @@ namespace BusbarCompressionSystem.ViewModel
 
 
             }
-            catch (Exception ex) {; }
+            catch (Exception ex)
+            {
+                writeLog($"[机器人交互] ❌ 指令处理异常 cmd={cmd}: {ex.Message}", true);
+                sqlite.WriteErrorLog("[机器人交互异常]指令处理失败", $"cmd={cmd}, 异常: {ex.Message}, 堆栈: {ex.StackTrace}");
+            }
         }
 
 

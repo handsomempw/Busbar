@@ -15,9 +15,6 @@ namespace BusbarCompressionSystem.ViewModel
         private bool? _lastIrAvailable = null;
         private bool? _lastIrRawCoil = null;
 
-        // TV1/TV2耐压结果（用于PLC决定是否启用IR）：仅在变化时写入/记录
-        private bool? _lastTv1OkForIrEnable = null;
-        private bool? _lastTv2OkForIrEnable = null;
 
         /// <summary>
         /// AOI-only模式判定：当耐压1/耐压2工位均不可用时，视为仅走AOI流程。
@@ -488,6 +485,8 @@ namespace BusbarCompressionSystem.ViewModel
 
         /// <summary>
         /// 向PLC写入“耐压结果→是否允许IR”的线圈信号。
+        /// 业务说明：每次工位耐压流程结束都主动刷新一次线圈，不用上次结果做跳过判断；
+        /// 这样即使PLC侧清线圈、漏读或重试同一工位，也能收到本次明确的OK/NG状态。
         /// M3041: TV1耐压结果（0=NG,1=OK）
         /// M3042: TV2耐压结果（0=NG,1=OK）
         /// </summary>
@@ -499,18 +498,10 @@ namespace BusbarCompressionSystem.ViewModel
                 if (stationIndex == 1)
                 {
                     addr = DataModel.Settingmodel.IrEnableByTv1ResultAddress;
-                    if (_lastTv1OkForIrEnable != null && _lastTv1OkForIrEnable.Value == isOk)
-                    {
-                        return;
-                    }
                 }
                 else if (stationIndex == 2)
                 {
                     addr = DataModel.Settingmodel.IrEnableByTv2ResultAddress;
-                    if (_lastTv2OkForIrEnable != null && _lastTv2OkForIrEnable.Value == isOk)
-                    {
-                        return;
-                    }
                 }
                 else
                 {
@@ -535,8 +526,6 @@ namespace BusbarCompressionSystem.ViewModel
                 modbusTcp.ConnectClose();
                 if (writeResult.IsSuccess)
                 {
-                    if (stationIndex == 1) _lastTv1OkForIrEnable = isOk;
-                    if (stationIndex == 2) _lastTv2OkForIrEnable = isOk;
                     writeLog($"[IR启用判定] 已写入M{addr}={(isOk ? 1 : 0)}（工位{stationIndex}耐压结果：{(isOk ? "OK" : "NG")}）");
                 }
                 else
@@ -724,6 +713,60 @@ namespace BusbarCompressionSystem.ViewModel
             // 如果所有重试都失败了，返回空字符串，表示读取失败
             return string.Empty;
         }
+
+        /// <summary>
+        /// 读取PLC产品编码并做业务级重试。
+        /// 业务说明：PLC_Readstring 只保证通讯层重试；这里额外等待 PLC 把完整的 "SN;WOCODE" 写入完成。
+        /// 失败时不返回旧SN/旧工单，调用方必须按本次流程失败处理，避免电测或CHECK结果串到上一件产品。
+        /// </summary>
+        private bool TryReadProductCodeFromPlc(int address, string context, out string sn, out string wocode, out string raw,
+            int maxAttempts = 3, int delayMs = 300)
+        {
+            sn = string.Empty;
+            wocode = string.Empty;
+            raw = string.Empty;
+            string lastNonEmpty = string.Empty;
+
+            for (int attempt = 1; attempt <= maxAttempts; attempt++)
+            {
+                string current = (PLC_Readstring(address) ?? string.Empty).Trim();
+                raw = current;
+                if (!string.IsNullOrWhiteSpace(current))
+                {
+                    lastNonEmpty = current;
+                }
+
+                string[] parts = current.Split(';');
+                if (parts.Length == 2)
+                {
+                    string candidateSn = (parts[0] ?? string.Empty).Trim();
+                    string candidateWo = (parts[1] ?? string.Empty).Trim();
+                    if (!string.IsNullOrWhiteSpace(candidateSn) && !string.IsNullOrWhiteSpace(candidateWo))
+                    {
+                        sn = candidateSn;
+                        wocode = candidateWo;
+                        if (attempt > 1)
+                        {
+                            writeLog($"[{context}] 产品编码第{attempt}次读取成功: SN={sn}, WOCODE={wocode}, PLC地址=D{address}");
+                        }
+                        return true;
+                    }
+                }
+
+                if (attempt < maxAttempts)
+                {
+                    Thread.Sleep(delayMs);
+                }
+            }
+
+            string shownRaw = string.IsNullOrWhiteSpace(lastNonEmpty) ? raw : lastNonEmpty;
+            string failureType = string.IsNullOrWhiteSpace(shownRaw) ? "通讯/未写入" : "值/格式";
+            int segmentCount = (shownRaw ?? string.Empty).Split(';').Length;
+            writeLog($"[{context}] ❌ 产品编码读取错误({failureType})! 原始值=[{shownRaw}], 期望格式=[SN;WOCODE], 分段数={segmentCount}, 重试次数={maxAttempts}, PLC地址=D{address}", true);
+            writePlcError($"[PLC数据异常]{context}-产品编码读取失败 | 失败类型={failureType}, 原始值=[{shownRaw}], 分段数={segmentCount}, 重试次数={maxAttempts}, PLC地址=D{address}");
+            return false;
+        }
+
         public bool PLC_Writestring(string address, string data)
         {
             int maxRetry = 3;

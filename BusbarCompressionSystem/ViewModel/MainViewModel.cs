@@ -891,24 +891,27 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
-        /// TV1耐压测试核心逻辑（ACW/DCW共用）
+        /// TV1耐压测试核心逻辑（ACW/DCW共用）。
+        /// 业务说明：只有读到本次完整的 SN;WOCODE 后才允许继续测试和落记录；
+        /// 若读码失败，则视为该工位本次流程无法绑定产品，回写耐压NG并中止，避免沿用旧SN。
         /// </summary>
         /// <param name="testType">测试类型标识，用于日志区分（"ACW"或"DCW"）</param>
         private void TV1Process_Core(string testType)
         {
-            string s = PLC_Readstring(DataModel.Settingmodel.AddressSN + 25);
-
-            string[] ss = s.Split(';');
-            if (ss.Length == 2)
+            string snCode;
+            string woCode;
+            string rawCode;
+            if (TryReadProductCodeFromPlc(DataModel.Settingmodel.AddressSN + 25, $"耐压1-{testType}", out snCode, out woCode, out rawCode))
             {
-                DataModel.Processmodel.TVTestTestModel1.Productinfo = new Productinfo() { SN = ss[0], WOCODE = ss[1], PartNOID = DataModel.Processmodel.PartNOID };
-                writeLog($"[耐压1-{testType}] 产品编码读取成功: SN={ss[0]}, WOCODE={ss[1]}");
+                DataModel.Processmodel.TVTestTestModel1.Productinfo = new Productinfo() { SN = snCode, WOCODE = woCode, PartNOID = DataModel.Processmodel.PartNOID };
+                writeLog($"[耐压1-{testType}] 产品编码读取成功: SN={snCode}, WOCODE={woCode}");
             }
             else
             {
-                writeLog($"[耐压1-{testType}] ❌ 产品编号读取错误! 原始值=[{s}], 期望格式=[SN;WOCODE], 分段数={ss.Length}", true);
-                // 【日志归置】PLC 数据异常属于设备侧错误，按约定归到“日志\\错误”，避免污染“数据库异常”
-                writePlcError($"[PLC数据异常]TV1-{testType}-产品编码格式错误 | 原始值=[{s}], 分段数={ss.Length}, PLC地址=D{DataModel.Settingmodel.AddressSN + 25}");
+                // 读不到本次产品编码时不能继续电测，否则有串SN风险；回写本站NG让PLC走异常/重试分支。
+                WriteTvOkSignalForIrEnable(1, false);
+                PLC_write((DataModel.Settingmodel.AddressStart + 7).ToString(), (UInt16)2);
+                return;
             }
 
             float res = PLC_ReadFloat(DataModel.Settingmodel.AddressRes);
@@ -1145,6 +1148,8 @@ namespace BusbarCompressionSystem.ViewModel
                     );
             }
 
+            // 兼容旧流程：将工位1耐压结果写入 PLC（用于决定是否启用 IR）
+            WriteTvOkSignalForIrEnable(1, r.Success);
             PLC_write((DataModel.Settingmodel.AddressStart + 7).ToString(), 1);
         }
 
@@ -1211,24 +1216,27 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
-        /// TV2耐压测试核心逻辑（ACW/DCW共用）
+        /// TV2耐压测试核心逻辑（ACW/DCW共用）。
+        /// 业务说明：只有读到本次完整的 SN;WOCODE 后才允许继续测试和落记录；
+        /// 若读码失败，则视为该工位本次流程无法绑定产品，回写耐压NG并中止，避免沿用旧SN。
         /// </summary>
         /// <param name="testType">测试类型标识，用于日志区分（"ACW"或"DCW"）</param>
         private void TV2Process_Core(string testType)
         {
-            string s = PLC_Readstring(DataModel.Settingmodel.AddressSN + 25 * 2);
-
-            string[] ss = s.Split(';');
-            if (ss.Length == 2)
+            string snCode;
+            string woCode;
+            string rawCode;
+            if (TryReadProductCodeFromPlc(DataModel.Settingmodel.AddressSN + 25 * 2, $"耐压2-{testType}", out snCode, out woCode, out rawCode))
             {
-                DataModel.Processmodel.TVTestTestModel2.Productinfo = new Productinfo() { SN = ss[0], WOCODE = ss[1], PartNOID = DataModel.Processmodel.PartNOID };
-                writeLog($"[耐压2-{testType}] 产品编码读取成功: SN={ss[0]}, WOCODE={ss[1]}");
+                DataModel.Processmodel.TVTestTestModel2.Productinfo = new Productinfo() { SN = snCode, WOCODE = woCode, PartNOID = DataModel.Processmodel.PartNOID };
+                writeLog($"[耐压2-{testType}] 产品编码读取成功: SN={snCode}, WOCODE={woCode}");
             }
             else
             {
-                writeLog($"[耐压2-{testType}] ❌ 产品编号读取错误! 原始值=[{s}], 期望格式=[SN;WOCODE], 分段数={ss.Length}", true);
-                // 【日志归置】PLC 数据异常属于设备侧错误，按约定归到“日志\\错误”，避免污染“数据库异常”
-                writePlcError($"[PLC数据异常]TV2-{testType}-产品编码格式错误 | 原始值=[{s}], 分段数={ss.Length}, PLC地址=D{DataModel.Settingmodel.AddressSN + 25 * 2}");
+                // 读不到本次产品编码时不能继续电测，否则有串SN风险；回写本站NG让PLC走异常/重试分支。
+                WriteTvOkSignalForIrEnable(2, false);
+                PLC_write((DataModel.Settingmodel.AddressStart + 9).ToString(), (UInt16)2);
+                return;
             }
 
             float res = PLC_ReadFloat(DataModel.Settingmodel.AddressRes + 1 * 2);
@@ -1401,6 +1409,8 @@ namespace BusbarCompressionSystem.ViewModel
                     );
             }
 
+            // 兼容旧流程：将工位2耐压结果写入 PLC（用于决定是否启用 IR）
+            WriteTvOkSignalForIrEnable(2, r.Success);
             PLC_write((DataModel.Settingmodel.AddressStart + 9).ToString(), 1);
 
         }
