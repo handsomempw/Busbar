@@ -15,6 +15,9 @@ namespace BusbarCompressionSystem.ViewModel
         private bool? _lastIrAvailable = null;
         private bool? _lastIrRawCoil = null;
 
+        // IR触发诊断：仅在变化时记录，避免刷屏
+        private int? _lastIrTrigLogged = null;
+        private int? _lastIrStartSkipReasonLoggedForTrig = null;
 
         /// <summary>
         /// AOI-only模式判定：当耐压1/耐压2工位均不可用时，视为仅走AOI流程。
@@ -187,18 +190,46 @@ namespace BusbarCompressionSystem.ViewModel
                             #region IR绝缘电阻测试触发（需 M3033 有效）
                             try
                             {
+                                // 仅在触发值变化时记录一次诊断日志，帮助定位“PLC已写1但上位机没动作”
+                                if (_lastIrTrigLogged == null || _lastIrTrigLogged.Value != IRTrig)
+                                {
+                                    _lastIrTrigLogged = IRTrig;
+                                    _lastIrStartSkipReasonLoggedForTrig = null; // 新的触发值到来，允许记录一次“未触发原因”
+                                    writeLog($"[IR触发] D{DataModel.Settingmodel.IRTrigAddress}={IRTrig}, 上次IOstatus={DataModel.Processmodel.IR_Trig_IO.IOstatus}, IRAvailable(M{DataModel.Settingmodel.IRMeterAvailableAddress})={DataModel.Processmodel.TVAvailable.IRAvailable} Raw={DataModel.Processmodel.TVAvailable.IRAvailableRawCoil}");
+                                }
+
                                 if (DataModel.Processmodel.TVAvailable.IRAvailable)
                                 {
                                     // 1=启动：仅当上一次状态为0（低电平）时触发，避免重复启动
                                     if (IRTrig == 1 & DataModel.Processmodel.IR_Trig_IO.IOstatus == 0)
                                     {
+                                        writeLog("[IR触发] ✅ 条件满足，启动IRProcess线程");
                                         new Thread(() => { IRProcess(); }).Start();
                                     }
+                                    else if (IRTrig == 1)
+                                    {
+                                        // 避免刷屏：仅在“本次触发值=1”的周期内记录一次原因
+                                        if (_lastIrStartSkipReasonLoggedForTrig == null)
+                                        {
+                                            _lastIrStartSkipReasonLoggedForTrig = 1;
+                                            writeLog($"[IR触发] ⏭ 已收到启动(=1)但未触发线程：原因=IOstatus非0（当前IOstatus={DataModel.Processmodel.IR_Trig_IO.IOstatus}，需要PLC产生0->1沿）");
+                                        }
+                                    }
 
-                                    // 2=停止：置位 stop，设备内部 STAT:DIS 放电退出
+                                    // 2=停止：置位 stop，设备内部 STAT:DISC 放电退出
                                     if (IRTrig == 2 & DataModel.Processmodel.IR_Trig_IO.IOstatus != IRTrig)
                                     {
+                                        writeLog("[IR触发] 收到停止(=2)，置位AT6835FL.stop=true");
                                         DataModel.Settingmodel.AT6835FL_1.stop = true;
+                                    }
+                                }
+                                else if (IRTrig == 1)
+                                {
+                                    // 避免刷屏：仅在“本次触发值=1”的周期内记录一次原因
+                                    if (_lastIrStartSkipReasonLoggedForTrig == null)
+                                    {
+                                        _lastIrStartSkipReasonLoggedForTrig = 1;
+                                        writeLog($"[IR触发] ⛔ PLC请求启动(=1)但IRAvailable=false，已忽略启动。请检查M{DataModel.Settingmodel.IRMeterAvailableAddress}信号约定（1=可用）及PLC状态。");
                                     }
                                 }
                             }

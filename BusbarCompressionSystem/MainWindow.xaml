@@ -571,6 +571,7 @@
                     <DataGridTextColumn Header="规格" Binding="{Binding Productinfo.PartNOID}"></DataGridTextColumn>
                     <DataGridTextColumn Header="批号" Binding="{Binding Productinfo.WOCODE}"></DataGridTextColumn>
                     <DataGridTextColumn Header="编号" Binding="{Binding Productinfo.SN}"></DataGridTextColumn>
+                    <DataGridTextColumn Header="测试模式" Binding="{Binding TestMode}" ToolTipService.ToolTip="ACW/DCW=耐压；IR=绝缘电阻（同一SN可能多行）"></DataGridTextColumn>
                     <DataGridTextColumn Header="拍照留底" Binding="{Binding TakePhoto1}"></DataGridTextColumn>
                     <DataGridTextColumn Header="TV结果" Binding="{Binding TVResult}"></DataGridTextColumn>
                     <DataGridTextColumn Header="TV最大电压" Binding="{Binding TVMaxVoltage}"></DataGridTextColumn>

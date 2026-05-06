@@ -447,17 +447,32 @@ namespace SQLITEDATABASE
         public static bool InsertTV_SecondTest(string WOCODE, string PARTNOID, string SN, string STATIONCODE, string EQUIPMENTID,
             float RES, float MaxVoltage, bool TVResult, float MaxCurrent, string TVInfo, string TVMeterID)
         {
+            return InsertElectricalTestRecord(WOCODE, PARTNOID, SN, STATIONCODE, EQUIPMENTID,
+                RES, MaxVoltage, TVResult, MaxCurrent, TVInfo, TVMeterID, "InsertTV_SecondTest");
+        }
+
+        /// <summary>
+        /// 新增一条独立电测记录（ACW/DCW第二次测试、IR测试共用）。
+        ///
+        /// 业务策略：
+        /// - 本地表沿用既有 TV* 物理列，避免扩表影响历史数据与下游上传；
+        /// - 通过 TVInfo 前缀、TVMeterID 和 UI 的 TestMode 区分 ACW/DCW/IR 语义；
+        /// - 插入独立电测行时复制同 SN 最近一条记录的拍照/压力结果，保证界面和追溯数据不断层。
+        /// </summary>
+        private static bool InsertElectricalTestRecord(string WOCODE, string PARTNOID, string SN, string STATIONCODE, string EQUIPMENTID,
+            float RES, float MaxVoltage, bool TVResult, float MaxCurrent, string TVInfo, string TVMeterID, string source)
+        {
             try
             {
                 string _connstr = CheckDataBase(WOCODE, PARTNOID, SN);
 
                 if (string.IsNullOrEmpty(_connstr))
                 {
-                    WriteErrorLog("[追踪]InsertTV_SecondTest-连接串为空", "CheckDataBase返回空", SN, WOCODE);
+                    WriteErrorLog($"[追踪]{source}-连接串为空", "CheckDataBase返回空", SN, WOCODE);
                     return false;
                 }
 
-                // 先从第一条记录复制基础信息（TakePhoto1等），然后插入新记录
+                // 先从最近一条记录复制基础信息（TakePhoto1/压力等），再插入新的独立电测行。
                 string sqlSelect = $"SELECT TAKEPHOTO1, PRESSURE_MAX, PRESSURE_AVERAGE, PRESSURE_MIN, PRESSURE_RESULT FROM BusbarCompressionData WHERE id=(SELECT max(id) from BusbarCompressionData WHERE sn='{SN}')";
                 DataTable dt = Read(sqlSelect, _connstr);
 
@@ -467,11 +482,11 @@ namespace SQLITEDATABASE
 
                 if (dt != null && dt.Rows.Count > 0)
                 {
-                    bool.TryParse(dt.Rows[0]["TAKEPHOTO1"]?.ToString(), out takePhoto1);
+                    takePhoto1 = TryParseDbBool(dt.Rows[0]["TAKEPHOTO1"]);
                     float.TryParse(dt.Rows[0]["PRESSURE_MAX"]?.ToString(), out pressureMax);
                     float.TryParse(dt.Rows[0]["PRESSURE_AVERAGE"]?.ToString(), out pressureAvg);
                     float.TryParse(dt.Rows[0]["PRESSURE_MIN"]?.ToString(), out pressureMin);
-                    bool.TryParse(dt.Rows[0]["PRESSURE_RESULT"]?.ToString(), out pressureResult);
+                    pressureResult = TryParseDbBool(dt.Rows[0]["PRESSURE_RESULT"]);
                 }
 
                 // 插入新记录
@@ -481,19 +496,19 @@ namespace SQLITEDATABASE
                 int c = excute_sql(sqlInsert, _connstr);
                 if (c > 0)
                 {
-                    WriteErrorLog("[双测模式]InsertTV_SecondTest-插入成功", $"TVInfo={TVInfo}", SN, WOCODE);
+                    WriteErrorLog("[电测记录]新增独立测试行成功", $"Source={source}, TVInfo={TVInfo}", SN, WOCODE);
                 }
                 return c > 0;
             }
             catch (Exception ex)
             {
-                WriteErrorLog("[数据库异常]InsertTV_SecondTest失败", $"异常: {ex.Message}", SN, WOCODE);
+                WriteErrorLog($"[数据库异常]{source}失败", $"异常: {ex.Message}", SN, WOCODE);
             }
             return false;
         }
 
         /// <summary>
-        /// 插入 IR 绝缘电阻测试结果行（复用 InsertTV_SecondTest 逻辑）
+        /// 插入 IR 绝缘电阻测试结果行（复用独立电测记录插入逻辑）
         /// 列映射：
         /// - TVMAXVOLTAGE ← 绝缘电阻（Ohm）
         /// - TVMAXCURRENT ← 漏电流（A）
@@ -503,8 +518,8 @@ namespace SQLITEDATABASE
         public static bool InsertIR_Test(string WOCODE, string PARTNOID, string SN, string STATIONCODE, string EQUIPMENTID,
             float RES, float MaxVoltage, bool TVResult, float MaxCurrent, string TVInfo, string TVMeterID)
         {
-            return InsertTV_SecondTest(WOCODE, PARTNOID, SN, STATIONCODE, EQUIPMENTID,
-                RES, MaxVoltage, TVResult, MaxCurrent, TVInfo, TVMeterID);
+            return InsertElectricalTestRecord(WOCODE, PARTNOID, SN, STATIONCODE, EQUIPMENTID,
+                RES, MaxVoltage, TVResult, MaxCurrent, TVInfo, TVMeterID, "InsertIR_Test");
         }
 
         /// <summary>
