@@ -292,25 +292,111 @@ namespace SQLITEDATABASE
         /// <param name="PressureResult">压力测试是否合格</param>
         public static bool UpdatePressure(string WOCODE, string PARTNOID, string SN, float AveragePressure, float MaxPressure, float MinPressure, bool PressureResult)
         {
+            return UpdatePressureByLatestRecord(WOCODE, PARTNOID, SN, AveragePressure, MaxPressure, MinPressure, PressureResult, string.Empty, "UpdatePressure");
+        }
+
+        /// <summary>
+        /// 更新同SN最近一条非IR电测记录的压力数据，避免CHECK1读取D1600时覆盖IR自己的压力记录。
+        /// </summary>
+        public static bool UpdatePressureForNonIrLatest(string WOCODE, string PARTNOID, string SN, float AveragePressure, float MaxPressure, float MinPressure, bool PressureResult)
+        {
+            return UpdatePressureByLatestRecord(WOCODE, PARTNOID, SN, AveragePressure, MaxPressure, MinPressure, PressureResult,
+                "AND (TVInfo IS NULL OR TVInfo NOT LIKE '[IR]%')", "UpdatePressureForNonIrLatest");
+        }
+
+        /// <summary>
+        /// 更新同SN最近一条指定TVInfo前缀的电测记录压力数据，例如[IR]。
+        /// </summary>
+        public static bool UpdatePressureByTvInfoPrefix(string WOCODE, string PARTNOID, string SN, string tvInfoPrefix, float AveragePressure, float MaxPressure, float MinPressure, bool PressureResult)
+        {
+            if (string.IsNullOrWhiteSpace(tvInfoPrefix))
+            {
+                return UpdatePressure(WOCODE, PARTNOID, SN, AveragePressure, MaxPressure, MinPressure, PressureResult);
+            }
+
+            string safePrefix = tvInfoPrefix.Replace("'", "''");
+            return UpdatePressureByLatestRecord(WOCODE, PARTNOID, SN, AveragePressure, MaxPressure, MinPressure, PressureResult,
+                $"AND TVInfo LIKE '{safePrefix}%'", $"UpdatePressureByTvInfoPrefix-{tvInfoPrefix}");
+        }
+
+        private static bool UpdatePressureByLatestRecord(string WOCODE, string PARTNOID, string SN, float AveragePressure, float MaxPressure, float MinPressure, bool PressureResult, string extraCondition, string source)
+        {
             try
             {
                 string _connstr = CheckDataBase(WOCODE, PARTNOID, SN);
 
                 if (string.IsNullOrEmpty(_connstr))
                 {
-                    WriteErrorLog("[追踪]UpdatePressure-连接串为空", "CheckDataBase返回空", SN, WOCODE);
+                    WriteErrorLog($"[追踪]{source}-连接串为空", "CheckDataBase返回空", SN, WOCODE);
                     return false;
                 }
 
-                string sql = $"UPDATE BusbarCompressionData SET PRESSURE_RESULT ={(PressureResult ? 1 : 0)},PRESSURE_MAX={MaxPressure},PRESSURE_AVERAGE={AveragePressure},PRESSURE_MIN={MinPressure} WHERE id=(SELECT max(id) from BusbarCompressionData WHERE sn='{SN}')";
+                string sql = $"UPDATE BusbarCompressionData SET PRESSURE_RESULT ={(PressureResult ? 1 : 0)},PRESSURE_MAX={MaxPressure},PRESSURE_AVERAGE={AveragePressure},PRESSURE_MIN={MinPressure} WHERE id=(SELECT max(id) from BusbarCompressionData WHERE sn='{SN}' {extraCondition})";
                 int c = excute_sql(sql, _connstr);
+                if (c <= 0)
+                {
+                    WriteErrorLog($"[追踪]{source}-未找到可更新记录",
+                        $"SQL=[{sql}], PRESSURE_RESULT={(PressureResult ? 1 : 0)}, PRESSURE_MAX={MaxPressure}, PRESSURE_AVERAGE={AveragePressure}, PRESSURE_MIN={MinPressure}",
+                        SN, WOCODE);
+                }
                 return c > 0;
             }
             catch (Exception ex)
             {
-                WriteErrorLog("[数据库异常]UpdatePressure失败", $"异常: {ex.Message}", SN, WOCODE);
+                WriteErrorLog($"[数据库异常]{source}失败", $"异常: {ex.Message}", SN, WOCODE);
             }
             return false;
+        }
+
+        public static bool TryGetLatestNonIrPressureResult(string WOCODE, string PARTNOID, string SN, out bool pressureResult, out string detail)
+        {
+            pressureResult = false;
+            detail = string.Empty;
+
+            try
+            {
+                string _connstr = CheckDataBase(WOCODE, PARTNOID, SN);
+                if (string.IsNullOrEmpty(_connstr))
+                {
+                    detail = "数据库连接字符串为空";
+                    return false;
+                }
+
+                string sql = $"SELECT TVInfo, PRESSURE_RESULT, PRESSURE_MAX, PRESSURE_AVERAGE, PRESSURE_MIN FROM BusbarCompressionData WHERE id=(SELECT max(id) from BusbarCompressionData WHERE sn='{SN}' AND (TVInfo IS NULL OR TVInfo NOT LIKE '[IR]%'))";
+                DataTable dt = Read(sql, _connstr);
+                if (dt == null || dt.Rows.Count <= 0)
+                {
+                    detail = $"未找到非IR压力记录，SQL=[{sql}]";
+                    return false;
+                }
+
+                string sPressureResult = dt.Rows[0]["PRESSURE_RESULT"]?.ToString();
+                detail = $"TVInfo=[{dt.Rows[0]["TVInfo"]?.ToString()}], PRESSURE_RESULT=[{sPressureResult}], PRESSURE_MAX=[{dt.Rows[0]["PRESSURE_MAX"]?.ToString()}], PRESSURE_AVERAGE=[{dt.Rows[0]["PRESSURE_AVERAGE"]?.ToString()}], PRESSURE_MIN=[{dt.Rows[0]["PRESSURE_MIN"]?.ToString()}]";
+
+                if (string.IsNullOrWhiteSpace(sPressureResult))
+                {
+                    return false;
+                }
+
+                if (sPressureResult == "1")
+                {
+                    pressureResult = true;
+                    return true;
+                }
+                if (sPressureResult == "0")
+                {
+                    pressureResult = false;
+                    return true;
+                }
+
+                return bool.TryParse(sPressureResult, out pressureResult);
+            }
+            catch (Exception ex)
+            {
+                detail = $"异常: {ex.Message}";
+                WriteErrorLog("[数据库异常]TryGetLatestNonIrPressureResult失败", detail, SN, WOCODE);
+                return false;
+            }
         }
         /// <summary>
         /// 更新产品的耐压测试数据（TV = Test Voltage）
@@ -856,7 +942,7 @@ namespace SQLITEDATABASE
 
                 if (!string.IsNullOrEmpty(_connstr))
                 {
-                    string sql = $"SELECT SN, TAKEPHOTO1, RES, TVMAXVOLTAGE, TVRESULT, PRESSURE_RESULT FROM BusbarCompressionData  where ID=(SELECT max(ID)  FROM BusbarCompressionData WHERE sn='{SN}')";
+                    string sql = $"SELECT SN, TAKEPHOTO1, RES, TVMAXVOLTAGE, TVRESULT, TVInfo, PRESSURE_RESULT FROM BusbarCompressionData  where ID=(SELECT max(ID)  FROM BusbarCompressionData WHERE sn='{SN}')";
                     DataTable dt = Read(sql, _connstr);
                     
                     if (dt == null || dt.Rows.Count <= 0)
@@ -872,9 +958,10 @@ namespace SQLITEDATABASE
                     {
                         // 记录查询到的记录详情
                         string recordId = dt.Rows[0]["SN"]?.ToString() ?? "未知";
+                        string tvInfo = dt.Rows[0]["TVInfo"]?.ToString() ?? "";
                         string dbPath = _connstr.Replace("Data Source=", "").Replace(";Pooling=true;FailIfMissing=false", "");
                         WriteErrorLog("[调试信息]CHECK1-查询记录详情",
-                            $"数据库文件={dbPath}, SN={recordId}, TAKEPHOTO1原始值=[{dt.Rows[0]["TAKEPHOTO1"]?.ToString()}], RES=[{dt.Rows[0]["RES"]?.ToString()}], TVRESULT=[{dt.Rows[0]["TVRESULT"]?.ToString()}]",
+                            $"数据库文件={dbPath}, SN={recordId}, TVInfo=[{tvInfo}], TAKEPHOTO1原始值=[{dt.Rows[0]["TAKEPHOTO1"]?.ToString()}], RES=[{dt.Rows[0]["RES"]?.ToString()}], TVRESULT=[{dt.Rows[0]["TVRESULT"]?.ToString()}], PRESSURE_RESULT=[{dt.Rows[0]["PRESSURE_RESULT"]?.ToString()}]",
                             SN, WOCODE);
                         
                         // 1. 先解析拍照留底（必须字段）
@@ -979,7 +1066,7 @@ namespace SQLITEDATABASE
                                 return 2;
                             }
 
-                        // 6. 判断压力结果（与耐压同优先级，失败即返回NG3）
+                        // 6. 判断压力结果（与阻值同级，失败即返回NG3）
                         bool _pressureResult = false;
                         string s_pressureResult = dt.Rows[0]["PRESSURE_RESULT"]?.ToString();
 
@@ -1010,7 +1097,31 @@ namespace SQLITEDATABASE
 
                         if (!_pressureResult)
                         {
+                            WriteErrorLog("[业务判定]CHECK1-压力结果不良",
+                               $"最新记录TVInfo=[{tvInfo}], PRESSURE_RESULT=false，返回值=3",
+                               SN, WOCODE);
                             return 3;
+                        }
+
+                        // 最新记录为IR时，IR压力已在上方参与判定；同时还要检查最近一条非IR电测压力，避免IR压力覆盖原电测压力判定。
+                        if (tvInfo.StartsWith("[IR]"))
+                        {
+                            bool nonIrPressureResult;
+                            string nonIrPressureDetail;
+                            if (!TryGetLatestNonIrPressureResult(WOCODE, PARTNOID, SN, out nonIrPressureResult, out nonIrPressureDetail))
+                            {
+                                WriteErrorLog("[数据缺失]CHECK1-非IR压力记录异常",
+                                   $"{nonIrPressureDetail}，返回值=3",
+                                   SN, WOCODE);
+                                return 3;
+                            }
+                            if (!nonIrPressureResult)
+                            {
+                                WriteErrorLog("[业务判定]CHECK1-非IR压力结果不良",
+                                   $"{nonIrPressureDetail}，返回值=3",
+                                   SN, WOCODE);
+                                return 3;
+                            }
                         }
 
                         // 7. 检查是否为双测模式
@@ -1074,7 +1185,7 @@ namespace SQLITEDATABASE
 
                 if (!string.IsNullOrEmpty(_connstr))
                 {
-                    string sql = $"SELECT SN, TAKEPHOTO1, RES, TVMAXVOLTAGE, TVRESULT, PRESSURE_RESULT, TAKEPHOTO2 FROM BusbarCompressionData  where ID=(SELECT max(ID)  FROM BusbarCompressionData WHERE sn='{SN}')";
+                    string sql = $"SELECT SN, TAKEPHOTO1, RES, TVMAXVOLTAGE, TVRESULT, TVInfo, PRESSURE_RESULT, TAKEPHOTO2 FROM BusbarCompressionData  where ID=(SELECT max(ID)  FROM BusbarCompressionData WHERE sn='{SN}')";
                     DataTable dt = Read(sql, _connstr);
                     
                     if (dt == null || dt.Rows.Count <= 0)
@@ -1088,6 +1199,7 @@ namespace SQLITEDATABASE
                     
                     if (dt != null && dt.Rows.Count > 0)
                     {
+                        string tvInfo = dt.Rows[0]["TVInfo"]?.ToString() ?? "";
                         // 1. 先解析拍照留底（必须字段）
                         bool _takephoto1 = false;
                         string s_takephoto1 = dt.Rows[0]["TAKEPHOTO1"]?.ToString();
@@ -1183,7 +1295,7 @@ namespace SQLITEDATABASE
                                     return 2;
                                 }
 
-                            // 6. 判断压力结果（与耐压同优先级，失败即返回NG2）
+                            // 6. 判断压力结果（与阻值同级，失败即返回NG3）
                             bool _pressureResult = false;
                             string s_pressureResult = dt.Rows[0]["PRESSURE_RESULT"]?.ToString();
 
@@ -1214,7 +1326,31 @@ namespace SQLITEDATABASE
 
                             if (!_pressureResult)
                             {
+                                WriteErrorLog("[业务判定]CHECK2-压力结果不良",
+                                   $"最新记录TVInfo=[{tvInfo}], PRESSURE_RESULT=false，返回值=3",
+                                   SN, WOCODE);
                                 return 3;
+                            }
+
+                            // 最新记录为IR时，同时检查最近一条非IR电测压力。
+                            if (tvInfo.StartsWith("[IR]"))
+                            {
+                                bool nonIrPressureResult;
+                                string nonIrPressureDetail;
+                                if (!TryGetLatestNonIrPressureResult(WOCODE, PARTNOID, SN, out nonIrPressureResult, out nonIrPressureDetail))
+                                {
+                                    WriteErrorLog("[数据缺失]CHECK2-非IR压力记录异常",
+                                       $"{nonIrPressureDetail}，返回值=3",
+                                       SN, WOCODE);
+                                    return 3;
+                                }
+                                if (!nonIrPressureResult)
+                                {
+                                    WriteErrorLog("[业务判定]CHECK2-非IR压力结果不良",
+                                       $"{nonIrPressureDetail}，返回值=3",
+                                       SN, WOCODE);
+                                    return 3;
+                                }
                             }
                         }
 
