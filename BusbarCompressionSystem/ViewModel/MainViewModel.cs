@@ -1781,6 +1781,8 @@ namespace BusbarCompressionSystem.ViewModel
 
                     ProductInfoRecord firstSnRecord = null;
                     ProductInfoRecord target = null;
+                    int targetIndex = -1;
+                    bool refreshExistingTarget = false;
 
                     // 1) 优先找同SN且模式匹配的记录（存在则直接更新）
                     for (int idx = 0; idx < DataModel.Recordmodel.ProductInfoRecords.Count; idx++)
@@ -1794,6 +1796,8 @@ namespace BusbarCompressionSystem.ViewModel
                             string.Equals(p.TestMode, testMode, StringComparison.OrdinalIgnoreCase))
                         {
                             target = p;
+                            targetIndex = idx;
+                            refreshExistingTarget = true;
                             break;
                         }
                     }
@@ -1813,6 +1817,8 @@ namespace BusbarCompressionSystem.ViewModel
                             if (!hasTvData)
                             {
                                 target = p;
+                                targetIndex = idx;
+                                refreshExistingTarget = true;
                                 break;
                             }
                         }
@@ -1873,6 +1879,15 @@ namespace BusbarCompressionSystem.ViewModel
                         target.TVInfo = tvinfo;
                         target.TVMeterID = tvmeterid;
                         target.DateTime = DateTime.Now;
+
+                        if (refreshExistingTarget &&
+                            targetIndex >= 0 &&
+                            targetIndex < DataModel.Recordmodel.ProductInfoRecords.Count)
+                        {
+                            // ProductInfoRecord uses plain auto-properties, so replace the item
+                            // to force DataGrid refresh/re-sort without changing source order.
+                            DataModel.Recordmodel.ProductInfoRecords[targetIndex] = target;
+                        }
                     }
                     else
                     {

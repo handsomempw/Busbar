@@ -25,6 +25,7 @@ using Panuon.WPF.UI;
 using SQLITEDATABASE;
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -69,6 +70,7 @@ namespace BusbarCompressionSystem
             vml.Main.LoadSettingModel();
             vml.Main.LoadRecordModel();
             vml.Main.LoadProcessmodel();
+            ApplyProductInfoRecordsSort();
 
             vml.Main.Faravision_LoadSettingModel();
             vml.Main.Load_Prj();
@@ -86,6 +88,24 @@ namespace BusbarCompressionSystem
             vml.Main.InitHwindow(Hwindow4.HalconWindow);
 
             InitFaraVisionCamera();
+        }
+
+        private void ApplyProductInfoRecordsSort()
+        {
+            var records = vml?.Main?.DataModel?.Recordmodel?.ProductInfoRecords;
+            if (records == null)
+            {
+                return;
+            }
+
+            var view = CollectionViewSource.GetDefaultView(records);
+            if (view == null)
+            {
+                return;
+            }
+
+            view.SortDescriptions.Clear();
+            view.SortDescriptions.Add(new SortDescription("DateTime", ListSortDirection.Descending));
         }
 
 
@@ -294,11 +314,20 @@ namespace BusbarCompressionSystem
             }
 
 
-            for (int i = vml.Main.DataModel.Recordmodel.ProductInfoRecords.Count - 1; i >= 10; i--)
+            var records = vml.Main.DataModel.Recordmodel.ProductInfoRecords;
+            var latestRecords = records
+                .OrderByDescending(p => p?.DateTime ?? DateTime.MinValue)
+                .Take(10)
+                .ToList();
+
+            for (int i = records.Count - 1; i >= 0; i--)
             {
                 try
                 {
-                    vml.Main.DataModel.Recordmodel.ProductInfoRecords.RemoveAt(i);
+                    if (!latestRecords.Contains(records[i]))
+                    {
+                        records.RemoveAt(i);
+                    }
                 }
                 catch (Exception ex) {; }
             }
