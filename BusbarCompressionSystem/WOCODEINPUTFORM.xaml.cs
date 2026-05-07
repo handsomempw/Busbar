@@ -146,14 +146,24 @@ namespace BusbarCompressionSystem
                 var dcw9 = ps.Where(p => p.ParameterName == "直流极壳压力下限");
 
                 // IR绝缘电阻参数（MES字段可能随版本变化：用“精确名 + 包含匹配”双保险）
-                var irVolt = ps.Where(p => p.ParameterName == "IR测试电压" || (p.ParameterName?.Contains("IR") == true && p.ParameterName.Contains("测试电压")));
+                var irVolt = ps.Where(p => p.ParameterName == "IR测试电压" ||
+                                           (p.ParameterName?.Contains("IR") == true &&
+                                            p.ParameterName.Contains("测试电压") &&
+                                            !p.ParameterName.Contains("下限") &&
+                                            !p.ParameterName.Contains("上限")));
                 var irTime = ps.Where(p => p.ParameterName == "IR测试时间" || (p.ParameterName?.Contains("IR") == true && p.ParameterName.Contains("测试时间")));
                 var irResLow = ps.Where(p => p.ParameterName == "IR下限" ||
                                              p.ParameterName == "IR电阻下限" ||
-                                             (p.ParameterName?.Contains("IR") == true && (p.ParameterName.Contains("下限") || p.ParameterName.Contains("电阻"))));
+                                             (p.ParameterName?.Contains("IR") == true &&
+                                              p.ParameterName.Contains("电阻") &&
+                                              p.ParameterName.Contains("下限") &&
+                                              !p.ParameterName.Contains("电压")));
                 var irResHigh = ps.Where(p => p.ParameterName == "IR上限" ||
                                               p.ParameterName == "IR电阻上限" ||
-                                              (p.ParameterName?.Contains("IR") == true && p.ParameterName.Contains("上限")));
+                                              (p.ParameterName?.Contains("IR") == true &&
+                                               p.ParameterName.Contains("电阻") &&
+                                               p.ParameterName.Contains("上限") &&
+                                               !p.ParameterName.Contains("电压")));
                 var irVoltLow = ps.Where(p => p.ParameterName == "IR测试电压下限" || (p.ParameterName?.Contains("IR") == true && p.ParameterName.Contains("电压下限")));
                 var irVoltHigh = ps.Where(p => p.ParameterName == "IR测试电压上限" || (p.ParameterName?.Contains("IR") == true && p.ParameterName.Contains("电压上限")));
 
