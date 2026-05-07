@@ -70,6 +70,16 @@ namespace AT6835FL
         [XmlIgnore]
         public bool DownloadSelfCheck { get; set; } = true;
 
+        /// <summary>
+        /// 仪器参数下发成功后缓存的 TIME? 回读值。
+        ///
+        /// 业务上它不是“测试结束信号”，而是本次 IR 测试必须满足的最短有效测试时长：
+        /// 上位机只有在收到有效结果后跑满该时长，并且结果流静默 2 秒，才允许进入正常放电收尾。
+        /// 这样可以避免单纯按本地倒计时提前 STAT:DISC，影响绝缘电阻测试完整性。
+        /// </summary>
+        [XmlIgnore]
+        private int _confirmedTestTimeSeconds = 0;
+
         [XmlIgnore]
         private string _serialDebugSessionFile;
 
@@ -699,6 +709,10 @@ namespace AT6835FL
 
         /// <summary>
         /// 参数下发核心实现（假设已连接）。
+        ///
+        /// 这里不仅把 VOLT/TIME/COMP:RES 写入仪器，还要通过回读确认仪器实际采用的参数。
+        /// 对 IR 自动测试来说，TIME? 回读值会被缓存为后续放电时机的业务基准：
+        /// 它限定“至少测试多久”，但不直接代表“测试结束”，真正结束还要看结果流是否自然静默。
         /// </summary>
         private Result DownloadCore()
         {
@@ -792,6 +806,17 @@ namespace AT6835FL
                     return r;
                 }
 
+                if (TryParseNumberInvariant(rt.Value, out var confirmedTime) && confirmedTime > 0)
+                {
+                    _confirmedTestTimeSeconds = Math.Max(1, (int)Math.Ceiling(confirmedTime));
+                    WriteLog($"IR参数确认：测试时间={_confirmedTestTimeSeconds}s");
+                }
+                else
+                {
+                    _confirmedTestTimeSeconds = Math.Max(1, p.TestTime);
+                    WriteLog($"IR参数确认：TIME回读解析失败，使用配置测试时间={_confirmedTestTimeSeconds}s");
+                }
+
                 r.Success = true;
                 return r;
             }
@@ -836,8 +861,13 @@ namespace AT6835FL
         /// <summary>
         /// 内部核心测试流程。
         ///
-        /// 当前 AT6835FL 采用 internal 触发源：STAT:CHAR 后仪表会在设定测试时间内持续回传结果流。
-        /// 因此这里按 TIME 窗口接收多行结果并取最后一条有效值，而不是依赖 STAT? 轮询单次状态。
+        /// 业务目标是把“测试是否完整结束”和“安全放电”分开处理：
+        /// - STAT:CHAR 只负责启动仪器 internal 自动流程；
+        /// - TIME? 回读值作为最短有效测试时长，收到首条有效结果后才开始计时；
+        /// - 有效测试时长满足后，还要等待 2 秒没有新的有效结果，才认为结果流自然结束；
+        /// - 外部停止、异常、超时仍会立即 STAT:DISC，这是安全保护路径，不作为正常合格结果。
+        ///
+        /// 这样上层 IRProcess 仍只消费最终电阻/漏电流/判定，但驱动内部不会因为本地时间窗结束就提前放电。
         /// </summary>
         public Result _Start()
         {
@@ -847,30 +877,30 @@ namespace AT6835FL
 
             try
             {
-                WriteLog("开始正式测试流程：自检→下发→STAT:CHAR自动测试→按设定时间取稳定值→放电");
+                WriteLog("IR测试开始：参数确认后进入自动测试，等待结果流自然结束再放电");
 
                 // 1. 自检（正式触发流程：保留“状态机/安全”必要项，跳过/降频身份回读）
-                WriteLog("步骤1/7：自检开始（简化：保留STAT/TRIG/回送设置，身份回读降频）");
+                SerialDebugTrace("正式测试自检开始（保留STAT/TRIG/回送设置，身份回读降频）");
                 var sc = SelfCheck(verifyIdentity: false);
                 if (!sc.Success)
                 {
                     r.Error = sc.Error;
                     return r;
                 }
-                WriteLog("步骤1/7：自检通过");
+                SerialDebugTrace("正式测试自检通过");
 
                 // 2. 下发参数
-                WriteLog("步骤2/7：下发参数开始");
+                SerialDebugTrace("正式测试参数下发开始");
                 var dl = DownloadCore();
                 if (!dl.Success)
                 {
                     r.Error = dl.Error;
                     return r;
                 }
-                WriteLog("步骤2/7：下发参数完成");
+                SerialDebugTrace("正式测试参数下发完成");
 
                 // 3. 切换到充电/测试状态（internal 模式下，STAT:CHAR 后仪器会自动进行充电→测试→放电，并持续回传多组结果）
-                WriteLog("步骤3/6：发送STAT:CHAR进入自动测试流程（internal，无需*TRG）");
+                SerialDebugTrace("发送STAT:CHAR进入自动测试流程（internal，无需*TRG）");
                 var ch = Send("STAT:CHAR");
                 if (!ch.Success)
                 {
@@ -881,8 +911,13 @@ namespace AT6835FL
                 // 4. 接收“结果流”：仪器会不断回传多组数据，等待设定时间后取稳定值（通常取最后一条有效结果）
                 // 注意：这一步不依赖 STAT?，避免在充电/测试态下 query 偶发不回包导致流程中断。
                 var p = IRParameter ?? new IRParameter();
-                int waitMs = Math.Max(1, p.TestTime) * 1000;
-                WriteLog($"步骤4/6：接收结果流并等待稳定（waitMs={waitMs}，TestTime={p.TestTime}s）");
+                int confirmedTestTimeSeconds = _confirmedTestTimeSeconds > 0
+                    ? _confirmedTestTimeSeconds
+                    : Math.Max(1, p.TestTime);
+                int minEffectiveMs = confirmedTestTimeSeconds * 1000;
+                const int quietAfterEffectiveMs = 2000;
+                int maxWaitMs = (Math.Max(1, MaxChargeSeconds) + Math.Max(1, MaxTestSeconds) + confirmedTestTimeSeconds) * 1000 + quietAfterEffectiveMs;
+                WriteLog($"IR测试等待结果流：最短有效时间={confirmedTestTimeSeconds}s，无新结果静默=2s");
 
                 // 进入自动流程后，先清空一次输入缓冲，避免读到 STAT:CHAR 之前残留的回包
                 try { _serialPort.DiscardInBuffer(); } catch { }
@@ -897,6 +932,10 @@ namespace AT6835FL
                 string lastJud = string.Empty;
                 int validCount = 0;
                 int parseFailCount = 0;
+                int firstValidAt = -1;
+                int lastValidAt = -1;
+                int finalEffectiveElapsed = 0;
+                int finalQuietElapsed = 0;
 
                 // 流式读：用较短的接收超时，避免“没有新行”时阻塞太久，导致 stop 不及时
                 int streamTimeoutMs = Math.Min(1000, Math.Max(200, PollIntervalMs * 2));
@@ -907,7 +946,9 @@ namespace AT6835FL
                 {
                     int start = Environment.TickCount;
                     int lastProgressLogAt = -1000000;
-                    while (Environment.TickCount - start < waitMs)
+                    bool reachedEffectiveTimeLogged = false;
+                    bool resultStreamQuietCompleted = false;
+                    while (Environment.TickCount - start < maxWaitMs)
                     {
                         if (stop)
                         {
@@ -920,6 +961,7 @@ namespace AT6835FL
                         var rr = ReadLineOnly(); // 读取一行结果（超时视为“本周期无新数据”）
                         if (rr.Success && !string.IsNullOrWhiteSpace(rr.Value))
                         {
+                            int lineElapsed = Environment.TickCount - start;
                             // 结果格式：电阻,电流,判定（示例：1.008860e+09,9.912178e-08,GD）
                             if (TryParseResultLine(rr.Value, out var resVal, out var curVal, out var judVal))
                             {
@@ -928,6 +970,12 @@ namespace AT6835FL
                                 lastCur = curVal;
                                 lastJud = judVal;
                                 validCount++;
+                                if (firstValidAt < 0)
+                                {
+                                    firstValidAt = lineElapsed;
+                                    SerialDebugTrace($"收到首条有效结果，开始计算有效测试时间 firstValidAt={firstValidAt}ms");
+                                }
+                                lastValidAt = lineElapsed;
                             }
                             else
                             {
@@ -936,11 +984,41 @@ namespace AT6835FL
                         }
 
                         int elapsed = Environment.TickCount - start;
+                        if (firstValidAt >= 0)
+                        {
+                            int effectiveElapsed = elapsed - firstValidAt;
+                            int quietElapsed = lastValidAt >= 0 ? elapsed - lastValidAt : 0;
+                            finalEffectiveElapsed = effectiveElapsed;
+                            finalQuietElapsed = quietElapsed;
+                            if (effectiveElapsed >= minEffectiveMs)
+                            {
+                                if (!reachedEffectiveTimeLogged)
+                                {
+                                    reachedEffectiveTimeLogged = true;
+                                    SerialDebugTrace($"已满足有效测试时间 effectiveElapsed={effectiveElapsed}/{minEffectiveMs}ms，等待{quietAfterEffectiveMs}ms无新结果后收尾");
+                                }
+
+                                if (quietElapsed >= quietAfterEffectiveMs)
+                                {
+                                    resultStreamQuietCompleted = true;
+                                    WriteLog($"IR结果流结束：有效测试{effectiveElapsed}ms，静默{quietElapsed}ms，有效帧{validCount}条");
+                                    break;
+                                }
+                            }
+                        }
+
                         if (elapsed - lastProgressLogAt >= 2000)
                         {
                             lastProgressLogAt = elapsed;
-                            WriteLog($"步骤4/6：等待稳定中 elapsedMs={elapsed}/{waitMs} valid={validCount} parseFail={parseFailCount}");
+                            int effectiveElapsed = firstValidAt >= 0 ? elapsed - firstValidAt : 0;
+                            int quietElapsed = lastValidAt >= 0 ? elapsed - lastValidAt : 0;
+                            SerialDebugTrace($"等待稳定中 elapsedMs={elapsed}/{maxWaitMs} effectiveMs={effectiveElapsed}/{minEffectiveMs} quietMs={quietElapsed}/{quietAfterEffectiveMs} valid={validCount} parseFail={parseFailCount}");
                         }
+                    }
+
+                    if (!resultStreamQuietCompleted && !stop)
+                    {
+                        SerialDebugTrace($"结果流未自然静默，elapsedMax={maxWaitMs}ms effectiveMs={finalEffectiveElapsed}/{minEffectiveMs} quietMs={finalQuietElapsed}/{quietAfterEffectiveMs} valid={validCount} parseFail={parseFailCount}");
                     }
                 }
                 finally
@@ -951,10 +1029,23 @@ namespace AT6835FL
                 }
 
                 // 5. 选取稳定值并判定
-                WriteLog("步骤5/6：选取稳定值并判定");
                 if (string.IsNullOrWhiteSpace(lastValidLine))
                 {
                     r.Error = $"未收到有效结果（valid=0, parseFail={parseFailCount}）";
+                    Send("STAT:DISC");
+                    return r;
+                }
+
+                if (firstValidAt < 0 || finalEffectiveElapsed < minEffectiveMs)
+                {
+                    r.Error = $"测试结果流未满足有效测试时间（effectiveMs={finalEffectiveElapsed}/{minEffectiveMs}, valid={validCount}）";
+                    Send("STAT:DISC");
+                    return r;
+                }
+
+                if (finalQuietElapsed < quietAfterEffectiveMs)
+                {
+                    r.Error = $"测试结果流未出现2秒静默（quietMs={finalQuietElapsed}/{quietAfterEffectiveMs}, valid={validCount}）";
                     Send("STAT:DISC");
                     return r;
                 }
@@ -964,10 +1055,10 @@ namespace AT6835FL
                 r.Judgment = lastJud;
                 r.Success = string.Equals(r.Judgment, "GD", StringComparison.OrdinalIgnoreCase);
                 r.Recordstr = strrecord;
-                WriteLog($"稳定结果 line={lastValidLine} => R={r.Resistance} I={r.LeakCurrent} Jud={r.Judgment} => {(r.Success ? "OK" : "NG")}");
+                WriteLog($"IR测试结果：{(r.Success ? "OK" : "NG")}，R={r.Resistance}，I={r.LeakCurrent}，Jud={r.Judgment}");
 
                 // 6. 放电收尾（即使仪器会自动放电，也主动下发一次，确保回到 discharge，降低高压风险）
-                WriteLog("步骤6/6：发送STAT:DISC放电收尾");
+                SerialDebugTrace("发送STAT:DISC放电收尾");
                 Send("STAT:DISC");
                 var sFinal = Get_String("STAT?");
                 if (!sFinal.Success || !string.Equals(sFinal.Value.Trim(), "discharge", StringComparison.OrdinalIgnoreCase))
@@ -1018,6 +1109,15 @@ namespace AT6835FL
 
             judgment = parts[2].Trim();
             return !string.IsNullOrEmpty(judgment);
+        }
+
+        private static bool TryParseNumberInvariant(string s, out double value)
+        {
+            return double.TryParse(
+                s,
+                NumberStyles.Float | NumberStyles.AllowThousands | NumberStyles.AllowLeadingSign,
+                CultureInfo.InvariantCulture,
+                out value);
         }
 
         #endregion
@@ -1093,9 +1193,9 @@ namespace AT6835FL
                     string actual = compResReadback.Trim();
                     string expected = (CompRes ?? string.Empty).Trim();
 
-                    if (TryParseNumberInvariant(actual, out var a) && TryParseNumberInvariant(expected, out var e))
+                    if (TryParseResistanceOhms(actual, out var a) && TryParseResistanceOhms(expected, out var e))
                     {
-                        // 允许小误差（浮点格式化差异）
+                        // 允许小误差（浮点格式化差异、单位后缀格式差异）
                         if (Math.Abs(a - e) > Math.Max(1e-9, Math.Abs(e) * 1e-9))
                         {
                             r.Error += $"合格阈值不一致: 期望 {expected}, 实际 {actual}; ";
@@ -1118,6 +1218,47 @@ namespace AT6835FL
             }
 
             return r;
+        }
+
+        private static bool TryParseResistanceOhms(string s, out double value)
+        {
+            value = 0;
+            if (string.IsNullOrWhiteSpace(s))
+            {
+                return false;
+            }
+
+            string text = s.Trim();
+            double multiplier = 1;
+            char last = text[text.Length - 1];
+
+            if (char.IsLetter(last))
+            {
+                switch (char.ToUpperInvariant(last))
+                {
+                    case 'K':
+                        multiplier = 1e3;
+                        break;
+                    case 'M':
+                        multiplier = 1e6;
+                        break;
+                    case 'G':
+                        multiplier = 1e9;
+                        break;
+                    default:
+                        return false;
+                }
+
+                text = text.Substring(0, text.Length - 1).Trim();
+            }
+
+            if (!TryParseNumberInvariant(text, out var parsed))
+            {
+                return false;
+            }
+
+            value = parsed * multiplier;
+            return true;
         }
 
         private static bool TryParseNumberInvariant(string s, out double value)
