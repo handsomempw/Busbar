@@ -1545,9 +1545,6 @@ namespace BusbarCompressionSystem.ViewModel
                 var r = DataModel.Settingmodel.AT6835FL_1.Start();
                 irSuccess = r.Success;
 
-                // IR压力在IR测试结束后立即读取，绑定到后续创建的[IR]独立电测记录。
-                var irPressure = ReadPressureSnapshot(DataModel.Settingmodel.IRPressureAddress, "IR", sn);
-
                 // 4) 构造区分信息：写入 TVInfo 用于多测判定
                 string irInfo = $"[IR] {(r.Success ? r.Judgment : r.Error)}";
 
@@ -1569,22 +1566,6 @@ namespace BusbarCompressionSystem.ViewModel
                 {
                     writeLog($"[IR测试] ⚠ SQLite InsertIR_Test失败! SN={sn}", true);
                 }
-                else
-                {
-                    bool pressureDbOk = sqlite.UpdatePressureByTvInfoPrefix(
-                        wocode,
-                        partnoid,
-                        sn,
-                        "[IR]",
-                        irPressure.Average,
-                        irPressure.Max,
-                        irPressure.Min,
-                        irPressure.Result);
-                    if (!pressureDbOk)
-                    {
-                        writeLog($"[IR压力] ⚠ 写入IR压力到SQLite失败: SN={sn}", true);
-                    }
-                }
 
                 // 6) F7失败追溯（仅失败时）
                 if (!r.Success)
@@ -1605,7 +1586,6 @@ namespace BusbarCompressionSystem.ViewModel
                 // 7) 更新界面：复用ACW/DCW同一套电测UI记录逻辑，完成后新增/更新 TestMode=IR 独立行
                 updatetv(sn, res, (float)r.Resistance, r.Success, (float)r.LeakCurrent, irInfo,
                     DataModel.Settingmodel.SETTING_DATA.IRMeterID, "IR", wocode, partnoid);
-                updatepressure(sn, irPressure.Average, irPressure.Max, irPressure.Min, irPressure.Result, "IR");
 
                 writeLog($"[IR测试] 测试完成，结果: {(r.Success ? "PASS" : "FAIL")}, SN={sn}");
             }
@@ -1953,33 +1933,6 @@ namespace BusbarCompressionSystem.ViewModel
             }));
         }
 
-        private struct PressureSnapshot
-        {
-            public UInt16 Average;
-            public UInt16 Max;
-            public UInt16 Min;
-            public bool Result;
-        }
-
-        /// <summary>
-        /// 从指定压力起始地址读取平均/最大/最小压力，并复用现有上下限进行判定。
-        /// </summary>
-        private PressureSnapshot ReadPressureSnapshot(int baseAddress, string source, string sn)
-        {
-            var pressure = new PressureSnapshot
-            {
-                Average = PLC_ReadUint16(baseAddress),
-                Max = PLC_ReadUint16(baseAddress + 2),
-                Min = PLC_ReadUint16(baseAddress + 4)
-            };
-
-            pressure.Result = pressure.Max <= DataModel.Processmodel.PressureParamter.Max_Pressure &&
-                              pressure.Min >= DataModel.Processmodel.PressureParamter.Min_Pressure;
-
-            writeLog($"[{source}压力] SN={sn}, D{baseAddress}(均值)={pressure.Average}, D{baseAddress + 2}(最大)={pressure.Max}, D{baseAddress + 4}(最小)={pressure.Min}, 上限={DataModel.Processmodel.PressureParamter.Max_Pressure}, 下限={DataModel.Processmodel.PressureParamter.Min_Pressure}, 结果={(pressure.Result ? "OK" : "NG")}");
-            return pressure;
-        }
-
         /// <summary>
         /// 根据产品 SN 更新 DataModel.Recordmodel.ProductInfoRecords 中对应记录的压力测试数据。
         /// 业务含义：
@@ -1987,7 +1940,7 @@ namespace BusbarCompressionSystem.ViewModel
         /// - 这些压力数据会一并在 SaveBusBarData 报存到 MES，方便后续追溯。
         /// </summary>
         /// <param name="SN">产品序列号，用于在集合中定位记录</param>
-        private void updatepressure(string SN, UInt16 Pressure_Average, UInt16 Pressure_Max, UInt16 Pressure_Min, bool Pressure_Result, string testMode = null)
+        private void updatepressure(string SN, UInt16 Pressure_Average, UInt16 Pressure_Max, UInt16 Pressure_Min, bool Pressure_Result)
         {
             App.Current.Dispatcher.BeginInvoke(new Action(() =>
             {
@@ -1995,11 +1948,7 @@ namespace BusbarCompressionSystem.ViewModel
                 {
                     foreach (var p in DataModel.Recordmodel.ProductInfoRecords)
                     {
-                        bool snMatched = p.Productinfo.SN == SN;
-                        bool modeMatched = string.IsNullOrWhiteSpace(testMode)
-                            ? !string.Equals(p.TestMode, "IR", StringComparison.OrdinalIgnoreCase)
-                            : string.Equals(p.TestMode, testMode, StringComparison.OrdinalIgnoreCase);
-                        if (snMatched && modeMatched)
+                        if (p.Productinfo.SN == SN)
                         {
                             p.Pressure_Average = Pressure_Average;
                             p.Pressure_Max = Pressure_Max;

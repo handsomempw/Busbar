@@ -251,18 +251,6 @@ namespace BusbarCompressionSystem.Model
         public int AddressPressure { set; get; } = 1600;
 
         /// <summary>
-        /// IR绝缘电阻压力数据起始地址（D寄存器）
-        /// </summary>
-        /// <remarks>
-        /// IR测试过程的压力监控数据：
-        /// - IRPressureAddress: 平均压力
-        /// - IRPressureAddress+2: 最大压力
-        /// - IRPressureAddress+4: 最小压力
-        /// </remarks>
-        [XmlElement("IR压力起始地址")]
-        public int IRPressureAddress { set; get; } = 1610;
-
-        /// <summary>
         /// IR 绝缘电阻测试触发地址（D 寄存器，PLC→PC）
         /// </summary>
         /// <remarks>

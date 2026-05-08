@@ -277,14 +277,20 @@ namespace BusbarCompressionSystem.ViewModel
                         // 4. 仅将最终判定结果连同过程数据一起 SaveBusBarData 到 MES，不做报工。
                         // 点检SN码：和正常流程一样读取压力数据，但跳过数据库校验和报工
                         #region 读取压力数据
-                        var pressure = ReadPressureSnapshot(DataModel.Settingmodel.AddressPressure, "电测", DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN);
-                        bool PressureResult = pressure.Result;
+                        // 从PLC读取电测过程中的压力监控数据
+                        // AddressPressure: 平均压力, +2: 最大压力, +4: 最小压力
+                        UInt16 AveragePressure = PLC_ReadUint16(DataModel.Settingmodel.AddressPressure);
+                        UInt16 MaxPressure = PLC_ReadUint16(DataModel.Settingmodel.AddressPressure + 2);
+                        UInt16 MinPressure = PLC_ReadUint16(DataModel.Settingmodel.AddressPressure + 4);
 
-                        sqlite.UpdatePressureForNonIrLatest(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE,
+                        // 压力判定逻辑：最大值不超标 且 最小值达标（确保压接到位且不过压）
+                        bool PressureResult = MaxPressure <= DataModel.Processmodel.PressureParamter.Max_Pressure && MinPressure >= DataModel.Processmodel.PressureParamter.Min_Pressure;
+
+                        sqlite.UpdatePressure(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE,
                             DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID,
                             DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN,
-                           pressure.Average, pressure.Max, pressure.Min, PressureResult);
-                        updatepressure(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, pressure.Average, pressure.Max, pressure.Min, PressureResult);
+                           AveragePressure, MaxPressure, MinPressure, PressureResult);
+                        updatepressure(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, AveragePressure, MaxPressure, MinPressure, PressureResult);
 
                         #endregion
 
@@ -373,14 +379,20 @@ namespace BusbarCompressionSystem.ViewModel
                         // AOI-only模式下跳过全部电测（TV/RES/压力），压力数据不读取/不落库，避免产生默认值干扰追溯
                         if (!IsAoiOnlyMode)
                         {
-                            var pressure = ReadPressureSnapshot(DataModel.Settingmodel.AddressPressure, "电测", DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN);
-                            bool PressureResult = pressure.Result;
+                            // 从PLC读取电测过程中的压力监控数据
+                            // AddressPressure: 平均压力, +2: 最大压力, +4: 最小压力
+                            UInt16 AveragePressure = PLC_ReadUint16(DataModel.Settingmodel.AddressPressure);
+                            UInt16 MaxPressure = PLC_ReadUint16(DataModel.Settingmodel.AddressPressure + 2);
+                            UInt16 MinPressure = PLC_ReadUint16(DataModel.Settingmodel.AddressPressure + 4);
 
-                            sqlite.UpdatePressureForNonIrLatest(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE,
+                            // 压力判定逻辑：最大值不超标 且 最小值达标（确保压接到位且不过压）
+                            bool PressureResult = MaxPressure <= DataModel.Processmodel.PressureParamter.Max_Pressure && MinPressure >= DataModel.Processmodel.PressureParamter.Min_Pressure;
+
+                            sqlite.UpdatePressure(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE,
                                 DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID,
                                 DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN,
-                               pressure.Average, pressure.Max, pressure.Min, PressureResult);
-                            updatepressure(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, pressure.Average, pressure.Max, pressure.Min, PressureResult);
+                               AveragePressure, MaxPressure, MinPressure, PressureResult);
+                            updatepressure(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, AveragePressure, MaxPressure, MinPressure, PressureResult);
                         }
 
                         #endregion
