@@ -1681,11 +1681,12 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
-        /// 验证ROI是否有效（支持矩形、线段和圆形ROI）
-        /// 根据ROI类型使用不同的验证逻辑
+        /// 校验测量 ROI 是否具备进入尺寸测量流程的基本几何条件。
+        /// 该校验在找边、预览绘制和报警判定前执行；线段 ROI 必须达到最小像素长度，
+        /// 以避免误触或近似点输入进入 Metrology 后产生方向不稳定的测量结果。
         /// </summary>
-        /// <param name="roi">要验证的ROI对象</param>
-        /// <returns>true表示ROI有效，false表示无效</returns>
+        /// <param name="roi">工具配置界面保存的测量 ROI；坐标单位为像素，可为空。</param>
+        /// <returns>true 表示 ROI 可进入测量流程；false 表示应提示用户重新绘制或补齐 ROI。</returns>
         private bool IsROIValid(ROI roi)
         {
             if (roi == null)
@@ -1699,6 +1700,14 @@ namespace BusbarCompressionSystem.ViewModel
                 // 圆形ROI：检查半径是否大于0
                 return roi.CircleRadius > 0;
             }
+            else if (roi.Type == ROIType.Line)
+            {
+                // 【规则说明】线段 ROI 过短时：
+                // - 方向向量难以稳定估计（近似“点”），会放大后续距离计算的误差；
+                // - 对于可视化与报警而言，短线更像是“误触”而不是有效测量输入。
+                // 因此设置最小像素长度门槛，把无效输入提前挡掉，减少“看起来能测但结果不可信”的工况。
+                return CalculateDistance(roi.Row1, roi.Col1, roi.Row2, roi.Col2) >= MinLineRoiLengthPixels;
+            }
             else
             {
                 // 矩形/线段ROI：检查坐标是否相同（避免区域太小）
@@ -1707,8 +1716,16 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
-        /// 直线到直线距离测量
+        /// 执行直线到直线尺寸测量。
+        /// 该流程先通过 Metrology 获取两条边缘拟合线，再按工具配置选择默认测距或计算线测距口径；
+        /// 返回值始终为像素距离，毫米换算和报警判定由外层尺寸测量流程继续处理。
         /// </summary>
+        /// <param name="image">当前待测图像，作为 Metrology 找边输入。</param>
+        /// <param name="tool">当前尺寸测量工具配置，包含 ROI、Metrology 参数、调试显示和计算线延长系数。</param>
+        /// <param name="hwindow">用于预览绘制拟合线、计算线和距离线的 HALCON 窗口。</param>
+        /// <param name="redraw">true 表示同步刷新预览画面；false 表示只计算距离，不更新窗口显示。</param>
+        /// <returns>两条测量边之间的像素距离；后续流程负责按校准系数换算为毫米。</returns>
+        /// <exception cref="Exception">ROI 无效或边缘检测失败时抛出，调用方负责转为操作者可见提示。</exception>
         private double MeasureLineToLine(HObject image, ToolModel tool, HWindow hwindow, bool redraw)
         {
             try
@@ -1743,10 +1760,34 @@ namespace BusbarCompressionSystem.ViewModel
                     throw new Exception("测量对象2边缘检测失败：请检查ROI位置、Metrology参数设置");
                 }
 
-                // 计算两条直线间的精确距离
-                double distance = CalculateDistanceBetweenLines(
-                    line1RowBegin, line1ColBegin, line1RowEnd, line1ColEnd,
-                    line2RowBegin, line2ColBegin, line2RowEnd, line2ColEnd);
+                LineSegment2D fittedLine1 = new LineSegment2D(line1RowBegin, line1ColBegin, line1RowEnd, line1ColEnd);
+                LineSegment2D fittedLine2 = new LineSegment2D(line2RowBegin, line2ColBegin, line2RowEnd, line2ColEnd);
+
+                double lineDistanceExtendRatio = NormalizeLineDistanceExtendRatio(tool.LineDistanceExtendRatio);
+                bool useCalculationLine = lineDistanceExtendRatio > 1.0 + LineDistanceRatioEpsilon;
+
+                LineSegment2D calculationLine1 = null;
+                LineSegment2D calculationLine2 = null;
+                LineDistanceResult distanceResult;
+
+                if (useCalculationLine)
+                {
+                    // 【使用场景】当需要“更稳定的距离定义/更清晰的红线展示”时，使用“计算线”参与距离计算。
+                    // 【规则说明】
+                    // - 拟合线（cyan）来自真实找边结果，代表“算法识别到的边缘”；
+                    // - 计算线（yellow, 可选）在 ROI 主方向上按倍数做延长，仅用于“距离如何定义”；
+                    // - 这样可以在两线近似平行、ROI 较短或端点不对齐时，让距离更接近“垂直距离”的直觉表达。
+                    calculationLine1 = BuildCalculationLineFromRoi(fittedLine1, tool.MeasureObject1ROI, lineDistanceExtendRatio);
+                    calculationLine2 = BuildCalculationLineFromRoi(fittedLine2, tool.MeasureObject2ROI, lineDistanceExtendRatio);
+                    distanceResult = CalculateDistanceBetweenCalculationLines(calculationLine1, calculationLine2);
+                }
+                else
+                {
+                    // Ratio=1.0 时不启用计算线延长，但距离值和红线端点仍保持同源。
+                    distanceResult = CalculateShortestDistanceBetweenSegments(fittedLine1, fittedLine2, LineDistanceBranchLegacy);
+                }
+
+                writeLog($"[尺寸测量] 分支={distanceResult.Branch}, Ratio={lineDistanceExtendRatio:F1}, 距离={distanceResult.Distance:F3}px", false);
 
                 // 可视化绘制
                 if (redraw)
@@ -1757,28 +1798,19 @@ namespace BusbarCompressionSystem.ViewModel
                     hwindow.DispLine(line1RowBegin, line1ColBegin, line1RowEnd, line1ColEnd);
                     hwindow.DispLine(line2RowBegin, line2ColBegin, line2RowEnd, line2ColEnd);
 
-                    // 绘制真实最短距离连线
-                    // 计算两条线段之间的最近点对
-                    double closestRow1, closestCol1, closestRow2, closestCol2;
-                    CalculateClosestPointsBetweenSegments(
-                        line1RowBegin, line1ColBegin, line1RowEnd, line1ColEnd,
-                        line2RowBegin, line2ColBegin, line2RowEnd, line2ColEnd,
-                        out closestRow1, out closestCol1,
-                        out closestRow2, out closestCol2);
-
-                    // 验证：计算出的最近点对距离应与DistanceSs返回值一致
-                    double calculatedDistance = CalculateDistance(closestRow1, closestCol1, closestRow2, closestCol2);
-                    double tolerance = 0.01; // 允许0.01像素的误差（浮点精度）
-                    if (Math.Abs(calculatedDistance - distance) > tolerance)
+                    if (tool.ShowMetrologyDebugInfo && useCalculationLine)
                     {
-                        // 如果不一致，输出调试信息
-                        System.Diagnostics.Debug.WriteLine($"警告：最近点对距离({calculatedDistance:F3})与DistanceSs({distance:F3})不一致，差值={Math.Abs(calculatedDistance - distance):F3}");
+                        hwindow.SetColor("yellow");
+                        hwindow.SetLineStyle(new HTuple(new int[] { 6, 4 }));
+                        hwindow.DispLine(calculationLine1.RowBegin, calculationLine1.ColBegin, calculationLine1.RowEnd, calculationLine1.ColEnd);
+                        hwindow.DispLine(calculationLine2.RowBegin, calculationLine2.ColBegin, calculationLine2.RowEnd, calculationLine2.ColEnd);
+                        hwindow.SetLineStyle(new HTuple());
                     }
 
                     // 绘制测量距离线（红色虚线）- 连接两条线段的最近点
                     hwindow.SetColor("red");
                     hwindow.SetLineStyle(new HTuple(new int[] { 10, 5 })); // 虚线样式
-                    hwindow.DispLine(closestRow1, closestCol1, closestRow2, closestCol2);
+                    hwindow.DispLine(distanceResult.Row1, distanceResult.Col1, distanceResult.Row2, distanceResult.Col2);
                     hwindow.SetLineStyle(new HTuple()); // 恢复实线
 
                     // 如果启用调试信息，绘制边缘点、卡尺位置和最近点标记
@@ -1803,17 +1835,17 @@ namespace BusbarCompressionSystem.ViewModel
                         // 绘制最近点标记（橙色圆圈）
                         hwindow.SetColor("orange");
                         hwindow.SetLineWidth(2);
-                        hwindow.DispCircle(closestRow1, closestCol1, 8);
-                        hwindow.DispCircle(closestRow2, closestCol2, 8);
+                        hwindow.DispCircle(distanceResult.Row1, distanceResult.Col1, 8);
+                        hwindow.DispCircle(distanceResult.Row2, distanceResult.Col2, 8);
 
                         // 显示距离验证信息（白色文字）
                         hwindow.SetColor("white");
-                        string debugInfo = $"DistanceSs: {distance:F2}px\nCalculated: {calculatedDistance:F2}px";
-                        hwindow.DispText(debugInfo, "image", closestRow1 - 30, closestCol1, "white", "box", "false");
+                        string debugInfo = $"分支: {distanceResult.Branch}\nRatio: {lineDistanceExtendRatio:F1}\nDistance: {distanceResult.Distance:F2}px";
+                        hwindow.DispText(debugInfo, "image", distanceResult.Row1 - 30, distanceResult.Col1, "white", "box", "false");
                     }
                 }
 
-                return distance;
+                return distanceResult.Distance;
             }
             catch (Exception ex)
             {
@@ -2130,19 +2162,380 @@ namespace BusbarCompressionSystem.ViewModel
             }
         }
 
+        private const double LineDistanceRatioEpsilon = 1e-9;
+        private const double MinLineRoiLengthPixels = 5.0;
+        private const double ParallelAngleThresholdDegrees = 5.0;
+        private const double GeometryEpsilon = 1e-9;
+        private const string LineDistanceBranchLegacy = "旧逻辑";
+        private const string LineDistanceBranchSegment = "线段最短距";
+        private const string LineDistanceBranchParallel = "平行垂距";
+
         /// <summary>
-        /// 计算两条线段间的最短距离（使用HALCON的DistanceSs）
-        /// {{ AURA-X: Modify - 替换为distance_ss算子，计算线段间真实最短距离. Source: HALCON官方文档 distance_ss. }}
+        /// 表示一次直线测距中参与距离计算或画面展示的二维线段。
+        /// 坐标单位为 HALCON 图像坐标像素，Row/Col 顺序与现有 ROI、拟合线和绘图接口保持一致。
         /// </summary>
-        /// <param name="line1RowBegin">线段1起点Row</param>
-        /// <param name="line1ColBegin">线段1起点Col</param>
-        /// <param name="line1RowEnd">线段1终点Row</param>
-        /// <param name="line1ColEnd">线段1终点Col</param>
-        /// <param name="line2RowBegin">线段2起点Row</param>
-        /// <param name="line2ColBegin">线段2起点Col</param>
-        /// <param name="line2RowEnd">线段2终点Row</param>
-        /// <param name="line2ColEnd">线段2终点Col</param>
-        /// <returns>两条线段间的最短距离（像素）</returns>
+        private class LineSegment2D
+        {
+            public LineSegment2D(double rowBegin, double colBegin, double rowEnd, double colEnd)
+            {
+                RowBegin = rowBegin;
+                ColBegin = colBegin;
+                RowEnd = rowEnd;
+                ColEnd = colEnd;
+            }
+
+            public double RowBegin { get; private set; }
+            public double ColBegin { get; private set; }
+            public double RowEnd { get; private set; }
+            public double ColEnd { get; private set; }
+        }
+
+        /// <summary>
+        /// 封装直线到直线测量的距离结果与红色距离线端点。
+        /// Branch 用于调试画面和测量日志区分默认测距、计算线最短距和平行垂距口径；
+        /// Distance 与端点坐标均为像素单位，不直接写入工程标定参数。
+        /// </summary>
+        private class LineDistanceResult
+        {
+            public LineDistanceResult(string branch, double distance, double row1, double col1, double row2, double col2)
+            {
+                Branch = branch;
+                Distance = distance;
+                Row1 = row1;
+                Col1 = col1;
+                Row2 = row2;
+                Col2 = col2;
+            }
+
+            public string Branch { get; private set; }
+            public double Distance { get; private set; }
+            public double Row1 { get; private set; }
+            public double Col1 { get; private set; }
+            public double Row2 { get; private set; }
+            public double Col2 { get; private set; }
+        }
+
+        /// <summary>
+        /// 归一化直线测距延长系数。
+        /// 非法配置按 1.0 处理，保证已保存工程即使出现空值、无穷大或非正数，也回到默认测距口径，
+        /// 不影响 Metrology 找边范围、ROI 本身或工程 XML 中其他测量参数。
+        /// </summary>
+        /// <param name="ratio">来自工具配置的线段距离计算延长系数；单位为倍数，1.0 表示默认测距口径。</param>
+        /// <returns>可用于直线测距分支判断的倍数；返回 1.0 时保持兼容口径。</returns>
+        private double NormalizeLineDistanceExtendRatio(double ratio)
+        {
+            if (double.IsNaN(ratio) || double.IsInfinity(ratio) || ratio <= 0)
+            {
+                return 1.0;
+            }
+
+            return Math.Max(1.0, Math.Min(3.0, ratio));
+        }
+
+        /// <summary>
+        /// 根据 ROI 主方向与拟合直线生成用于距离定义的计算线。
+        /// 计算线只参与直线到直线的像素距离和调试画面红/黄线展示，不扩大 Metrology 卡尺找边范围，
+        /// 也不改变拟合线本身；ROI 过短或拟合线无方向时抛出业务提示，避免继续产出不可信测量值。
+        /// </summary>
+        /// <param name="fittedLine">Metrology 找边得到的拟合线，提供真实边缘方向；坐标单位为像素。</param>
+        /// <param name="roi">用户在工具配置界面绘制的线段 ROI，决定计算线中心与基础长度；坐标单位为像素。</param>
+        /// <param name="ratio">线段距离计算延长系数；1.0 以上按 ROI 长度等比例延长计算线。</param>
+        /// <returns>沿拟合线方向生成的计算线；坐标单位为像素。</returns>
+        /// <exception cref="Exception">ROI 或拟合线过短，无法形成稳定测距方向时抛出。</exception>
+        private LineSegment2D BuildCalculationLineFromRoi(LineSegment2D fittedLine, ROI roi, double ratio)
+        {
+            double roiLength = CalculateDistance(roi.Row1, roi.Col1, roi.Row2, roi.Col2);
+            if (roiLength < MinLineRoiLengthPixels)
+            {
+                throw new Exception("ROI 太短，请重新绘制");
+            }
+
+            double dirRow, dirCol;
+            if (!TryGetNormalizedDirection(fittedLine, out dirRow, out dirCol))
+            {
+                throw new Exception("拟合线段太短，无法计算距离");
+            }
+
+            double roiMidRow = (roi.Row1 + roi.Row2) / 2.0;
+            double roiMidCol = (roi.Col1 + roi.Col2) / 2.0;
+            double centerProjection = ProjectPointToAxis(
+                roiMidRow,
+                roiMidCol,
+                fittedLine.RowBegin,
+                fittedLine.ColBegin,
+                dirRow,
+                dirCol);
+
+            double centerRow = fittedLine.RowBegin + centerProjection * dirRow;
+            double centerCol = fittedLine.ColBegin + centerProjection * dirCol;
+            double halfLength = roiLength * ratio / 2.0;
+
+            return new LineSegment2D(
+                centerRow - halfLength * dirRow,
+                centerCol - halfLength * dirCol,
+                centerRow + halfLength * dirRow,
+                centerCol + halfLength * dirCol);
+        }
+
+        /// <summary>
+        /// 按计算线测距口径生成直线到直线的距离结果。
+        /// 近似平行且投影重叠时优先返回垂直距离，便于现场按两条边的间距理解红线；
+        /// 其他角度或无重叠时回退到线段最短距离，避免非平行工况被强行解释为垂距。
+        /// </summary>
+        /// <param name="line1">测量对象1的计算线；坐标单位为像素。</param>
+        /// <param name="line2">测量对象2的计算线；坐标单位为像素。</param>
+        /// <returns>距离值、测距分支和红色距离线端点；距离单位为像素。</returns>
+        private LineDistanceResult CalculateDistanceBetweenCalculationLines(LineSegment2D line1, LineSegment2D line2)
+        {
+            LineDistanceResult parallelResult;
+            if (AreLinesNearlyParallel(line1, line2, ParallelAngleThresholdDegrees) &&
+                TryCalculateParallelPerpendicularDistance(line1, line2, out parallelResult))
+            {
+                return parallelResult;
+            }
+
+            return CalculateShortestDistanceBetweenSegments(line1, line2, LineDistanceBranchSegment);
+        }
+
+        /// <summary>
+        /// 判断两条计算线是否进入平行垂距口径。
+        /// 角度阈值用于保护近似平行的母排边缘测距场景，超出阈值时继续使用线段最短距，
+        /// 避免倾斜或交叉工况在预览和判定中被误读为平行间距。
+        /// </summary>
+        /// <param name="line1">测量对象1的计算线；坐标单位为像素。</param>
+        /// <param name="line2">测量对象2的计算线；坐标单位为像素。</param>
+        /// <param name="maxAngleDegrees">允许进入平行垂距口径的最大夹角；单位为度。</param>
+        /// <returns>true 表示两线夹角在阈值内，可尝试按平行垂距计算；false 表示使用其他测距口径。</returns>
+        private bool AreLinesNearlyParallel(LineSegment2D line1, LineSegment2D line2, double maxAngleDegrees)
+        {
+            double dir1Row, dir1Col, dir2Row, dir2Col;
+            if (!TryGetNormalizedDirection(line1, out dir1Row, out dir1Col) ||
+                !TryGetNormalizedDirection(line2, out dir2Row, out dir2Col))
+            {
+                return false;
+            }
+
+            double cosAngle = Math.Abs(Dot(dir1Row, dir1Col, dir2Row, dir2Col));
+            cosAngle = Math.Max(0, Math.Min(1, cosAngle));
+            double angleDegrees = Math.Acos(cosAngle) * 180.0 / Math.PI;
+            return angleDegrees <= maxAngleDegrees;
+        }
+
+        /// <summary>
+        /// 尝试计算近似平行计算线的垂直距离。
+        /// 只有两条计算线在主方向投影存在重叠时才返回结果；无重叠时交由线段最短距处理，
+        /// 保证红线端点仍落在有效计算线范围内，避免预览给出超出 ROI 语义的距离连接。
+        /// </summary>
+        /// <param name="line1">测量对象1的计算线；坐标单位为像素。</param>
+        /// <param name="line2">测量对象2的计算线；坐标单位为像素。</param>
+        /// <param name="result">成功时输出平行垂距结果，包含距离值和红线端点；距离单位为像素。</param>
+        /// <returns>true 表示可按平行垂距口径返回；false 表示需要回退到线段最短距。</returns>
+        private bool TryCalculateParallelPerpendicularDistance(LineSegment2D line1, LineSegment2D line2, out LineDistanceResult result)
+        {
+            result = null;
+
+            double dir1Row, dir1Col, dir2Row, dir2Col;
+            if (!TryGetNormalizedDirection(line1, out dir1Row, out dir1Col) ||
+                !TryGetNormalizedDirection(line2, out dir2Row, out dir2Col))
+            {
+                return false;
+            }
+
+            double line1Start = ProjectPointToAxis(line1.RowBegin, line1.ColBegin, line1.RowBegin, line1.ColBegin, dir1Row, dir1Col);
+            double line1End = ProjectPointToAxis(line1.RowEnd, line1.ColEnd, line1.RowBegin, line1.ColBegin, dir1Row, dir1Col);
+            double line2Start = ProjectPointToAxis(line2.RowBegin, line2.ColBegin, line1.RowBegin, line1.ColBegin, dir1Row, dir1Col);
+            double line2End = ProjectPointToAxis(line2.RowEnd, line2.ColEnd, line1.RowBegin, line1.ColBegin, dir1Row, dir1Col);
+
+            double overlapStart = Math.Max(Math.Min(line1Start, line1End), Math.Min(line2Start, line2End));
+            double overlapEnd = Math.Min(Math.Max(line1Start, line1End), Math.Max(line2Start, line2End));
+            if (overlapEnd < overlapStart - GeometryEpsilon)
+            {
+                return false;
+            }
+
+            double overlapMid = (overlapStart + overlapEnd) / 2.0;
+            double point1Row = line1.RowBegin + overlapMid * dir1Row;
+            double point1Col = line1.ColBegin + overlapMid * dir1Col;
+
+            double footProjection = ProjectPointToAxis(point1Row, point1Col, line2.RowBegin, line2.ColBegin, dir2Row, dir2Col);
+            double point2Row = line2.RowBegin + footProjection * dir2Row;
+            double point2Col = line2.ColBegin + footProjection * dir2Col;
+            double distance = CalculateDistance(point1Row, point1Col, point2Row, point2Col);
+
+            result = new LineDistanceResult(
+                LineDistanceBranchParallel,
+                distance,
+                point1Row,
+                point1Col,
+                point2Row,
+                point2Col);
+            return true;
+        }
+
+        /// <summary>
+        /// 计算两条线段在指定业务分支下的最短距离。
+        /// 相交或重叠时返回 0 像素，并把红线端点落在交点或重叠中点；否则复用现有最近点计算，
+        /// 使调试画面中的红线与最终像素距离保持一致。
+        /// </summary>
+        /// <param name="line1">测量对象1的线段；坐标单位为像素。</param>
+        /// <param name="line2">测量对象2的线段；坐标单位为像素。</param>
+        /// <param name="branch">写入调试信息的测距分支名称，用于区分默认测距和计算线最短距。</param>
+        /// <returns>距离值、测距分支和红色距离线端点；距离单位为像素。</returns>
+        private LineDistanceResult CalculateShortestDistanceBetweenSegments(LineSegment2D line1, LineSegment2D line2, string branch)
+        {
+            double intersectionRow, intersectionCol;
+            if (TryGetSegmentIntersection(line1, line2, out intersectionRow, out intersectionCol))
+            {
+                return new LineDistanceResult(branch, 0, intersectionRow, intersectionCol, intersectionRow, intersectionCol);
+            }
+
+            double closestRow1, closestCol1, closestRow2, closestCol2;
+            CalculateClosestPointsBetweenSegments(
+                line1.RowBegin, line1.ColBegin, line1.RowEnd, line1.ColEnd,
+                line2.RowBegin, line2.ColBegin, line2.RowEnd, line2.ColEnd,
+                out closestRow1, out closestCol1,
+                out closestRow2, out closestCol2);
+
+            double distance = CalculateDistance(closestRow1, closestCol1, closestRow2, closestCol2);
+            return new LineDistanceResult(branch, distance, closestRow1, closestCol1, closestRow2, closestCol2);
+        }
+
+        /// <summary>
+        /// 尝试求两条线段的交点或重叠中点。
+        /// 该判断用于测距前置分流，确保相交边缘不会继续显示非零距离；输出坐标仅用于距离结果和预览红线，
+        /// 不参与 Metrology 找边、工程参数保存或毫米标定换算。
+        /// </summary>
+        /// <param name="line1">测量对象1的线段；坐标单位为像素。</param>
+        /// <param name="line2">测量对象2的线段；坐标单位为像素。</param>
+        /// <param name="row">成功时输出交点或重叠中点的 Row 坐标；单位为像素。</param>
+        /// <param name="col">成功时输出交点或重叠中点的 Col 坐标；单位为像素。</param>
+        /// <returns>true 表示两线段相交或重叠；false 表示需要继续计算最近点距离。</returns>
+        private bool TryGetSegmentIntersection(LineSegment2D line1, LineSegment2D line2, out double row, out double col)
+        {
+            row = 0;
+            col = 0;
+
+            double pRow = line1.RowBegin;
+            double pCol = line1.ColBegin;
+            double rRow = line1.RowEnd - line1.RowBegin;
+            double rCol = line1.ColEnd - line1.ColBegin;
+
+            double qRow = line2.RowBegin;
+            double qCol = line2.ColBegin;
+            double sRow = line2.RowEnd - line2.RowBegin;
+            double sCol = line2.ColEnd - line2.ColBegin;
+
+            double denominator = Cross(rRow, rCol, sRow, sCol);
+            double qmpRow = qRow - pRow;
+            double qmpCol = qCol - pCol;
+
+            if (Math.Abs(denominator) < GeometryEpsilon)
+            {
+                if (Math.Abs(Cross(qmpRow, qmpCol, rRow, rCol)) > GeometryEpsilon)
+                {
+                    return false;
+                }
+
+                double rLengthSquared = Dot(rRow, rCol, rRow, rCol);
+                if (rLengthSquared < GeometryEpsilon)
+                {
+                    return false;
+                }
+
+                double t0 = Dot(qmpRow, qmpCol, rRow, rCol) / rLengthSquared;
+                double t1 = Dot(qmpRow + sRow, qmpCol + sCol, rRow, rCol) / rLengthSquared;
+                double overlapStart = Math.Max(0, Math.Min(t0, t1));
+                double overlapEnd = Math.Min(1, Math.Max(t0, t1));
+                if (overlapEnd < overlapStart - GeometryEpsilon)
+                {
+                    return false;
+                }
+
+                double overlapMid = (overlapStart + overlapEnd) / 2.0;
+                row = pRow + overlapMid * rRow;
+                col = pCol + overlapMid * rCol;
+                return true;
+            }
+
+            double t = Cross(qmpRow, qmpCol, sRow, sCol) / denominator;
+            double u = Cross(qmpRow, qmpCol, rRow, rCol) / denominator;
+            if (t >= -GeometryEpsilon && t <= 1 + GeometryEpsilon &&
+                u >= -GeometryEpsilon && u <= 1 + GeometryEpsilon)
+            {
+                t = Math.Max(0, Math.Min(1, t));
+                row = pRow + t * rRow;
+                col = pCol + t * rCol;
+                return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// 获取线段在图像坐标系中的单位方向向量。
+        /// 返回 false 时表示线段长度不足以支撑 ROI 主方向、计算线延长或平行角度判断，
+        /// 调用方应回退或给出业务提示，避免继续产生不稳定测距结果。
+        /// </summary>
+        /// <param name="line">待取方向的线段；坐标单位为像素。</param>
+        /// <param name="dirRow">成功时输出 Row 方向分量。</param>
+        /// <param name="dirCol">成功时输出 Col 方向分量。</param>
+        /// <returns>true 表示方向向量有效；false 表示线段过短。</returns>
+        private bool TryGetNormalizedDirection(LineSegment2D line, out double dirRow, out double dirCol)
+        {
+            double length = CalculateDistance(line.RowBegin, line.ColBegin, line.RowEnd, line.ColEnd);
+            if (length < GeometryEpsilon)
+            {
+                dirRow = 0;
+                dirCol = 0;
+                return false;
+            }
+
+            dirRow = (line.RowEnd - line.RowBegin) / length;
+            dirCol = (line.ColEnd - line.ColBegin) / length;
+            return true;
+        }
+
+        /// <summary>
+        /// 将图像坐标点投影到指定方向轴上。
+        /// 投影值用于计算线中心、平行重叠区间和垂足位置，单位为像素；该 helper 只服务测距几何，
+        /// 不改变 ROI、找边结果或工程持久化数据。
+        /// </summary>
+        /// <param name="row">待投影点的 Row 坐标；单位为像素。</param>
+        /// <param name="col">待投影点的 Col 坐标；单位为像素。</param>
+        /// <param name="originRow">投影轴原点的 Row 坐标；单位为像素。</param>
+        /// <param name="originCol">投影轴原点的 Col 坐标；单位为像素。</param>
+        /// <param name="dirRow">投影轴单位方向的 Row 分量。</param>
+        /// <param name="dirCol">投影轴单位方向的 Col 分量。</param>
+        /// <returns>点到投影轴原点的有符号距离；单位为像素。</returns>
+        private double ProjectPointToAxis(double row, double col, double originRow, double originCol, double dirRow, double dirCol)
+        {
+            return Dot(row - originRow, col - originCol, dirRow, dirCol);
+        }
+
+        private double Dot(double row1, double col1, double row2, double col2)
+        {
+            return row1 * row2 + col1 * col2;
+        }
+
+        private double Cross(double row1, double col1, double row2, double col2)
+        {
+            return col1 * row2 - row1 * col2;
+        }
+
+        /// <summary>
+        /// 使用 HALCON DistanceSs 计算两条线段的默认最短距离。
+        /// 该口径服务既有直线到直线测量工程，返回像素距离；计算线延长系数为 1.0 时继续使用该口径，
+        /// 以避免已标定工程的判定基准被配置默认值改变。
+        /// </summary>
+        /// <param name="line1RowBegin">线段1起点 Row 坐标；单位为像素。</param>
+        /// <param name="line1ColBegin">线段1起点 Col 坐标；单位为像素。</param>
+        /// <param name="line1RowEnd">线段1终点 Row 坐标；单位为像素。</param>
+        /// <param name="line1ColEnd">线段1终点 Col 坐标；单位为像素。</param>
+        /// <param name="line2RowBegin">线段2起点 Row 坐标；单位为像素。</param>
+        /// <param name="line2ColBegin">线段2起点 Col 坐标；单位为像素。</param>
+        /// <param name="line2RowEnd">线段2终点 Row 坐标；单位为像素。</param>
+        /// <param name="line2ColEnd">线段2终点 Col 坐标；单位为像素。</param>
+        /// <returns>两条线段间的最短距离；单位为像素。</returns>
         private double CalculateDistanceBetweenLines(
             double line1RowBegin, double line1ColBegin, double line1RowEnd, double line1ColEnd,
             double line2RowBegin, double line2ColBegin, double line2RowEnd, double line2ColEnd)
@@ -2161,21 +2554,22 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
-        /// 计算两条线段之间最近点对的坐标
-        /// {{ AURA-X: Modify - 使用HALCON projection_pl算子替代自定义几何算法，确保与DistanceSs完全一致. Source: HALCON官方文档 projection_pl. }}
+        /// 计算两条线段之间最近点对的坐标。
+        /// 该结果用于默认测距口径的红色距离线展示，使预览连线与 DistanceSs 返回的像素距离保持一致；
+        /// 不影响 Metrology 找边结果、工程配置保存或毫米标定系数。
         /// </summary>
-        /// <param name="line1RowBegin">线段1起点Row</param>
-        /// <param name="line1ColBegin">线段1起点Col</param>
-        /// <param name="line1RowEnd">线段1终点Row</param>
-        /// <param name="line1ColEnd">线段1终点Col</param>
-        /// <param name="line2RowBegin">线段2起点Row</param>
-        /// <param name="line2ColBegin">线段2起点Col</param>
-        /// <param name="line2RowEnd">线段2终点Row</param>
-        /// <param name="line2ColEnd">线段2终点Col</param>
-        /// <param name="closestRow1">线段1上最近点的Row坐标</param>
-        /// <param name="closestCol1">线段1上最近点的Col坐标</param>
-        /// <param name="closestRow2">线段2上最近点的Row坐标</param>
-        /// <param name="closestCol2">线段2上最近点的Col坐标</param>
+        /// <param name="line1RowBegin">线段1起点 Row 坐标；单位为像素。</param>
+        /// <param name="line1ColBegin">线段1起点 Col 坐标；单位为像素。</param>
+        /// <param name="line1RowEnd">线段1终点 Row 坐标；单位为像素。</param>
+        /// <param name="line1ColEnd">线段1终点 Col 坐标；单位为像素。</param>
+        /// <param name="line2RowBegin">线段2起点 Row 坐标；单位为像素。</param>
+        /// <param name="line2ColBegin">线段2起点 Col 坐标；单位为像素。</param>
+        /// <param name="line2RowEnd">线段2终点 Row 坐标；单位为像素。</param>
+        /// <param name="line2ColEnd">线段2终点 Col 坐标；单位为像素。</param>
+        /// <param name="closestRow1">线段1上最近点的 Row 坐标；单位为像素。</param>
+        /// <param name="closestCol1">线段1上最近点的 Col 坐标；单位为像素。</param>
+        /// <param name="closestRow2">线段2上最近点的 Row 坐标；单位为像素。</param>
+        /// <param name="closestCol2">线段2上最近点的 Col 坐标；单位为像素。</param>
         private void CalculateClosestPointsBetweenSegments(
             double line1RowBegin, double line1ColBegin, double line1RowEnd, double line1ColEnd,
             double line2RowBegin, double line2ColBegin, double line2RowEnd, double line2ColEnd,

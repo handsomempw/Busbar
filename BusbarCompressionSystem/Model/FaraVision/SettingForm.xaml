@@ -615,6 +615,7 @@
                                         <RowDefinition Height="Auto"/>
                                         <RowDefinition Height="Auto"/>
                                         <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
                                     </Grid.RowDefinitions>
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto"/>
@@ -764,8 +765,18 @@
                                     <TextBlock Grid.Row="7" Grid.Column="2" Text="{Binding MetrologyMeasureLength2, StringFormat='{}{0}像素'}"
                                                VerticalAlignment="Center" Margin="5,0,0,0" MinWidth="70"/>
 
+                                    <!-- 计算用线段延长系数 -->
+                                    <TextBlock Grid.Row="9" Grid.Column="0" VerticalAlignment="Center" Margin="0,5"
+                                               ToolTip="修改此参数后测量像素值会变化，建议重新点击&quot;自动校准&quot;以保持毫米精度&#x0a;延长倍数越大对边缘清晰度要求越高，建议不超过 2.0；边缘模糊时请先降低噪声再调大此值">计算线段延长:</TextBlock>
+                                    <Slider Grid.Row="9" Grid.Column="1" Minimum="1.0" Maximum="3.0"
+                                            Value="{Binding LineDistanceExtendRatio}" TickFrequency="0.1" IsSnapToTickEnabled="True"
+                                            ValueChanged="MetrologyParameter_Changed"
+                                            ToolTip="修改此参数后测量像素值会变化，建议重新点击&quot;自动校准&quot;以保持毫米精度&#x0a;延长倍数越大对边缘清晰度要求越高，建议不超过 2.0；边缘模糊时请先降低噪声再调大此值"/>
+                                    <TextBlock Grid.Row="9" Grid.Column="2" Text="{Binding LineDistanceExtendRatio, StringFormat='{}{0:F1}倍'}"
+                                               VerticalAlignment="Center" Margin="5,0,0,0" MinWidth="50"/>
+
                                     <!-- 显示调试信息 -->
-                                    <CheckBox Grid.Row="9" Grid.Column="0" Grid.ColumnSpan="3" Margin="0,10,0,0"
+                                    <CheckBox Grid.Row="10" Grid.Column="0" Grid.ColumnSpan="3" Margin="0,10,0,0"
                                               IsChecked="{Binding ShowMetrologyDebugInfo}"
                                               Content="显示调试信息（卡尺位置、边缘点）"
                                               ToolTip="勾选后将在预览时显示卡尺位置和边缘点"/>

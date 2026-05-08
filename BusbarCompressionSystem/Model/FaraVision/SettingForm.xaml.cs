@@ -1517,8 +1517,12 @@ namespace BusbarCompressionSystem.Model.FaraVision
         #region 圆形ROI绘制辅助方法
 
         /// <summary>
-        /// 检查ROI是否有效（根据ROI类型检查对应参数）
+        /// 校验工具配置界面的 ROI 是否可以进入自动校准和测试测量流程。
+        /// 该校验用于在参数界面提前拦截未绘制或过短的线段 ROI，避免用户点击校准后才遇到找边失败；
+        /// 坐标门槛只影响配置交互，不改变主测量流程中的 Metrology 参数和工程持久化数据。
         /// </summary>
+        /// <param name="roi">当前工具保存的测量 ROI；坐标单位为像素，可为空。</param>
+        /// <returns>true 表示界面可以继续执行校准或测试测量；false 表示应提示用户重新选择测量区域。</returns>
         private bool IsROIValid(ROI roi)
         {
             if (roi == null) return false;
@@ -1530,8 +1534,17 @@ namespace BusbarCompressionSystem.Model.FaraVision
                     return roi.CircleRadius > 0;
                     
                 case ROIType.Line:
-                    // 线段ROI：检查是否有起点和终点
-                    return !(roi.Row1 == 0 && roi.Row2 == 0 && roi.Col1 == 0 && roi.Col2 == 0);
+                    // 【边界情况】线段 ROI 常见无效来源：
+                    // - 用户未实际拖拽绘制（起点终点全为 0），此时直接进入测量会导致“找边/拟合”报错；
+                    // - 线段过短（接近一个点），Metrology 的卡尺分布与方向估计会非常不稳定，表现为结果跳动或误报。
+                    // 因此这里做最小长度门槛，尽量把无效 ROI 拦在参数界面层。
+                    if (roi.Row1 == 0 && roi.Row2 == 0 && roi.Col1 == 0 && roi.Col2 == 0)
+                    {
+                        return false;
+                    }
+                    double dRow = roi.Row2 - roi.Row1;
+                    double dCol = roi.Col2 - roi.Col1;
+                    return Math.Sqrt(dRow * dRow + dCol * dCol) >= 5.0;
                     
                 case ROIType.Rectangle:
                 default:

@@ -429,6 +429,17 @@ namespace BusbarCompressionSystem.Model.FaraVision.Tool
         public int MetrologyMeasureLength2 { set; get; } = 5;
 
         /// <summary>
+        /// 【使用场景】直线到直线尺寸测量时，用于“距离计算/显示”的线段延长倍数。
+        /// 【规则说明】
+        /// - 该参数只影响“距离如何计算、红线如何连、调试画面如何展示”，不改变 Metrology 的找边范围与拟合结果。
+        /// - 倍数越大，等价于在 ROI 主方向上用更长的“计算线”参与距离判断，更有利于平行/近似平行时得到稳定的垂直距离。
+        /// 【边界情况】
+        /// - 调整该参数后像素距离可能变化，若工程已做过 mm 校准，建议重新执行校准以保持毫米精度一致性。
+        /// </summary>
+        [XmlElement("线段距离计算延长系数")]
+        public double LineDistanceExtendRatio { set; get; } = 1.0;
+
+        /// <summary>
         /// 是否显示调试信息（显示卡尺位置、边缘点等）
         /// </summary>
         [XmlElement("显示Metrology调试信息")]
