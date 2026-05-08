@@ -128,13 +128,17 @@ namespace BusbarCompressionSystem
             vml.Main.DataModel.Settingmodel.HWindow4 = Hwindow4.HalconWindow;
         }
 
+        /// <summary>
+        /// 处理操作员确认后的软件关闭流程。
+        /// 关闭前保存运行配置、过程数据和工程 XML；若 AOI 编辑权限仍处于授权会话内，
+        /// 工程保存必须先于动态密码资源释放执行，以保留参数审计需要的授权人上下文。
+        /// </summary>
+        /// <param name="sender">WPF 关闭事件来源，当前流程不依赖具体控件实例。</param>
+        /// <param name="e">关闭控制参数；操作员取消关闭时设置为取消，避免中断现场运行界面。</param>
         private void WindowX_Closing(object sender, System.ComponentModel.CancelEventArgs e)
         {
             if (MessageBoxX.Show("是否确定关闭运行软件?", "提示", MessageBoxButton.YesNo, MessageBoxIcon.Question) == MessageBoxResult.Yes)
             {
-                // 关闭软件前释放动态密码授权相关资源（防止事件残留）
-                DisposeAoiPermissionAuthService();
-
                 vml.Main.SaveSettingModel();
                 vml.Main.SaveRecordModel();
                 vml.Main.SaveProcessmodel();
@@ -142,6 +146,9 @@ namespace BusbarCompressionSystem
                 vml.Main.Faravision_SaveSettingModel();
 
                 vml.Main.SavePrjXmls();
+
+                // 工程保存完成后再释放动态密码授权，保留保存审计需要的授权人上下文。
+                DisposeAoiPermissionAuthService();
 
                 vml.Main.CloseCamera();
                 
@@ -388,12 +395,30 @@ namespace BusbarCompressionSystem
         }
 
 
+        /// <summary>
+        /// 处理标题栏权限按钮的动态密码授权和手动锁定流程。
+        /// 已授权时先执行权限关闭前保存，再回收编辑权限和授权上下文；未授权时打开动态密码验证窗口，
+        /// 验证通过后保存本次授权人信息，供后续工程保存时生成 AOI 参数差异审计。
+        /// </summary>
+        /// <param name="sender">权限按钮实例，用于在动态密码验证期间临时禁用重复点击。</param>
+        /// <param name="e">WPF 点击事件参数，当前流程不读取附加事件数据。</param>
         private void permissionbtn_Click(object sender, RoutedEventArgs e)
         {
             if (vml.Main.DataModel.FaraVisionDataModel.Settingmodel.permission)
             {
+                bool saved = TrySaveBeforePermissionClose();
+
                 vml.Main.DataModel.FaraVisionDataModel.Settingmodel.permission = false;
                 DisposeAoiPermissionAuthService();
+
+                if (saved)
+                {
+                    NoticeBox.Show("权限已关闭，已执行工具配置自动保存", "提示", MessageBoxIcon.Success, true, 3000);
+                }
+                else
+                {
+                    NoticeBox.Show("权限已关闭，自动保存失败，请检查日志", "提示", MessageBoxIcon.Warning, true, 5000);
+                }
                 return;
             }
 
@@ -469,9 +494,18 @@ namespace BusbarCompressionSystem
                         // 密码过期回调来自第三方库计时器线程，这里切回 UI 线程更新状态
                         Dispatcher.Invoke(() =>
                         {
+                            bool saved = TrySaveBeforePermissionClose();
+
                             vml.Main.DataModel.FaraVisionDataModel.Settingmodel.permission = false;
                             DisposeAoiPermissionAuthService();
-                            NoticeBox.Show("动态密码已过期，权限已自动关闭，请重新申请", "提示", MessageBoxIcon.Warning, true, 6000);
+                            NoticeBox.Show(
+                                saved
+                                    ? "动态密码已过期，权限已自动关闭，已执行工具配置自动保存"
+                                    : "动态密码已过期，权限已自动关闭，自动保存失败，请检查日志",
+                                "提示",
+                                MessageBoxIcon.Warning,
+                                true,
+                                6000);
                         });
                     };
                     aoiPermissionAuthService.PasswordExpired += aoiPermissionExpiredHandler;
@@ -550,6 +584,35 @@ namespace BusbarCompressionSystem
             }
         }
 
+        /// <summary>
+        /// 权限会话结束前执行工程保存，使 <c>permission</c> 和动态密码授权人工号仍处于可审计状态时完成项目 XML 落盘。
+        /// 用于手动锁定和动态密码到期回收权限；保存失败不阻断权限关闭流程，异常原因写入现场日志供运维追溯。
+        /// </summary>
+        /// <returns>
+        /// 未捕获到保存异常返回 <c>true</c>；若持久化调用向外抛出异常则返回 <c>false</c>。
+        /// <c>SavePrjXmls</c> 内部已吞掉的异常不在该返回值范围内。
+        /// </returns>
+        private bool TrySaveBeforePermissionClose()
+        {
+            try
+            {
+                vml.Main.SaveProcessmodel();
+                vml.Main.SaveSettingModel();
+                vml.Main.SavePrjXmls();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                vml.Main.writeLog($"[动态密码][自动保存] 权限关闭前自动保存失败：{ex.Message}", true);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 释放动态密码授权会话资源，并清空仅用于运行期审计追溯的授权上下文。
+        /// 调用方若需要记录本次授权会话内的 AOI 参数变更，应先完成工程保存，再调用该方法；
+        /// 方法本身不负责修改 <c>permission</c>，只负责计时器、事件订阅和授权人信息的生命周期收尾。
+        /// </summary>
         private void DisposeAoiPermissionAuthService()
         {
             try
