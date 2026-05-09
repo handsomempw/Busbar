@@ -1021,7 +1021,7 @@ namespace BusbarCompressionSystem.ViewModel
         /// 当检测到已有记录使用另一种测试模式时，说明当前是第二次测试。
         ///
         /// 处理逻辑：
-        /// 1. 检查数据库中该SN的最新测试记录
+        /// 1. 检查数据库中该SN最新的 ACW/DCW 记录，忽略独立 IR 行
         /// 2. 如果当前是ACW测试但数据库中有DCW记录，则为第二次测试
         /// 3. 如果当前是DCW测试但数据库中有ACW记录，则为第二次测试
         /// 4. 第二次测试时会插入新记录，而不是更新现有记录
@@ -1045,9 +1045,9 @@ namespace BusbarCompressionSystem.ViewModel
                 string connstr = sqlite.CheckDataBase(wocode, partnoid, sn);
                 if (!string.IsNullOrEmpty(connstr))
                 {
-                    // 查询该SN产品最新的测试记录，只获取TVInfo字段用于判断测试模式
-                    // 使用ORDER BY id DESC LIMIT 1确保获取最新的记录
-                    string checkSql = $"SELECT TVInfo FROM BusbarCompressionData WHERE sn='{sn}' ORDER BY id DESC LIMIT 1";
+                    // IR 也会新增独立电测行，但它不能参与 ACW/DCW 双测顺序判断；
+                    // 这里只看最新一条耐压模式记录，避免 ACW -> IR -> DCW 时把 DCW 误判为第一次测试。
+                    string checkSql = $"SELECT TVInfo FROM BusbarCompressionData WHERE sn='{sn}' AND (TVInfo LIKE '[ACW]%' OR TVInfo LIKE '[DCW]%') ORDER BY id DESC LIMIT 1";
                     var dt = sqlite.Read(checkSql, connstr);
                     if (dt != null && dt.Rows.Count > 0)
                     {
@@ -1076,7 +1076,9 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
-        /// 原TV1Process方法（保留兼容，内部调用TV1Process_ACW）
+        /// TV1 历史兼容入口。
+        /// 当前 PLC 主生产路径按 TV1Trig 分流到 <see cref="TV1Process_ACW"/> / <see cref="TV1Process_DCW"/>；
+        /// 本入口保留旧单模式流程，不负责 ACW/DCW 双测模式分流，调试或维护时不应作为当前生产主路径使用。
         /// </summary>
         public void TV1Process()
         {
@@ -1338,7 +1340,9 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
-        /// 原TV2Process方法（保留兼容，内部调用TV2Process_ACW）
+        /// TV2 历史兼容入口。
+        /// 当前 PLC 主生产路径按 TV2Trig 分流到 <see cref="TV2Process_ACW"/> / <see cref="TV2Process_DCW"/>；
+        /// 本入口保留旧单模式流程，不负责 ACW/DCW 双测模式分流，调试或维护时不应作为当前生产主路径使用。
         /// </summary>
         public void TV2Process()
         {
@@ -1414,6 +1418,11 @@ namespace BusbarCompressionSystem.ViewModel
             PLC_write((DataModel.Settingmodel.AddressStart + 9).ToString(), 1);
 
         }
+        /// <summary>
+        /// TV3 历史兼容入口。
+        /// 当前 PLC 轮询中 TV3 触发已禁用，工位3的绝缘电阻测试由 IR 流程承担；
+        /// 本方法体仅保留历史耐压3路径，恢复使用前必须重新核对 TV3 参数、记录字段和 PLC 完成信号。
+        /// </summary>
         public void TV3Process()
         {
             string s = PLC_Readstring(DataModel.Settingmodel.AddressSN + 25 * 3);
@@ -1774,8 +1783,8 @@ namespace BusbarCompressionSystem.ViewModel
                 try
                 {
                     // 双测模式下，同一SN会产生两条电测记录（[ACW]/[DCW]）。
-                    // 旧逻辑仅按SN定位并更新，导致第二次电测结果覆盖第一次，界面无法同时看到两次记录。
-                    // 新逻辑按「SN + TestMode」定位；若当前模式记录不存在：
+                    // 界面行按「SN + TestMode」定位，避免第二次电测结果覆盖第一次记录。
+                    // 若当前模式记录不存在：
                     // 1) 优先复用“尚未写入TV结果”的占位记录（拍照后创建的记录）作为第一次电测；
                     // 2) 若已存在另一模式记录，则复制一条新记录用于第二次电测，确保界面可追溯两次电测。
 

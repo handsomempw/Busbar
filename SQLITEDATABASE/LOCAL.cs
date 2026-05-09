@@ -283,11 +283,65 @@ namespace SQLITEDATABASE
             return false;
         }
 
+        /// <summary>
+        /// 普通耐压记录的数据库筛选边界。
+        /// IR 结果复用 TVMAXVOLTAGE/TVMAXCURRENT 物理列保存绝缘电阻和漏电流；所有 ACW/DCW 压力、CHECK 基础判定
+        /// 和耐压更新都必须排除 [IR] 行，避免把绝缘电阻当作耐压最大电压或最大电流处理。
+        /// </summary>
+        private const string NonIrTvInfoCondition = "(TVInfo IS NULL OR TVInfo NOT LIKE '[IR]%')";
 
         /// <summary>
-        /// 更新产品的压力测试数据
-        /// 业务逻辑：记录铜排电测过程中的压力监控数据（平均值、最大值、最小值）
-        /// 判定标准：最大值≤设定上限 且 最小值≥设定下限
+        /// 耐压首测占位行筛选边界。
+        /// 拍照留底后创建的占位记录通常尚未写入 TVInfo，ACW/DCW 第一次测试只能占用这类空白非 IR 行；
+        /// 如果同 SN 已存在另一种耐压模式行，应由双测插入逻辑新增独立行，而不是覆盖已有模式。
+        /// </summary>
+        private const string BlankNonIrTvInfoCondition = "((TVInfo IS NULL OR trim(TVInfo) = '') AND (TVInfo IS NULL OR TVInfo NOT LIKE '[IR]%'))";
+
+        /// <summary>
+        /// 从 TVInfo 前缀识别电测业务类型。
+        /// 返回值只用于数据库行定位；不改变 TVInfo 的原始保存内容，也不参与 UI 文案显示。
+        /// </summary>
+        /// <param name="tvInfo">调用方准备写入本地库的 TVInfo，通常带 [ACW]、[DCW] 或 [IR] 前缀。</param>
+        /// <returns>识别到的前缀；无法识别时返回空字符串，保持无前缀耐压记录按非 IR 最新行兼容。</returns>
+        private static string GetTvModePrefix(string tvInfo)
+        {
+            string text = tvInfo ?? string.Empty;
+            if (text.StartsWith("[ACW]", StringComparison.OrdinalIgnoreCase)) return "[ACW]";
+            if (text.StartsWith("[DCW]", StringComparison.OrdinalIgnoreCase)) return "[DCW]";
+            if (text.StartsWith("[IR]", StringComparison.OrdinalIgnoreCase)) return "[IR]";
+            return string.Empty;
+        }
+
+        /// <summary>
+        /// 构造耐压字段更新片段，统一处理小数点格式和字符串单引号。
+        /// 该片段只用于本地 SQLite 电测结果写入，避免中文系统小数逗号或仪表文本中的单引号破坏 SQL。
+        /// </summary>
+        private static string BuildTvUpdateSet(float RES, float MaxVoltage, bool TVResult, float MaxCurrent, string TVInfo, string TVMeterID)
+        {
+            return $"RES={FormatSqlNumber(RES)},TVMAXVOLTAGE={FormatSqlNumber(MaxVoltage)},TVMAXCURRENT={FormatSqlNumber(MaxCurrent)},TVRESULT={(TVResult ? 1 : 0)},TVMeterID='{EscapeSqlLiteral(TVMeterID)}',TVInfo='{EscapeSqlLiteral(TVInfo)}'";
+        }
+
+        /// <summary>
+        /// 按 SQLite 可解析的小数点格式输出测试数值。
+        /// </summary>
+        private static string FormatSqlNumber(float value)
+        {
+            return value.ToString(CultureInfo.InvariantCulture);
+        }
+
+        /// <summary>
+        /// 转义写入 SQLite 文本字段的单引号。
+        /// </summary>
+        private static string EscapeSqlLiteral(string value)
+        {
+            return (value ?? string.Empty).Replace("'", "''");
+        }
+
+
+        /// <summary>
+        /// 更新产品的非 IR 电测压力数据。
+        /// 压力在当前产线流程中属于普通 ACW/DCW 电测判定；IR 记录虽然复用同一张本地表，
+        /// 但不参与 D1600 压力回写，避免最新 IR 行覆盖耐压工位的压力追溯结果。
         /// </summary>
         /// <param name="PressureResult">压力测试是否合格</param>
         public static bool UpdatePressure(string WOCODE, string PARTNOID, string SN, float AveragePressure, float MaxPressure, float MinPressure, bool PressureResult)
@@ -302,7 +356,7 @@ namespace SQLITEDATABASE
                     return false;
                 }
 
-                string sql = $"UPDATE BusbarCompressionData SET PRESSURE_RESULT ={(PressureResult ? 1 : 0)},PRESSURE_MAX={MaxPressure},PRESSURE_AVERAGE={AveragePressure},PRESSURE_MIN={MinPressure} WHERE id=(SELECT max(id) from BusbarCompressionData WHERE sn='{SN}')";
+                string sql = $"UPDATE BusbarCompressionData SET PRESSURE_RESULT ={(PressureResult ? 1 : 0)},PRESSURE_MAX={FormatSqlNumber(MaxPressure)},PRESSURE_AVERAGE={FormatSqlNumber(AveragePressure)},PRESSURE_MIN={FormatSqlNumber(MinPressure)} WHERE id=(SELECT max(id) from BusbarCompressionData WHERE sn='{SN}' AND {NonIrTvInfoCondition})";
                 int c = excute_sql(sql, _connstr);
                 return c > 0;
             }
@@ -313,9 +367,9 @@ namespace SQLITEDATABASE
             return false;
         }
         /// <summary>
-        /// 更新产品的耐压测试数据（TV = Test Voltage）
-        /// 业务逻辑：记录AT9620耐压测试仪的测试结果，包括电阻值、最大电压、最大电流等
-        /// 应用场景：有3个耐压测试工位（TV1/TV2/TV3），每个产品需要通过其中一个工位的测试
+        /// 更新产品的 ACW/DCW 耐压测试数据。
+        /// 本地表历史上使用 TVMAXVOLTAGE/TVMAXCURRENT 保存耐压值，IR 后续也复用这些物理列保存绝缘电阻和漏电流；
+        /// 因此耐压更新必须按 TVInfo 前缀或空白占位行定位，不能再简单写入同 SN 最新记录。
         /// </summary>
         /// <param name="RES">电阻值（单位：欧姆）</param>
         /// <param name="MaxVoltage">测试过程中的最大电压值</param>
@@ -335,7 +389,30 @@ namespace SQLITEDATABASE
                     return false;
                 }
 
-                string sql = $"UPDATE BusbarCompressionData SET RES={RES},TVMAXVOLTAGE={MaxVoltage},TVMAXCURRENT={MaxCurrent},TVRESULT={(TVResult ? 1 : 0)},TVMeterID='{TVMeterID}',TVInfo='{TVInfo}' WHERE id=(SELECT max(id) from BusbarCompressionData WHERE sn='{SN}')";
+                string updateSet = BuildTvUpdateSet(RES, MaxVoltage, TVResult, MaxCurrent, TVInfo, TVMeterID);
+                string tvModePrefix = GetTvModePrefix(TVInfo);
+
+                if (tvModePrefix == "[ACW]" || tvModePrefix == "[DCW]")
+                {
+                    string updateSameMode = $"UPDATE BusbarCompressionData SET {updateSet} WHERE id=(SELECT max(id) from BusbarCompressionData WHERE sn='{SN}' AND TVInfo LIKE '{tvModePrefix}%')";
+                    int sameModeCount = excute_sql(updateSameMode, _connstr);
+                    if (sameModeCount > 0)
+                    {
+                        return true;
+                    }
+
+                    string updatePlaceholder = $"UPDATE BusbarCompressionData SET {updateSet} WHERE id=(SELECT max(id) from BusbarCompressionData WHERE sn='{SN}' AND {BlankNonIrTvInfoCondition})";
+                    int placeholderCount = excute_sql(updatePlaceholder, _connstr);
+                    if (placeholderCount <= 0)
+                    {
+                        WriteErrorLog("[追踪]UpdateTV-未找到耐压可更新记录",
+                            $"TVInfo={TVInfo}, 已跳过同SN最新IR行和其他模式行",
+                            SN, WOCODE);
+                    }
+                    return placeholderCount > 0;
+                }
+
+                string sql = $"UPDATE BusbarCompressionData SET {updateSet} WHERE id=(SELECT max(id) from BusbarCompressionData WHERE sn='{SN}' AND {NonIrTvInfoCondition})";
                 int c = excute_sql(sql, _connstr);
                 return c > 0;
             }
@@ -457,7 +534,7 @@ namespace SQLITEDATABASE
         /// 业务策略：
         /// - 本地表沿用既有 TV* 物理列，避免扩表影响历史数据与下游上传；
         /// - 通过 TVInfo 前缀、TVMeterID 和 UI 的 TestMode 区分 ACW/DCW/IR 语义；
-        /// - 插入独立电测行时复制同 SN 最近一条记录的拍照/压力结果，保证界面和追溯数据不断层。
+        /// - 插入独立电测行时优先复制同 SN 最近一条非 IR 记录的拍照/压力结果，保证 IR 复用物理列时不反向污染普通耐压上下文。
         /// </summary>
         private static bool InsertElectricalTestRecord(string WOCODE, string PARTNOID, string SN, string STATIONCODE, string EQUIPMENTID,
             float RES, float MaxVoltage, bool TVResult, float MaxCurrent, string TVInfo, string TVMeterID, string source)
@@ -472,8 +549,8 @@ namespace SQLITEDATABASE
                     return false;
                 }
 
-                // 先从最近一条记录复制基础信息（TakePhoto1/压力等），再插入新的独立电测行。
-                string sqlSelect = $"SELECT TAKEPHOTO1, PRESSURE_MAX, PRESSURE_AVERAGE, PRESSURE_MIN, PRESSURE_RESULT FROM BusbarCompressionData WHERE id=(SELECT max(id) from BusbarCompressionData WHERE sn='{SN}')";
+                // 基础拍照/压力结果属于普通耐压流程，新增 IR 行时也只从非 IR 行复制，避免最新 IR 行回流到 ACW/DCW 语义。
+                string sqlSelect = $"SELECT TAKEPHOTO1, PRESSURE_MAX, PRESSURE_AVERAGE, PRESSURE_MIN, PRESSURE_RESULT FROM BusbarCompressionData WHERE id=(SELECT max(id) from BusbarCompressionData WHERE sn='{SN}' AND {NonIrTvInfoCondition})";
                 DataTable dt = Read(sqlSelect, _connstr);
 
                 bool takePhoto1 = false;
@@ -745,9 +822,9 @@ namespace SQLITEDATABASE
         }
 
         /// <summary>
-        /// 更新产品的第二次拍照（外观检测/AOI）结果
-        /// 业务逻辑：在外观检测工位完成后，记录AOI视觉检测是否合格
-        /// 区别于TakePhoto1：这个是对产品缺陷进行AOI识别判断，而不仅仅是留底
+        /// 更新产品的第二次拍照（外观检测/AOI）结果。
+        /// CHECK2 的最终出站判定以普通非 IR 电测记录作为基础行；AOI 结果也写回该行，
+        /// 避免 IR 独立电测行成为同 SN 最新记录时截走外观结果。
         /// </summary>
         /// <param name="TakePhoto2">AOI外观检测是否合格</param>
         public static bool UpdateTakePhoto2(string WOCODE, string PARTNOID, string SN, bool TakePhoto2)
@@ -762,7 +839,7 @@ namespace SQLITEDATABASE
                     return false;
                 }
 
-                string sql = $"UPDATE BusbarCompressionData SET TAKEPHOTO2 ={(TakePhoto2 ? 1 : 0)} WHERE id=(SELECT max(id) from BusbarCompressionData WHERE sn='{SN}')";
+                string sql = $"UPDATE BusbarCompressionData SET TAKEPHOTO2 ={(TakePhoto2 ? 1 : 0)} WHERE id=(SELECT max(id) from BusbarCompressionData WHERE sn='{SN}' AND {NonIrTvInfoCondition})";
                 int c = excute_sql(sql, _connstr);
                 return c > 0;
             }
@@ -828,7 +905,9 @@ namespace SQLITEDATABASE
         }
 
         /// <summary>
-        /// 第一次综合校验：检查产品是否通过了前置工序的所有测试项目
+        /// 第一次综合校验：检查产品是否通过了前置工序的所有测试项目。
+        /// CHECK1 的基础字段来自同 SN 最新非 IR 记录，IR 行只在多测综合判定中按 [IR] 前缀参与，
+        /// 避免把绝缘电阻复用到 TVMAXVOLTAGE 后误当作普通耐压最大电压。
         /// 业务场景：在CHECK1工位（外观检测前）进行的数据完整性和合格性校验
         /// 校验项目：拍照留底(TakePhoto1) + 耐压测试(TVResult) + 电阻测试(RES)
         /// 返回值说明：
@@ -856,7 +935,7 @@ namespace SQLITEDATABASE
 
                 if (!string.IsNullOrEmpty(_connstr))
                 {
-                    string sql = $"SELECT SN, TAKEPHOTO1, RES, TVMAXVOLTAGE, TVRESULT, PRESSURE_RESULT FROM BusbarCompressionData  where ID=(SELECT max(ID)  FROM BusbarCompressionData WHERE sn='{SN}')";
+                    string sql = $"SELECT SN, TAKEPHOTO1, RES, TVMAXVOLTAGE, TVRESULT, PRESSURE_RESULT FROM BusbarCompressionData  where ID=(SELECT max(ID)  FROM BusbarCompressionData WHERE sn='{SN}' AND {NonIrTvInfoCondition})";
                     DataTable dt = Read(sql, _connstr);
                     
                     if (dt == null || dt.Rows.Count <= 0)
@@ -1044,7 +1123,9 @@ namespace SQLITEDATABASE
             return 1;
         }
         /// <summary>
-        /// 第二次综合校验：检查产品是否通过了所有工序的测试项目（包括外观检测）
+        /// 第二次综合校验：检查产品是否通过了所有工序的测试项目（包括外观检测）。
+        /// CHECK2 的基础字段来自同 SN 最新非 IR 记录，IR 行仍通过多测综合结果参与最终判定，
+        /// 但不作为普通耐压、压力或 AOI 基础行读取。
         /// 业务场景：在CHECK2工位（最终下料前）进行的全流程数据校验
         /// 校验项目：Check1的所有项 + 外观检测(TakePhoto2/AOI)
         /// 返回值说明：
@@ -1074,7 +1155,7 @@ namespace SQLITEDATABASE
 
                 if (!string.IsNullOrEmpty(_connstr))
                 {
-                    string sql = $"SELECT SN, TAKEPHOTO1, RES, TVMAXVOLTAGE, TVRESULT, PRESSURE_RESULT, TAKEPHOTO2 FROM BusbarCompressionData  where ID=(SELECT max(ID)  FROM BusbarCompressionData WHERE sn='{SN}')";
+                    string sql = $"SELECT SN, TAKEPHOTO1, RES, TVMAXVOLTAGE, TVRESULT, PRESSURE_RESULT, TAKEPHOTO2 FROM BusbarCompressionData  where ID=(SELECT max(ID)  FROM BusbarCompressionData WHERE sn='{SN}' AND {NonIrTvInfoCondition})";
                     DataTable dt = Read(sql, _connstr);
                     
                     if (dt == null || dt.Rows.Count <= 0)

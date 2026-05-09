@@ -500,7 +500,7 @@ namespace BusbarCompressionSystem.Model
         /// - Start(): 启动耐压测试，阻塞等待测试完成
         /// - Download(): 下发测试参数到设备
         /// - stop: 设置为true可中止测试
-        /// 【调用位置】TV1Process() 中调用
+        /// 【调用位置】当前 PLC 主路径由 TV1Process_ACW()/TV1Process_DCW() 调用；TV1Process() 仅保留历史兼容入口
         /// </remarks>
         [XmlElement("耐压1")]
         public AT9620.AT9620 AT9620_1 = new AT9620.AT9620();
@@ -508,14 +508,14 @@ namespace BusbarCompressionSystem.Model
         /// <summary>
         /// 耐压仪2（工位2使用）
         /// </summary>
-        /// <remarks>配置和功能同AT9620_1，在TV2Process()中调用</remarks>
+        /// <remarks>配置和功能同AT9620_1；当前 PLC 主路径由 TV2Process_ACW()/TV2Process_DCW() 调用，TV2Process() 仅保留历史兼容入口。</remarks>
         [XmlElement("耐压2")]
         public AT9620.AT9620 AT9620_2 = new AT9620.AT9620();
 
         /// <summary>
         /// 耐压仪3（工位3使用，可选）
         /// </summary>
-        /// <remarks>配置和功能同AT9620_1，在TV3Process()中调用</remarks>
+        /// <remarks>配置和功能同AT9620_1；当前 PLC 轮询中 TV3 触发已禁用，TV3Process() 仅保留历史兼容入口。</remarks>
         [XmlElement("耐压3")]
         public AT9620.AT9620 AT9620_3 = new AT9620.AT9620();
 
