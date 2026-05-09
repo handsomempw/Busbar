@@ -985,9 +985,15 @@ namespace BusbarCompressionSystem.Model.FaraVision
                     return;
                 }
 
-                // 执行完整的边缘检测+测量算法（校准模式）
-                // Source: 方案A完整测量校准 - 调用实际测量算法获取像素值
-                double pixelSize = vml.Main.MeasureDimension(t.Image, t, vml.Main.DataModel.FaraVisionDataModel.Settingmodel.HWindow, true, calibrationMode: true);
+                var hwindow = vml.Main.DataModel.FaraVisionDataModel.Settingmodel.HWindow;
+                if (!vml.Main.PrepareDimensionResultDisplay(t.Image, hwindow))
+                {
+                    NoticeBox.Show("主界面预览窗口未初始化，无法显示校准画面", "提示", MessageBoxIcon.Warning, true, 5000);
+                    return;
+                }
+
+                // 校准按钮使用主界面 FaraVision 结果窗口显示模板图和完整测量层，像素值用于计算尺寸测量比例。
+                double pixelSize = vml.Main.MeasureDimension(t.Image, t, hwindow, true, calibrationMode: true);
 
                 if (pixelSize <= 0)
                 {
@@ -997,7 +1003,6 @@ namespace BusbarCompressionSystem.Model.FaraVision
                 }
 
                 // 计算比例：真实尺寸(mm) / 测量像素尺寸(pixel) * 1000 = um/pixel
-                // Source: 方案A完整测量校准 - 基于实际测量值计算校准系数
                 t.DimensionK = (t.CalibrationRealSize / pixelSize) * 1000.0;
                 t.CalibrationPixelSize = pixelSize;
 
@@ -1041,11 +1046,16 @@ namespace BusbarCompressionSystem.Model.FaraVision
                     return;
                 }
 
-                // 执行测量
-                double measureValue = vml.Main.MeasureDimension(t.Image, t, vml.Main.DataModel.FaraVisionDataModel.Settingmodel.HWindow, true);
-                
-                // 测量后立即刷新预览到WPF，避免首次测量主界面无叠加显示
-                vml.Main.PreviewDimensionMeasurement(t.Image, t, vml.Main.DataModel.FaraVisionDataModel.Settingmodel.HWindow);
+                var hwindow = vml.Main.DataModel.FaraVisionDataModel.Settingmodel.HWindow;
+                if (!vml.Main.PrepareDimensionResultDisplay(t.Image, hwindow))
+                {
+                    NoticeBox.Show("主界面预览窗口未初始化，无法显示测量画面", "提示", MessageBoxIcon.Warning, true, 5000);
+                    return;
+                }
+
+                // 手动模板测试先显示模板图，再由 MeasureDimension 叠加完整测量层；
+                // 不调用找边预览入口，避免简版预览覆盖红色测距线和调试图层。
+                double measureValue = vml.Main.MeasureDimension(t.Image, t, hwindow, true);
 
                 if (measureValue < 0)
                 {
@@ -1123,9 +1133,15 @@ namespace BusbarCompressionSystem.Model.FaraVision
                         return;
                     }
 
-                    // 执行测量并预览（仅针对当前检测照片）
-                    double measureValue = vml.Main.MeasureDimension(image, t, vml.Main.DataModel.FaraVisionDataModel.Settingmodel.HWindow, true);
-                    vml.Main.PreviewDimensionMeasurement(image, t, vml.Main.DataModel.FaraVisionDataModel.Settingmodel.HWindow);
+                    var hwindow = vml.Main.DataModel.FaraVisionDataModel.Settingmodel.HWindow;
+                    if (!vml.Main.PrepareDimensionResultDisplay(image, hwindow))
+                    {
+                        NoticeBox.Show("主界面预览窗口未初始化，无法显示检测照片测量画面", "提示", MessageBoxIcon.Warning, true, 5000);
+                        return;
+                    }
+
+                    // 检测照片只作为本次测量背景，不写回模板图；测量完成后保留完整测距图层。
+                    double measureValue = vml.Main.MeasureDimension(image, t, hwindow, true);
 
                     if (measureValue < 0)
                     {
@@ -1194,7 +1210,7 @@ namespace BusbarCompressionSystem.Model.FaraVision
                     return;
                 }
 
-                // 按方案A：两条ROI都算，取较小值作为全局阈值（更稳妥不漏边）
+                // 两侧 ROI 分别估算边缘阈值，取较小值作为全局找边阈值，优先避免弱边缘漏检。
                 double finalThreshold = thresholdList.Min();
                 t.MetrologyMeasureThreshold = (int)Math.Round(finalThreshold);
 
@@ -1318,13 +1334,13 @@ namespace BusbarCompressionSystem.Model.FaraVision
         /// - 用户在"Metrology参数（高级设置）"展开面板中调整参数（搜索范围、卡尺数量、边缘阈值等）
         /// - 使用防抖机制避免参数变更时的频繁预览
         /// 
-        /// 预览时机：
-        /// - DimensionMeasureApply_Click：测试测量按钮
-        /// - CalibrateDimensionK_Click：校准按钮
+        /// 显示口径：
+        /// - 参数变更不自动刷新 HALCON 窗口，避免频繁清屏影响 ROI 配置过程；
+        /// - 测试测量、校准和检测照片按钮会先准备主界面结果图，再由完整测量流程绘制测距图层。
         /// 
         /// 注意：
-        /// - 防抖定时器已保留，但不再触发预览（为未来可能的优化预留）
-        /// - 如果需要恢复实时预览，取消下方注释即可
+        /// - 防抖定时器保留为手动排障预览入口，不参与默认生产配置流程。
+        /// - 若恢复实时找边预览，应确认 PreviewDimensionMeasurement 只显示找边层，不包含完整测距层。
         /// </summary>
         private void MetrologyParameter_Changed(object sender, RoutedEventArgs e)
         {

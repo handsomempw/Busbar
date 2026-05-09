@@ -1614,14 +1614,52 @@ namespace BusbarCompressionSystem.ViewModel
         #region 尺寸测量
 
         /// <summary>
-        /// 尺寸测量核心方法，根据测量类型调用相应的子方法
+        /// 为手动尺寸测量结果准备主界面 HALCON 画面。
+        /// 参数配置页的校准、模板测试和检测照片按钮都使用主界面 FaraVision 结果窗口显示完整测量图；
+        /// 本方法只负责清空目标窗口并显示当前测量图像，后续拟合线、距离线和调试图层仍由尺寸测量流程绘制。
+        /// 它不更新 WPF 的 ShowBitmapSource，不改变 ROI、校准系数、测量值或工程配置，避免影响配置页坐标映射。
         /// </summary>
-        /// <param name="image">输入图像</param>
-        /// <param name="tool">工具模型</param>
-        /// <param name="hwindow">HALCON窗口（用于绘制）</param>
-        /// <param name="redraw">是否重绘</param>
-        /// <param name="calibrationMode">校准模式：true=返回像素值用于校准，false=返回mm值用于测量</param>
-        /// <returns>测量值（校准模式：pixel，正常模式：mm），失败返回-1</returns>
+        /// <param name="image">将作为测量结果背景显示的 HALCON 图像；模板测试使用工具模板图，检测照片使用临时测试图。</param>
+        /// <param name="hwindow">主界面 FaraVision/AOI 结果窗口，当前由主窗口初始化为 HWindow4。</param>
+        /// <returns>true 表示目标窗口已显示当前图像，可继续绘制测量层；false 表示窗口或图像不可用。</returns>
+        public bool PrepareDimensionResultDisplay(HObject image, HWindow hwindow)
+        {
+            try
+            {
+                if (image == null || hwindow == null)
+                {
+                    return false;
+                }
+
+                HTuple width, height;
+                HOperatorSet.GetImageSize(image, out width, out height);
+                if (width == null || height == null || width.Length <= 0 || height.Length <= 0 || width.I <= 0 || height.I <= 0)
+                {
+                    return false;
+                }
+
+                hwindow.ClearWindow();
+                hwindow.DispObj(image);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"尺寸测量结果画面准备失败: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 尺寸测量核心方法，根据测量类型调用相应的子方法。
+        /// redraw 为 true 时只在传入的 HALCON 窗口上绘制拟合线、距离线和调试图层；
+        /// 调用方负责在需要独立结果画面时先清空窗口并显示当前图像，避免在线多工具流程中途擦除同一张图上的其他结果。
+        /// </summary>
+        /// <param name="image">输入图像；作为 Metrology 找边和尺寸计算的来源。</param>
+        /// <param name="tool">尺寸测量工具配置，包含 ROI、校准系数、测量类型、调试显示和 Metrology 参数。</param>
+        /// <param name="hwindow">HALCON 显示窗口；redraw 为 true 时接收测量图层，但本方法不负责清屏或铺底图。</param>
+        /// <param name="redraw">true 表示绘制测量图层；false 表示只计算尺寸，不更新窗口显示。</param>
+        /// <param name="calibrationMode">校准模式；true 返回原始像素距离用于计算 um/pixel，false 返回毫米值用于判定。</param>
+        /// <returns>校准模式返回像素值，正常模式返回毫米值；失败时通过异常向调用方报告。</returns>
         public double MeasureDimension(HObject image, ToolModel tool, HWindow hwindow, bool redraw = true, bool calibrationMode = false)
         {
             try
@@ -3412,38 +3450,26 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
-        /// 预览所有测量对象的边缘轮廓（在HALCON窗口显示）
-        /// 
-        /// 业务场景：
-        /// - 用户点击"测试测量"或"校准"按钮后，在工具配置界面的HALCON窗口显示边缘检测结果
-        /// - 显示内容：原图 + ROI框 + 边缘检测结果（拟合线/圆、卡尺位置、边缘点等）
-        /// 
-        /// 核心逻辑（职责分离设计）：
-        /// 1. 清空HALCON窗口并显示原图
-        /// 2. 绘制测量对象1的ROI框（绿色矩形/圆形）
-        /// 3. 调用PreviewEdgesForROI绘制测量对象1的边缘检测结果（青色拟合线/圆、边缘点等）
-        /// 4. 绘制测量对象2的ROI框（黄色矩形/圆形）
-        /// 5. 调用PreviewEdgesForROI绘制测量对象2的边缘检测结果
-        /// 
-        /// 设计原则：
-        /// - 预览结果只显示在HALCON窗口，不影响WPF界面的ShowBitmapSource
-        /// - ShowBitmapSource始终保持原图尺寸，避免触发WindowX_SizeChanged导致的缩放问题
-        /// - 职责分离：HALCON窗口负责预览，WPF Canvas负责ROI绘制交互
-        /// 
+        /// 按 ROI 维度逐侧绘制找边结果，不包含两侧之间的测距图层。
+        ///
+        /// 显示口径：
+        /// - 清空窗口，重绘底图；
+        /// - 对象1 ROI 框（绿色）→ 拟合线/圆（青色）→ 边缘点（调试时春绿色十字）→ 卡尺框（调试时橙色）；
+        /// - 对象2 ROI 框（黄色）→ 同上；
+        /// - 不绘制两侧之间的红色距离线和黄色计算延长线；这些属于测距图层，
+        ///   由 MeasureLineToLine / MeasureLineToCircle / MeasureCircleToCircle 在 redraw=true 时绘制。
+        ///
         /// 调用时机：
-        /// - PreviewDimensionMeasurement：被测试测量、校准按钮调用
-        /// - DimensionMeasureApply_Click：测试测量按钮
-        /// - CalibrateDimensionK_Click（隐式）：校准完成后调用MeasureDimension，内部调用PreviewEdges
-        /// 
-        /// 与其他模块关联：
-        /// - PreviewEdgesForROI：预览单个ROI的边缘检测结果
-        /// - PreviewEdgesWithMetrology / PreviewCircleEdgesWithMetrology：使用Metrology模型检测边缘
-        /// - IsROIValid：验证ROI有效性
+        /// - PreviewDimensionMeasurement：供单独排障场景使用。
+        /// - DimensionMeasureApply_Click 不在测量后调用本方法，以保留测量时已绘制的完整测距图层。
+        /// - CalibrateDimensionK_Click 不调用本方法；校准画面先准备主界面底图，再由 MeasureDimension 绘制测量层。
+        ///
+        /// 注意：本方法调用后会完全刷新 HALCON 窗口，若上游已绘制测距图层则会被覆盖。
         /// </summary>
-        /// <param name="image">输入图像</param>
-        /// <param name="tool">工具模型</param>
-        /// <param name="hwindow">HALCON窗口（工具配置界面的Settingmodel.HWindow）</param>
-        /// <returns>是否预览成功</returns>
+        /// <param name="image">输入图像；调用后作为 HALCON 窗口底图重新显示。</param>
+        /// <param name="tool">工具配置；ROI、测量类型和调试开关决定绘制内容。</param>
+        /// <param name="hwindow">传入的 HALCON 显示窗口；当前配置页手动预览使用主界面 FaraVision/AOI 结果窗口。</param>
+        /// <returns>true 表示两侧 ROI 均预览成功；false 表示任一侧找边失败或参数无效。</returns>
         public bool PreviewEdges(HObject image, ToolModel tool, HWindow hwindow)
         {
             try
@@ -3594,36 +3620,25 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
-        /// 预览尺寸测量
-        /// 
+        /// 尺寸测量的独立预览入口（仅显示找边结果，不包含测距图层）。
+        ///
         /// 业务场景：
-        /// - 用户在工具配置界面点击"测试测量"或"校准"按钮后，显示边缘检测预览
-        /// - 预览结果显示在工具配置界面的HALCON窗口
-        /// 
-        /// 核心逻辑：
-        /// - 委托给PreviewEdges方法执行实际的边缘检测和绘制
-        /// - PreviewEdges会在HALCON窗口显示原图+ROI框+边缘检测结果
-        /// - 不更新WPF的ShowBitmapSource，避免触发界面尺寸变化
-        /// 
-        /// 设计原则（职责分离）：
-        /// - 本方法作为公共接口，供SettingForm调用
-        /// - 实际逻辑由PreviewEdges实现，保持单一职责
-        /// - 只在用户明确请求时调用，不进行自动实时预览
-        /// 
-        /// 调用时机（职责分离优化后）：
-        /// - ✅ DimensionMeasureApply_Click：测试测量按钮
-        /// - ✅ CalibrateDimensionK_Click隐式调用：校准后调用MeasureDimension，内部可能触发预览
-        /// - ❌ 已移除：WindowX_Loaded（窗口加载时）
-        /// - ❌ 已移除：rectange_MouseUp（绘制ROI后）
-        /// - ❌ 已移除：MetrologyParameter_Changed（参数变更时）
-        /// 
-        /// 与其他模块关联：
-        /// - PreviewEdges：实际执行边缘预览的核心方法
-        /// - SettingForm.xaml.cs：工具配置界面，通过vml.Main.PreviewDimensionMeasurement调用
+        /// - 供需要单独查看找边结果、而不执行完整测量流程的场景使用。
+        /// - 典型调用方：ROI 调整后手动查看边缘分布，或排障时单独验证 Metrology 参数。
+        ///
+        /// 显示口径：
+        /// - 委托 PreviewEdges 执行：原图 → ROI 框 → 每侧拟合线/圆 → 边缘点 → 卡尺框（调试勾选时）。
+        /// - 不包含两侧之间的红色距离线、黄色计算延长线等测距图层；
+        ///   完整测距图层由 MeasureDimension（redraw=true）在测量时同步绘制。
+        /// - 不更新 WPF 的 ShowBitmapSource，只写 HALCON 窗口，不影响 ROI 绘制坐标映射。
+        ///
+        /// 调用时机：
+        /// - DimensionMeasureApply_Click 不再在测量后调用本方法，避免其 ClearWindow 覆盖测量图层。
+        /// - CalibrateDimensionK_Click 本身不调用本方法；校准画面先准备主界面底图，再由 MeasureDimension 绘制测量层。
         /// </summary>
-        /// <param name="image">输入图像（通常是tool.Image）</param>
-        /// <param name="tool">工具模型（包含ROI、Metrology参数等配置）</param>
-        /// <param name="hwindow">HALCON窗口（工具配置界面的Settingmodel.HWindow）</param>
+        /// <param name="image">输入图像，通常是 tool.Image，决定 HALCON 窗口的底图。</param>
+        /// <param name="tool">工具配置，包含 ROI、Metrology 参数和调试开关，决定预览内容。</param>
+        /// <param name="hwindow">传入的 HALCON 显示窗口；当前配置页手动预览使用主界面 FaraVision/AOI 结果窗口。</param>
         public void PreviewDimensionMeasurement(HObject image, ToolModel tool, HWindow hwindow)
         {
             try
@@ -3633,7 +3648,7 @@ namespace BusbarCompressionSystem.ViewModel
                     return;
                 }
 
-                // 调用现有的PreviewEdges方法
+                // 独立找边预览会重绘底图和 ROI 层；完整测距显示应走 MeasureDimension。
                 PreviewEdges(image, tool, hwindow);
             }
             catch (Exception ex)
