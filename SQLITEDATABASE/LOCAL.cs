@@ -337,6 +337,25 @@ namespace SQLITEDATABASE
             return (value ?? string.Empty).Replace("'", "''");
         }
 
+        /// <summary>
+        /// 查询本地过程表中符合条件的最新记录 ID。
+        /// 用于电测写库和 CHECK 诊断链路确认“本轮写入行”和“本轮判定行”是否一致；只返回 ID，不改变任何业务数据。
+        /// </summary>
+        /// <param name="connstring">当前工单 SQLite 数据库连接串。</param>
+        /// <param name="whereClause">已由调用方限定好 SN、测试类型和 IR 隔离边界的查询条件。</param>
+        /// <returns>找到记录时返回数据库 ID；未找到或无法解析时返回 -1。</returns>
+        private static long GetLatestBusbarRecordId(string connstring, string whereClause)
+        {
+            DataTable dt = Read($"SELECT ID FROM BusbarCompressionData WHERE {whereClause} ORDER BY ID DESC LIMIT 1", connstring);
+            if (dt == null || dt.Rows.Count == 0)
+            {
+                return -1;
+            }
+
+            long rowId;
+            return long.TryParse(dt.Rows[0]["ID"]?.ToString(), out rowId) ? rowId : -1;
+        }
+
 
         /// <summary>
         /// 更新产品的非 IR 电测压力数据。
@@ -394,22 +413,44 @@ namespace SQLITEDATABASE
 
                 if (tvModePrefix == "[ACW]" || tvModePrefix == "[DCW]")
                 {
-                    string updateSameMode = $"UPDATE BusbarCompressionData SET {updateSet} WHERE id=(SELECT max(id) from BusbarCompressionData WHERE sn='{SN}' AND TVInfo LIKE '{tvModePrefix}%')";
+                    string escapedSn = EscapeSqlLiteral(SN);
+                    long placeholderId = GetLatestBusbarRecordId(_connstr, $"sn='{escapedSn}' AND {BlankNonIrTvInfoCondition}");
+                    if (placeholderId > 0)
+                    {
+                        string updatePlaceholder = $"UPDATE BusbarCompressionData SET {updateSet} WHERE ID={placeholderId}";
+                        int placeholderCount = excute_sql(updatePlaceholder, _connstr);
+                        if (placeholderCount > 0)
+                        {
+                            WriteErrorLog("[追踪]UpdateTV-写入最新占位行",
+                                $"hitId={placeholderId}, mode={tvModePrefix}, affectedRows={placeholderCount}, RES={FormatSqlNumber(RES)}",
+                                SN, WOCODE);
+                            return true;
+                        }
+                    }
+
+                    long sameModeId = GetLatestBusbarRecordId(_connstr, $"sn='{escapedSn}' AND TVInfo LIKE '{tvModePrefix}%'");
+                    if (sameModeId <= 0)
+                    {
+                        WriteErrorLog("[追踪]UpdateTV-未找到耐压可更新记录",
+                            $"mode={tvModePrefix}, 未找到最新空白非IR行，也未找到同模式兼容行",
+                            SN, WOCODE);
+                        return false;
+                    }
+
+                    string updateSameMode = $"UPDATE BusbarCompressionData SET {updateSet} WHERE ID={sameModeId}";
                     int sameModeCount = excute_sql(updateSameMode, _connstr);
                     if (sameModeCount > 0)
                     {
+                        WriteErrorLog("[追踪]UpdateTV-回退写入同模式行",
+                            $"hitId={sameModeId}, mode={tvModePrefix}, affectedRows={sameModeCount}, RES={FormatSqlNumber(RES)}",
+                            SN, WOCODE);
                         return true;
                     }
 
-                    string updatePlaceholder = $"UPDATE BusbarCompressionData SET {updateSet} WHERE id=(SELECT max(id) from BusbarCompressionData WHERE sn='{SN}' AND {BlankNonIrTvInfoCondition})";
-                    int placeholderCount = excute_sql(updatePlaceholder, _connstr);
-                    if (placeholderCount <= 0)
-                    {
-                        WriteErrorLog("[追踪]UpdateTV-未找到耐压可更新记录",
-                            $"TVInfo={TVInfo}, 已跳过同SN最新IR行和其他模式行",
-                            SN, WOCODE);
-                    }
-                    return placeholderCount > 0;
+                    WriteErrorLog("[追踪]UpdateTV-同模式行写入未命中",
+                        $"hitId={sameModeId}, mode={tvModePrefix}, affectedRows={sameModeCount}",
+                        SN, WOCODE);
+                    return false;
                 }
 
                 string sql = $"UPDATE BusbarCompressionData SET {updateSet} WHERE id=(SELECT max(id) from BusbarCompressionData WHERE sn='{SN}' AND {NonIrTvInfoCondition})";
@@ -935,7 +976,7 @@ namespace SQLITEDATABASE
 
                 if (!string.IsNullOrEmpty(_connstr))
                 {
-                    string sql = $"SELECT SN, TAKEPHOTO1, RES, TVMAXVOLTAGE, TVRESULT, PRESSURE_RESULT FROM BusbarCompressionData  where ID=(SELECT max(ID)  FROM BusbarCompressionData WHERE sn='{SN}' AND {NonIrTvInfoCondition})";
+                    string sql = $"SELECT ID, SN, TAKEPHOTO1, RES, TVMAXVOLTAGE, TVRESULT, PRESSURE_RESULT FROM BusbarCompressionData  where ID=(SELECT max(ID)  FROM BusbarCompressionData WHERE sn='{SN}' AND {NonIrTvInfoCondition})";
                     DataTable dt = Read(sql, _connstr);
                     
                     if (dt == null || dt.Rows.Count <= 0)
@@ -953,7 +994,7 @@ namespace SQLITEDATABASE
                         string recordId = dt.Rows[0]["SN"]?.ToString() ?? "未知";
                         string dbPath = _connstr.Replace("Data Source=", "").Replace(";Pooling=true;FailIfMissing=false", "");
                         WriteErrorLog("[调试信息]CHECK1-查询记录详情",
-                            $"数据库文件={dbPath}, SN={recordId}, TAKEPHOTO1原始值=[{dt.Rows[0]["TAKEPHOTO1"]?.ToString()}], RES=[{dt.Rows[0]["RES"]?.ToString()}], TVRESULT=[{dt.Rows[0]["TVRESULT"]?.ToString()}]",
+                            $"数据库文件={dbPath}, readId={dt.Rows[0]["ID"]?.ToString()}, SN={recordId}, TAKEPHOTO1原始值=[{dt.Rows[0]["TAKEPHOTO1"]?.ToString()}], RES=[{dt.Rows[0]["RES"]?.ToString()}], TVRESULT=[{dt.Rows[0]["TVRESULT"]?.ToString()}]",
                             SN, WOCODE);
                         
                         // 1. 先解析拍照留底（必须字段）
