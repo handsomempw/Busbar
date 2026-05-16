@@ -47,7 +47,7 @@ namespace BusbarCompressionSystem.Model
         /// </summary>
         /// <remarks>
         /// 独立的交流耐压参数对象，TestMode固定为ACW。
-        /// 当TV1Trig=1时使用此参数。
+        /// 当TV1/TV2/TV3触发值为1时使用此参数。
         /// </remarks>
         public AT9620.TVParameter ACWParameter { set; get; } = new AT9620.TVParameter() { TestMode = AT9620.TestMode.ACW };
 
@@ -56,7 +56,7 @@ namespace BusbarCompressionSystem.Model
         /// </summary>
         /// <remarks>
         /// 独立的直流耐压参数对象，TestMode固定为DCW。
-        /// 当TV1Trig=2时使用此参数。
+        /// 当TV1/TV2/TV3触发值为2时使用此参数。
         /// </remarks>
         public AT9620.TVParameter DCWParameter { set; get; } = new AT9620.TVParameter() { TestMode = AT9620.TestMode.DCW };
 
@@ -101,6 +101,25 @@ namespace BusbarCompressionSystem.Model
         }
 
         /// <summary>
+        /// 耐压仪3上次执行的测试模式。
+        /// D1010触发工位3 ACW/DCW时刷新该字段，用于主界面显示当前TV3电测口径。
+        /// </summary>
+        [XmlIgnore]
+        private AT9620.TestMode _lastTV3TestMode = AT9620.TestMode.ACW;
+
+        [XmlIgnore]
+        public AT9620.TestMode LastTV3TestMode
+        {
+            get { return _lastTV3TestMode; }
+            set
+            {
+                _lastTV3TestMode = value;
+                RaisePropertyChanged(() => LastTV3TestMode);
+                RaisePropertyChanged(() => CurrentTV3TestModeDisplay);
+            }
+        }
+
+        /// <summary>
         /// 当前TV1测试模式显示文本（用于界面绑定）
         /// </summary>
         [XmlIgnore]
@@ -121,6 +140,18 @@ namespace BusbarCompressionSystem.Model
             get
             {
                 return LastTV2TestMode == AT9620.TestMode.ACW ? "ACW" : "DCW";
+            }
+        }
+
+        /// <summary>
+        /// 当前TV3测试模式显示文本（用于界面绑定）。
+        /// </summary>
+        [XmlIgnore]
+        public string CurrentTV3TestModeDisplay
+        {
+            get
+            {
+                return LastTV3TestMode == AT9620.TestMode.ACW ? "ACW" : "DCW";
             }
         }
 
@@ -247,6 +278,11 @@ namespace BusbarCompressionSystem.Model
     {
         public bool TV1Available { set; get; } = true;
         public bool TV2Available { set; get; } = true;
+
+        /// <summary>
+        /// 耐压3可用标志，由M3032周期刷新。
+        /// 现场线圈口径为1=不可用、0=可用，上位机取反后用于TV3触发、参数下发和界面启用。
+        /// </summary>
         public bool TV3Available { set; get; } = true;
 
         /// <summary>

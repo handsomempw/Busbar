@@ -332,7 +332,9 @@ namespace BusbarCompressionSystem.Model
         public int Meter2AvailableAddress { set; get; } = 3022;
 
         /// <summary>
-        /// 耐压仪3启用状态地址
+        /// 耐压仪3启用状态地址（M寄存器，Bool类型）。
+        /// 现场口径与耐压1/2一致：1=不可用，0=可用；上位机取反写入TV3Available。
+        /// TV3与IR共用第三电测位置，M3032与M3033由PLC按产品节拍保持互斥。
         /// </summary>
         [XmlElement("仪器3启用地址")]
         public int Meter3AvailableAddress { set; get; } = 3032;
@@ -515,7 +517,7 @@ namespace BusbarCompressionSystem.Model
         /// <summary>
         /// 耐压仪3（工位3使用，可选）
         /// </summary>
-        /// <remarks>配置和功能同AT9620_1；当前 PLC 轮询中 TV3 触发已禁用，TV3Process() 仅保留历史兼容入口。</remarks>
+        /// <remarks>配置和功能同AT9620_1；当前 PLC 主路径由 TV3Process_ACW()/TV3Process_DCW() 调用，TV3Process() 仅保留历史兼容入口。</remarks>
         [XmlElement("耐压3")]
         public AT9620.AT9620 AT9620_3 = new AT9620.AT9620();
 

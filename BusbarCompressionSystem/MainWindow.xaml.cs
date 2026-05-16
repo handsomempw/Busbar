@@ -200,6 +200,7 @@ namespace BusbarCompressionSystem
             // 初始化上次测试模式为ACW
             vml.Main.DataModel.Processmodel.LastTV1TestMode = AT9620.TestMode.ACW;
             vml.Main.DataModel.Processmodel.LastTV2TestMode = AT9620.TestMode.ACW;
+            vml.Main.DataModel.Processmodel.LastTV3TestMode = AT9620.TestMode.ACW;
 
             //vml.Main.DataModel.Processmodel.TVParameter.RiseTime = 5;
             //vml.Main.DataModel.Processmodel.TVParameter.FallTime = 5;
@@ -274,14 +275,24 @@ namespace BusbarCompressionSystem
                     vml.Main.writeLog($"[耐压2] 参数下发成功！");
                 }
                 
-                // 【优化】第三个仪器已禁用，跳过参数下发，但保留检查逻辑以兼容旧代码
-                vml.Main.writeLog($"[耐压3] 已禁用，跳过参数下发（设备已更新）");
-                var r3 = new AT9620.Result() { Success = true }; // 模拟成功，避免影响整体流程
-                //var r3 = vml.Main.DataModel.Settingmodel.AT9620_3.Download();
-                if (!r3.Success)
+                var r3 = new AT9620.Result() { Success = true };
+                if (vml.Main.DataModel.Processmodel.TVAvailable.TV3Available)
                 {
-                    vml.Main.writeLog($"[耐压3] 参数下发失败（此仪器已禁用，不应该执行到这里）", true);
-                    NoticeBox.Show("耐压工位3参数下发失败", "错误", MessageBoxIcon.Error);
+                    vml.Main.writeLog($"[耐压3] 开始连接仪器... IP={vml.Main.DataModel.Settingmodel.AT9620_3.IP}, 端口={vml.Main.DataModel.Settingmodel.AT9620_3.Port}");
+                    r3 = vml.Main.DataModel.Settingmodel.AT9620_3.Download();
+                    if (!r3.Success)
+                    {
+                        vml.Main.writeLog($"[耐压3] 参数下发失败! 错误信息: {r3.Error}", true);
+                        NoticeBox.Show("耐压工位3参数下发失败", "错误", MessageBoxIcon.Error);
+                    }
+                    else
+                    {
+                        vml.Main.writeLog($"[耐压3] 参数下发成功！");
+                    }
+                }
+                else
+                {
+                    vml.Main.writeLog($"[耐压3] M{vml.Main.DataModel.Settingmodel.Meter3AvailableAddress}显示不可用，跳过参数下发");
                 }
 
                 // 【日志】汇总结果

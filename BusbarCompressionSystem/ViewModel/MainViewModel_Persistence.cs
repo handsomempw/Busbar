@@ -287,7 +287,7 @@ namespace BusbarCompressionSystem.ViewModel
 
             applyOne(DataModel.Settingmodel.AT9620_1);
             applyOne(DataModel.Settingmodel.AT9620_2);
-            //applyOne(DataModel.Settingmodel.AT9620_3);
+            applyOne(DataModel.Settingmodel.AT9620_3);
         }
 
         private string GetLocalizedTvStatus(string status)

@@ -1419,27 +1419,73 @@ namespace BusbarCompressionSystem.ViewModel
 
         }
         /// <summary>
-        /// TV3 历史兼容入口。
-        /// 当前 PLC 轮询中 TV3 触发已禁用，工位3的绝缘电阻测试由 IR 流程承担；
-        /// 本方法体仅保留历史耐压3路径，恢复使用前必须重新核对 TV3 参数、记录字段和 PLC 完成信号。
+        /// 执行ACW交流耐压测试（TV3工位）。
+        /// D1010=1时调用本入口；D1011仅作为本站流程握手，产品质量结论由SQLite记录和CHECK综合判定。
         /// </summary>
-        public void TV3Process()
+        public void TV3Process_ACW()
         {
-            string s = PLC_Readstring(DataModel.Settingmodel.AddressSN + 25 * 3);
+            writeLog($"[耐压3-ACW] 开始ACW交流耐压测试");
 
-            string[] ss = s.Split(';');
-            if (ss.Length == 2)
+            writeLog($"[耐压3-ACW] 开始下发ACW参数");
+            DataModel.Settingmodel.AT9620_3.TVParameter = DataModel.Processmodel.ACWParameter;
+            var downloadResult = DataModel.Settingmodel.AT9620_3.Download();
+            if (!downloadResult.Success)
             {
-                //DataModel.Processmodel.TakePhotoTestModel.Productinfo = new Model.Record.Productinfo() { SN = ss[0], WOCODE = ss[1], PartNOID = "" };
-                DataModel.Processmodel.TVTestTestModel3.Productinfo = new Productinfo() { SN = ss[0], WOCODE = ss[1], PartNOID = DataModel.Processmodel.PartNOID };
-                writeLog($"[耐压3] 产品编码读取成功: SN={ss[0]}, WOCODE={ss[1]}");
+                writeLog($"[耐压3-ACW] ❌ ACW参数下发失败: {downloadResult.Error}", true);
+                PLC_write((DataModel.Settingmodel.AddressStart + 11).ToString(), (UInt16)2);
+                return;
+            }
+            DataModel.Processmodel.LastTV3TestMode = AT9620.TestMode.ACW;
+            writeLog($"[耐压3-ACW] ACW参数下发成功");
+            Thread.Sleep(500);
+
+            TV3Process_Core("ACW");
+        }
+
+        /// <summary>
+        /// 执行DCW直流耐压测试（TV3工位）。
+        /// D1010=2时调用本入口；D1011仅作为本站流程握手，产品质量结论由SQLite记录和CHECK综合判定。
+        /// </summary>
+        public void TV3Process_DCW()
+        {
+            writeLog($"[耐压3-DCW] 开始DCW直流耐压测试");
+
+            writeLog($"[耐压3-DCW] 开始下发DCW参数");
+            DataModel.Settingmodel.AT9620_3.TVParameter = DataModel.Processmodel.DCWParameter;
+            var downloadResult = DataModel.Settingmodel.AT9620_3.Download();
+            if (!downloadResult.Success)
+            {
+                writeLog($"[耐压3-DCW] ❌ DCW参数下发失败: {downloadResult.Error}", true);
+                PLC_write((DataModel.Settingmodel.AddressStart + 11).ToString(), (UInt16)2);
+                return;
+            }
+            DataModel.Processmodel.LastTV3TestMode = AT9620.TestMode.DCW;
+            writeLog($"[耐压3-DCW] DCW参数下发成功");
+            Thread.Sleep(500);
+
+            TV3Process_Core("DCW");
+        }
+
+        /// <summary>
+        /// TV3耐压测试核心逻辑（ACW/DCW共用）。
+        /// 业务说明：本站与IR工位共用第三电测位置，由M3032/M3033选择路径；本方法只处理AT9620耐压路径。
+        /// 只有读到本次完整的 SN;WOCODE 后才允许继续启表和落记录，读码失败时回写D1011=2交由PLC异常分支处理。
+        /// </summary>
+        /// <param name="testType">测试类型标识，用于区分D1010触发的ACW或DCW路径。</param>
+        private void TV3Process_Core(string testType)
+        {
+            string snCode;
+            string woCode;
+            string rawCode;
+            if (TryReadProductCodeFromPlc(DataModel.Settingmodel.AddressSN + 25 * 3, $"耐压3-{testType}", out snCode, out woCode, out rawCode))
+            {
+                DataModel.Processmodel.TVTestTestModel3.Productinfo = new Productinfo() { SN = snCode, WOCODE = woCode, PartNOID = DataModel.Processmodel.PartNOID };
+                writeLog($"[耐压3-{testType}] 产品编码读取成功: SN={snCode}, WOCODE={woCode}");
             }
             else
             {
-                //writeLog($"耐压3产品编号读取错误:{s}");
-                writeLog($"[耐压3] ❌ 产品编号读取错误! 原始值=[{s}], 期望格式=[SN;WOCODE], 分段数={ss.Length}", true);
-                // 【日志归置】PLC 数据异常属于设备侧错误，按约定归到“日志\\错误”，避免污染“数据库异常”
-                writePlcError($"[PLC数据异常]TV3-产品编码格式错误 | 原始值=[{s}], 分段数={ss.Length}, PLC地址=D{DataModel.Settingmodel.AddressSN + 25 * 3}");
+                PLC_write((DataModel.Settingmodel.AddressStart + 11).ToString(), (UInt16)2);
+                return;
             }
 
             float res = PLC_ReadFloat(DataModel.Settingmodel.AddressRes + 2 * 2);
@@ -1448,34 +1494,69 @@ namespace BusbarCompressionSystem.ViewModel
             DataModel.Processmodel.TVTestTestModel3.TVMaxVoltage = 0;
             DataModel.Processmodel.TVTestTestModel3.TVMaxCurrent = 0;
 
-            var r = RunTvMeterStartWithDiagnostics(DataModel.Settingmodel.AT9620_3, DataModel.Processmodel.TVTestTestModel3.Productinfo?.SN, "ACW");
-            var localizedTvInfo3 = GetLocalizedTvStatus(DataModel.Processmodel.TVTestTestModel3.TVInfo);
-            DataModel.Processmodel.TVTestTestModel3.TVInfo = localizedTvInfo3;
+            // 清空上一次测试残留，避免本次启动失败时沿用旧信息导致“结果/说明”不一致
+            DataModel.Processmodel.TVTestTestModel3.Status = string.Empty;
+            DataModel.Processmodel.TVTestTestModel3.TVInfo = string.Empty;
+            DataModel.Processmodel.TVTestTestModel3.Voltage = 0;
+            DataModel.Processmodel.TVTestTestModel3.Current = 0;
+            DataModel.Processmodel.TVTestTestModel3.Time = 0;
 
-            bool updateTvResult = sqlite.UpdateTV(DataModel.Processmodel.TVTestTestModel3.Productinfo.WOCODE,
-               DataModel.Processmodel.TVTestTestModel3.Productinfo.PartNOID,
-               DataModel.Processmodel.TVTestTestModel3.Productinfo.SN,
-               res,
-               DataModel.Processmodel.TVTestTestModel2.TVMaxVoltage,
-               r.Success,
-               DataModel.Processmodel.TVTestTestModel3.TVMaxCurrent,
-               localizedTvInfo3,
-               DataModel.Settingmodel.SETTING_DATA.TVMeterID3
-               );
-            if (!updateTvResult)
+            var r = RunTvMeterStartWithDiagnostics(DataModel.Settingmodel.AT9620_3, DataModel.Processmodel.TVTestTestModel3.Productinfo?.SN, testType);
+            if (!r.Success && !string.IsNullOrWhiteSpace(r.Error))
             {
-                writeLog($"[耐压3] ⚠ UpdateTV更新失败! SN={DataModel.Processmodel.TVTestTestModel3.Productinfo.SN}, RES={res}", true);
+                writeLog($"[耐压3-{testType}] 失败原因: {r.Error}", true);
             }
 
-            updatetv(DataModel.Processmodel.TVTestTestModel3.Productinfo.SN,
+            var rawTvInfo = DataModel.Processmodel.TVTestTestModel3.TVInfo;
+            var translatedTvInfo = GetLocalizedTvStatus(rawTvInfo);
+            bool isACW = testType == "ACW";
+            var localizedTvInfo3 = Utils.TvStatusTranslator.AddTestModePrefix(translatedTvInfo, isACW);
+            DataModel.Processmodel.TVTestTestModel3.TVInfo = localizedTvInfo3;
+
+            string wocode = DataModel.Processmodel.TVTestTestModel3.Productinfo.WOCODE;
+            string partnoid = DataModel.Processmodel.TVTestTestModel3.Productinfo.PartNOID;
+            string sn = DataModel.Processmodel.TVTestTestModel3.Productinfo.SN;
+
+            bool isSecondTest = CheckIsSecondTest(wocode, partnoid, sn, isACW, testType);
+
+            bool updateTvResult;
+            if (isSecondTest)
+            {
+                updateTvResult = sqlite.InsertTV_SecondTest(wocode, partnoid, sn,
+                    DataModel.Settingmodel.SETTING_DATA.StationCode,
+                    DataModel.Settingmodel.SETTING_DATA.MachineID,
+                    res,
+                    DataModel.Processmodel.TVTestTestModel3.TVMaxVoltage,
+                    r.Success,
+                    DataModel.Processmodel.TVTestTestModel3.TVMaxCurrent,
+                    localizedTvInfo3,
+                    DataModel.Settingmodel.SETTING_DATA.TVMeterID3);
+                writeLog($"[耐压3-{testType}] 双测模式第二次测试，插入新记录");
+            }
+            else
+            {
+                updateTvResult = sqlite.UpdateTV(wocode, partnoid, sn,
+                    res,
+                    DataModel.Processmodel.TVTestTestModel3.TVMaxVoltage,
+                    r.Success,
+                    DataModel.Processmodel.TVTestTestModel3.TVMaxCurrent,
+                    localizedTvInfo3,
+                    DataModel.Settingmodel.SETTING_DATA.TVMeterID3);
+            }
+
+            if (!updateTvResult)
+            {
+                writeLog($"[耐压3-{testType}] ⚠ 数据库更新失败! SN={sn}, RES={res}", true);
+            }
+
+            updatetv(sn,
                 res,
-                DataModel.Processmodel.TVTestTestModel3.TVMaxVoltage
-                , r.Success,
+                DataModel.Processmodel.TVTestTestModel3.TVMaxVoltage,
+                r.Success,
                 DataModel.Processmodel.TVTestTestModel3.TVMaxCurrent,
                 localizedTvInfo3,
                 DataModel.Settingmodel.SETTING_DATA.TVMeterID3,
-                "ACW"
-                );
+                testType);
 
             if (!r.Success)
             {
@@ -1491,8 +1572,19 @@ namespace BusbarCompressionSystem.ViewModel
                     r.Recordstr
                     );
             }
-            PLC_write((DataModel.Settingmodel.AddressStart + 11).ToString(), 1);
 
+            writeLog($"[耐压3-{testType}] 测试完成，结果: {(r.Success ? "PASS" : "FAIL")}");
+            PLC_write((DataModel.Settingmodel.AddressStart + 11).ToString(), (UInt16)1);
+        }
+
+        /// <summary>
+        /// TV3 历史兼容入口。
+        /// 当前生产路径按D1010分流到 <see cref="TV3Process_ACW"/> / <see cref="TV3Process_DCW"/>；
+        /// 本入口面向旧调用方，默认执行ACW路径并复用完整的参数下发、读码、写库和D1011握手流程。
+        /// </summary>
+        public void TV3Process()
+        {
+            TV3Process_ACW();
         }
 
         /// <summary>

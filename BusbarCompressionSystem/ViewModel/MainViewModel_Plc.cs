@@ -18,13 +18,14 @@ namespace BusbarCompressionSystem.ViewModel
         // IR触发诊断：仅在变化时记录，避免刷屏
         private int? _lastIrTrigLogged = null;
         private int? _lastIrStartSkipReasonLoggedForTrig = null;
+        private bool? _lastTv3IrBothAvailable = null;
 
         /// <summary>
-        /// AOI-only模式判定：当耐压1/耐压2工位均不可用时，视为仅走AOI流程。
+        /// AOI-only模式判定：当TV1、TV2、TV3与IR电测路径均不可用时，视为仅走AOI流程。
         /// </summary>
         /// <remarks>
-        /// 口径1：只看TV1/TV2是否可用（当前系统已不再使用TV3）。
-        /// 在该模式下：不伪造耐压记录，且耐压相关触发在上位机侧直接忽略。
+        /// TV3与IR共用第三电测位置，现场通过M3032/M3033选择耐压或绝缘电阻路径；
+        /// 任一电测路径可用时，阻值、压力与CHECK仍按电测流程参与判定。
         /// </remarks>
         private bool IsAoiOnlyMode
         {
@@ -34,7 +35,9 @@ namespace BusbarCompressionSystem.ViewModel
                     && DataModel.Processmodel != null
                     && DataModel.Processmodel.TVAvailable != null
                     && !DataModel.Processmodel.TVAvailable.TV1Available
-                    && !DataModel.Processmodel.TVAvailable.TV2Available;
+                    && !DataModel.Processmodel.TVAvailable.TV2Available
+                    && !DataModel.Processmodel.TVAvailable.TV3Available
+                    && !DataModel.Processmodel.TVAvailable.IRAvailable;
             }
         }
 
@@ -82,10 +85,9 @@ namespace BusbarCompressionSystem.ViewModel
                             int TakePhoto1Trig = readresult.Content[2];
                             int TV1Trig = readresult.Content[6];
                             int TV2Trig = readresult.Content[8];
+                            int TV3Trig = readresult.Content[10];
                             // IR触发（D1014）：1=启动 2=停止
                             int IRTrig = readresult.Content[14];
-                            // 【优化】不再读取第三个耐压仪器的触发信号（设备已更新，不再使用第三个仪器）
-                            // int TV3Trig = readresult.Content[10];
 
                             int SecondScanTrig = secondScanResult.IsSuccess ? secondScanResult.Content[0] : 0;
 
@@ -236,23 +238,40 @@ namespace BusbarCompressionSystem.ViewModel
                             catch { ; }
                             #endregion
 
-                            #region 耐压3触发【已禁用】
-                            // 【优化】第三个耐压仪器已不再使用，注释掉触发逻辑
-                            //try
-                            //{
-                            //    if ((TV3Trig == 1 || TV3Trig == 2) & DataModel.Processmodel.TV3_Trig_IO.IOstatus == 0)
-                            //    {
-                            //        new Thread(() =>
-                            //        {
-                            //            TV3Process();
-                            //        }).Start();
-                            //    }
-                            //    if ((TV3Trig == 3) & DataModel.Processmodel.TV3_Trig_IO.IOstatus != TV3Trig)
-                            //    {
-                            //        DataModel.Settingmodel.AT9620_3.stop = true;
-                            //    }
-                            //}
-                            //catch {; }
+                            #region 耐压3触发
+                            try
+                            {
+                                // TV3Trig=1: ACW交流耐压测试
+                                // TV3Trig=2: DCW直流耐压测试
+                                // TV3Trig=3: 停止测试
+                                if (DataModel.Processmodel.TVAvailable.TV3Available)
+                                {
+                                    if (TV3Trig == 1 & DataModel.Processmodel.TV3_Trig_IO.IOstatus == 0)
+                                    {
+                                        new Thread(() =>
+                                        {
+                                            TV3Process_ACW();
+                                        }).Start();
+                                    }
+                                    else if (TV3Trig == 2 & DataModel.Processmodel.TV3_Trig_IO.IOstatus == 0)
+                                    {
+                                        new Thread(() =>
+                                        {
+                                            TV3Process_DCW();
+                                        }).Start();
+                                    }
+                                }
+                                else if ((TV3Trig == 1 || TV3Trig == 2) & DataModel.Processmodel.TV3_Trig_IO.IOstatus != TV3Trig)
+                                {
+                                    writeLog($"[耐压3触发] D{DataModel.Settingmodel.AddressStart + 10}={TV3Trig}，但TV3Available=false，忽略本次启动。请检查M{DataModel.Settingmodel.Meter3AvailableAddress}可用状态。");
+                                }
+
+                                if ((TV3Trig == 3) & DataModel.Processmodel.TV3_Trig_IO.IOstatus != TV3Trig)
+                                {
+                                    DataModel.Settingmodel.AT9620_3.stop = true;
+                                }
+                            }
+                            catch {; }
                             #endregion
 
                             #region 阻值触发
@@ -342,8 +361,7 @@ namespace BusbarCompressionSystem.ViewModel
                             DataModel.Processmodel.TV2_Trig_IO.IOstatus = TV2Trig;
                             // IR 触发状态复制刷新（D1014）
                             DataModel.Processmodel.IR_Trig_IO.IOstatus = IRTrig;
-                            // 【优化】第三个耐压仪器已禁用，设置状态为-1（不可用）
-                            DataModel.Processmodel.TV3_Trig_IO.IOstatus = -1;
+                            DataModel.Processmodel.TV3_Trig_IO.IOstatus = TV3Trig;
                             DataModel.Processmodel.Res1_Trig_IO.IOstatus = Res1Trig;
                             DataModel.Processmodel.Res2_Trig_IO.IOstatus = Res2Trig;
                             DataModel.Processmodel.Res3_Trig_IO.IOstatus = Res3Trig;
@@ -846,13 +864,13 @@ namespace BusbarCompressionSystem.ViewModel
         /// <summary>
         /// 从PLC读取耐压仪器（TV）可用状态，并同步更新到 <see cref="DataModel.Processmodel"/>。
         /// </summary>
-        /// <returns>连接成功且前两台耐压仪线圈读取成功时返回 true，否则返回 false。</returns>
+        /// <returns>连接成功且三台耐压仪线圈读取成功时返回 true，否则返回 false。</returns>
         /// <remarks>
         /// 1. 由 PLC_shankhand() 后台线程周期性调用（约每1500ms一次），用于UI/流程层判断工位是否可用。
-        /// 2. 读取线圈：Meter1AvailableAddress、Meter2AvailableAddress，并将读取到的bit取反后写入 TVAvailable（现场信号为“不可用=1”）。
+        /// 2. 读取线圈：Meter1AvailableAddress、Meter2AvailableAddress、Meter3AvailableAddress，并将读取到的bit取反后写入 TVAvailable（现场信号为“不可用=1”）。
         ///    IR(M3033) 逻辑相反：现场确认 1 表示“开启/可用”，不取反。
         /// 3. 同步写入：ShankHandAddress=1（握手）、DeviceAvailableAddress=allow_start（设备可运行标志）。
-        /// 4. 第三台耐压仪：当前不再读取第三台的PLC线圈状态，但保留 UI 勾选/配置的可用状态（不再强制置 false），避免界面无法勾选。
+        /// 4. TV3(M3032)与IR(M3033)共用第三电测位置；同时可用时记录诊断日志，流程仍按D1010/D1014实际触发执行。
         /// 5. 失败时最多重试3次；仅在最后一次失败时记录异常日志，避免日志刷屏。
         /// </remarks>
         public bool PLC_ReadTVAvailable()
@@ -874,17 +892,49 @@ namespace BusbarCompressionSystem.ViewModel
                     {
                         var r1 = modbusTcp.ReadCoil(DataModel.Settingmodel.Meter1AvailableAddress.ToString(), 1);
                         var r2 = modbusTcp.ReadCoil(DataModel.Settingmodel.Meter2AvailableAddress.ToString(), 1);
+                        var r3 = modbusTcp.ReadCoil(DataModel.Settingmodel.Meter3AvailableAddress.ToString(), 1);
                         // IR绝缘电阻仪可用状态（M3033）
                         var rIR = modbusTcp.ReadCoil(DataModel.Settingmodel.IRMeterAvailableAddress.ToString(), 1);
-                        // 【优化】不再读取第三个耐压仪器的PLC状态（设备已更新，不再使用第三个仪器）
-                        // var r3 = modbusTcp.ReadCoil(DataModel.Settingmodel.Meter3AvailableAddress.ToString(), 1);
                         modbusTcp.Write(DataModel.Settingmodel.ShankHandAddress.ToString(), (UInt16)1);
                         modbusTcp.Write(DataModel.Settingmodel.DeviceAvailableAddress.ToString(), DataModel.Processmodel.allow_start);
                         modbusTcp.ConnectClose();
                         if (r1.IsSuccess)
                         {
                             DataModel.Processmodel.TVAvailable.TV1Available = !r1.Content[0];
+                        }
+                        else
+                        {
+                            DataModel.Processmodel.TVAvailable.TV1Available = false;
+                            if (i == maxRetry - 1)
+                            {
+                                writeLog($"[耐压1可用状态] 读取M{DataModel.Settingmodel.Meter1AvailableAddress}失败，TV1Available=false");
+                            }
+                        }
+
+                        if (r2.IsSuccess)
+                        {
                             DataModel.Processmodel.TVAvailable.TV2Available = !r2.Content[0];
+                        }
+                        else
+                        {
+                            DataModel.Processmodel.TVAvailable.TV2Available = false;
+                            if (i == maxRetry - 1)
+                            {
+                                writeLog($"[耐压2可用状态] 读取M{DataModel.Settingmodel.Meter2AvailableAddress}失败，TV2Available=false");
+                            }
+                        }
+
+                        if (r3.IsSuccess)
+                        {
+                            DataModel.Processmodel.TVAvailable.TV3Available = !r3.Content[0];
+                        }
+                        else
+                        {
+                            DataModel.Processmodel.TVAvailable.TV3Available = false;
+                            if (i == maxRetry - 1)
+                            {
+                                writeLog($"[耐压3可用状态] 读取M{DataModel.Settingmodel.Meter3AvailableAddress}失败，TV3Available=false");
+                            }
                         }
 
                         // 同步更新IR可用状态（M3033）
@@ -920,8 +970,17 @@ namespace BusbarCompressionSystem.ViewModel
                             }
                         }
 
-                        // 【优化】只返回前两个仪器的状态，不再检查第三个仪器
-                        if (r1.IsSuccess & r2.IsSuccess)
+                        bool tv3IrBothAvailable = DataModel.Processmodel.TVAvailable.TV3Available && DataModel.Processmodel.TVAvailable.IRAvailable;
+                        if (_lastTv3IrBothAvailable == null || _lastTv3IrBothAvailable.Value != tv3IrBothAvailable)
+                        {
+                            _lastTv3IrBothAvailable = tv3IrBothAvailable;
+                            if (tv3IrBothAvailable)
+                            {
+                                writeLog($"[工位3电测互斥] M{DataModel.Settingmodel.Meter3AvailableAddress}=可用且M{DataModel.Settingmodel.IRMeterAvailableAddress}=可用，软件按D{DataModel.Settingmodel.AddressStart + 10}/D{DataModel.Settingmodel.IRTrigAddress}实际触发执行对应电测路径。", true);
+                            }
+                        }
+
+                        if (r1.IsSuccess & r2.IsSuccess & r3.IsSuccess)
                         {
                             return true;
                         }

@@ -523,6 +523,7 @@
             <!-- 测试模式显示 -->
             <TextBlock Text="{Binding Processmodel.CurrentTV1TestModeDisplay, StringFormat=TV1:{0}}" Padding="10,2" Background="LightBlue" Margin="5,0" ToolTip="耐压1当前测试模式(ACW/DCW)"/>
             <TextBlock Text="{Binding Processmodel.CurrentTV2TestModeDisplay, StringFormat=TV2:{0}}" Padding="10,2" Background="LightBlue" Margin="5,0" ToolTip="耐压2当前测试模式(ACW/DCW)"/>
+            <TextBlock Text="{Binding Processmodel.CurrentTV3TestModeDisplay, StringFormat=TV3:{0}}" Padding="10,2" Background="LightBlue" Margin="5,0" ToolTip="耐压3当前测试模式(ACW/DCW)"/>
             <TextBlock Text="{Binding Settingmodel.CurrentTestModeDisplay, StringFormat=模式:{0}}" Padding="10,2" Background="Orange" Foreground="White" Margin="5,0" ToolTip="当前系统测试模式配置"/>
 
 
@@ -543,7 +544,7 @@
             <StackPanel Orientation="Horizontal" Margin="50,0">
                 <CheckBox Margin="10,2"  IsChecked="{Binding  Processmodel.TVAvailable.TV1Available}"  Content="{Binding Settingmodel.SETTING_DATA.TVMeterID1}" ToolTip="耐压1仪器启用状态"/>
                 <CheckBox Margin="10,2"  IsChecked="{Binding  Processmodel.TVAvailable.TV2Available}"  Content="{Binding Settingmodel.SETTING_DATA.TVMeterID2}" ToolTip="耐压2仪器启用状态"/>
-                <CheckBox Margin="10,2"  IsChecked="{Binding  Processmodel.TVAvailable.TV3Available}"  Content="{Binding Settingmodel.SETTING_DATA.TVMeterID3}" ToolTip="耐压3仪器启用状态"/>
+                <CheckBox Margin="10,2"  IsChecked="{Binding  Processmodel.TVAvailable.TV3Available}"  Content="{Binding Settingmodel.SETTING_DATA.TVMeterID3}" ToolTip="耐压3仪器启用状态，来源M3032，与IR(M3033)按产品节拍互斥"/>
                 <TextBlock  Text="{Binding Processmodel.CheckData.TVMeterCheckTime}" ToolTip="仪器扫描时间" VerticalAlignment="Center" Margin="10,2"></TextBlock>
 
             </StackPanel>

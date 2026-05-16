@@ -456,6 +456,7 @@ namespace BusbarCompressionSystem
                         // 记录当前模式为ACW
                         vml.Main.DataModel.Processmodel.LastTV1TestMode = AT9620.TestMode.ACW;
                         vml.Main.DataModel.Processmodel.LastTV2TestMode = AT9620.TestMode.ACW;
+                        vml.Main.DataModel.Processmodel.LastTV3TestMode = AT9620.TestMode.ACW;
                         
                         vml.Main.writeLog($"[耐压1] 开始下发ACW参数...",false);
                         rd1 = vml.Main.DataModel.Settingmodel.AT9620_1.Download();
@@ -479,9 +480,23 @@ namespace BusbarCompressionSystem
                             vml.Main.writeLog($"[耐压2] ❌ ACW参数下发失败: {rd2.Error}", false);
                         }
                         
-                        // 【优化】第三个仪器已禁用，跳过参数下发
-                        vml.Main.writeLog($"[耐压3] 已禁用，跳过参数下发",false);
-                        rd3 = new AT9620.Result() { Success = true }; // 模拟成功，避免影响整体流程
+                        if (vml.Main.DataModel.Processmodel.TVAvailable.TV3Available)
+                        {
+                            vml.Main.writeLog($"[耐压3] 开始下发ACW参数...", false);
+                            rd3 = vml.Main.DataModel.Settingmodel.AT9620_3.Download();
+                            if (rd3.Success)
+                            {
+                                vml.Main.writeLog($"[耐压3] ✓ ACW参数下发成功", false);
+                            }
+                            else
+                            {
+                                vml.Main.writeLog($"[耐压3] ❌ ACW参数下发失败: {rd3.Error}", false);
+                            }
+                        }
+                        else
+                        {
+                            vml.Main.writeLog($"[耐压3] M{vml.Main.DataModel.Settingmodel.Meter3AvailableAddress}显示不可用，跳过ACW参数下发", false);
+                        }
                     }
                     else if (testModeValue == 1 || testModeValue == 3) // 只测直流 或 先直后交
                     {
@@ -501,6 +516,7 @@ namespace BusbarCompressionSystem
                         // 记录当前模式为DCW
                         vml.Main.DataModel.Processmodel.LastTV1TestMode = AT9620.TestMode.DCW;
                         vml.Main.DataModel.Processmodel.LastTV2TestMode = AT9620.TestMode.DCW;
+                        vml.Main.DataModel.Processmodel.LastTV3TestMode = AT9620.TestMode.DCW;
                         
                         vml.Main.writeLog($"[耐压1] 开始下发DCW参数...", false);
                         rd1 = vml.Main.DataModel.Settingmodel.AT9620_1.Download();
@@ -524,9 +540,23 @@ namespace BusbarCompressionSystem
                             vml.Main.writeLog($"[耐压2] ❌ DCW参数下发失败: {rd2.Error}", false);
                         }
                         
-                        // 【优化】第三个仪器已禁用，跳过参数下发
-                        vml.Main.writeLog($"[耐压3] 已禁用，跳过参数下发");
-                        rd3 = new AT9620.Result() { Success = true }; // 模拟成功，避免影响整体流程
+                        if (vml.Main.DataModel.Processmodel.TVAvailable.TV3Available)
+                        {
+                            vml.Main.writeLog($"[耐压3] 开始下发DCW参数...", false);
+                            rd3 = vml.Main.DataModel.Settingmodel.AT9620_3.Download();
+                            if (rd3.Success)
+                            {
+                                vml.Main.writeLog($"[耐压3] ✓ DCW参数下发成功", false);
+                            }
+                            else
+                            {
+                                vml.Main.writeLog($"[耐压3] ❌ DCW参数下发失败: {rd3.Error}", false);
+                            }
+                        }
+                        else
+                        {
+                            vml.Main.writeLog($"[耐压3] M{vml.Main.DataModel.Settingmodel.Meter3AvailableAddress}显示不可用，跳过DCW参数下发", false);
+                        }
                     }
                     
                     vml.Main.writeLog($"==============================");
@@ -698,13 +728,21 @@ namespace BusbarCompressionSystem
                         vml.Main.writeLog($"[手动参数-测试模式] ⚠️ 写入PLC失败: {GetTestModeDisplayName(electricalTestMode)} (值={config.ElectricalTestModeValue})", true);
                     }
 
-                    // 下发参数到设备（完全复用现有逻辑）
+                    // 下发参数到当前可用的耐压设备
                     var rd1 = vml.Main.DataModel.Settingmodel.AT9620_1.Download();
                     var rd2 = vml.Main.DataModel.Settingmodel.AT9620_2.Download();
-                    var rd3 = vml.Main.DataModel.Settingmodel.AT9620_3.Download();
+                    var rd3 = new AT9620.Result() { Success = true };
+                    if (vml.Main.DataModel.Processmodel.TVAvailable.TV3Available)
+                    {
+                        rd3 = vml.Main.DataModel.Settingmodel.AT9620_3.Download();
+                    }
+                    else
+                    {
+                        vml.Main.writeLog($"[耐压3] M{vml.Main.DataModel.Settingmodel.Meter3AvailableAddress}显示不可用，手动配置下发跳过AT9620_3");
+                    }
                     var rd4 = vml.Main.Download_PressureParameter();
 
-                    // 根据设备启用状态判断结果（完全复用现有逻辑）
+                    // 根据设备启用状态判断结果
                     if ((!rd1.Success) && vml.Main.DataModel.Processmodel.TVAvailable.TV1Available)
                     {
                         NoticeBox.Show("耐压工位1参数下发失败", "错误", MessageBoxIcon.Error);
