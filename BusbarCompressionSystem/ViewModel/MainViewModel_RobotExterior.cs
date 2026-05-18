@@ -2,6 +2,7 @@
 using BusbarCompressionSystem.Model.Record;
 using BusbarCompressionSystem.Utils;
 using GalaSoft.MvvmLight;
+using Panuon.WPF.UI;
 using SQLITEDATABASE;
 using System;
 using System.Collections.Generic;
@@ -21,12 +22,65 @@ namespace BusbarCompressionSystem.ViewModel
         #endregion
 
         #region 机器人
+        /// <summary>
+        /// 机器人掉线告警的显示门闩。
+        /// 同一轮断线只向操作员弹出一次保留型提示，重连后允许再次提示，避免重复告警覆盖现场判断。
+        /// </summary>
+        private int robotDisconnectNoticeShown = 0;
+
+        /// <summary>
+        /// 将视觉结果发送给机器人，作为 CHECK 与AOI流程之间的联动回执。
+        /// 发送成功时同步记录通讯日志；发送失败由底层 TCP 事件和断线提示接管。
+        /// </summary>
+        /// <param name="cmd">发送给机器人控制器的指令码，如 OK、NG1、NG2、NG3 或 NG4。</param>
         public void SendMsgRobot(string cmd)
         {
             DataModel.Settingmodel.TcpServerRobot.SendMessage(cmd);
             writeLog($"视觉->机器人:{cmd}");
         }
 
+        /// <summary>
+        /// 在机器人通讯掉线时向操作员弹出需要人工关闭的提示。
+        /// 该提示挂在机器人联动流程上，用于提醒现场暂停依赖 CHECK 指令并检查机器人连接。
+        /// </summary>
+        /// <param name="message">提示正文，说明当前机器人掉线状态和现场处置要求。</param>
+        private void ShowRobotDisconnectNotice(string message)
+        {
+            if (System.Threading.Interlocked.Exchange(ref robotDisconnectNoticeShown, 1) == 1)
+            {
+                return;
+            }
+
+            App.Current.Dispatcher.BeginInvoke(new Action(() =>
+            {
+                NoticeBox.Show(message, "机器人离线", MessageBoxIcon.Error, true);
+            }));
+        }
+
+        /// <summary>
+        /// 判断消息处理过程中的异常是否属于机器人链路断开。
+        /// 该判断覆盖发送时的写入失败和远程主机主动关闭连接两类现场表现。
+        /// </summary>
+        /// <param name="ex">机器人指令处理期间抛出的异常。</param>
+        /// <returns>返回 true 时按机器人断线处理并弹出人工确认提示。</returns>
+        private static bool IsRobotDisconnectException(Exception ex)
+        {
+            if (ex == null)
+            {
+                return false;
+            }
+
+            string message = ex.Message ?? string.Empty;
+            return message.Contains("无法将数据写入传输连接")
+                || message.Contains("远程主机强迫关闭")
+                || message.Contains("发送失败，客户端掉线")
+                || message.Contains("客户端掉线");
+        }
+
+        /// <summary>
+        /// 启动机器人 TCP 监听并挂接上线、掉线和消息接收事件。
+        /// 该入口只负责建立机器人联动通道，后续 CHECK 流程由消息回调驱动。
+        /// </summary>
         public void InitRobotServer()
         {
 
@@ -50,6 +104,11 @@ namespace BusbarCompressionSystem.ViewModel
             }).Start(); ;
 
         }
+        /// <summary>
+        /// 记录机器人上线或重连状态，并清理断线提示门闩。
+        /// </summary>
+        /// <param name="sender">机器人 TCP 服务端实例。</param>
+        /// <param name="e">连接事件载体，包含客户端上线或重连的业务文本。</param>
         private void RobotTcpServer_ClientConnected(TCPServerH sender, object e)
         {
             try
@@ -59,16 +118,24 @@ namespace BusbarCompressionSystem.ViewModel
                 {
                     writeLog("机器人已经连接");
                     DataModel.Settingmodel.RobotConnect.IsConnected = true;
+                    System.Threading.Interlocked.Exchange(ref robotDisconnectNoticeShown, 0);
                 }
                 else if (TCPevent.Msg == "客户端重新连接")
                 {
                     writeLog("机器人重新连接");
                     DataModel.Settingmodel.RobotConnect.IsConnected = true;
+                    System.Threading.Interlocked.Exchange(ref robotDisconnectNoticeShown, 0);
                 }
             }
             catch (Exception ex) {; }
         }
 
+        /// <summary>
+        /// 记录机器人掉线状态，并向操作员弹出需要人工关闭的告警。
+        /// 该提示用于提醒现场机器人链路中断后先完成人工确认
+        /// </summary>
+        /// <param name="sender">机器人 TCP 服务端实例。</param>
+        /// <param name="e">断线事件载体，包含客户端掉线或发送失败的业务文本。</param>
         private void RobotTcpServer_ClientDisconnected(TCPServerH sender, object e)
         {
             try
@@ -78,16 +145,19 @@ namespace BusbarCompressionSystem.ViewModel
                 {
                     writeLog("机器人已经离线");
                     DataModel.Settingmodel.RobotConnect.IsConnected = false;
+                    ShowRobotDisconnectNotice("机器人通讯已断开，请检查机器人连接");
                 }
                 else if (TCPevent.Msg == "发送失败，客户端掉线")
                 {
                     writeLog("发送失败，客户端掉线");
                     DataModel.Settingmodel.RobotConnect.IsConnected = false;
+                    ShowRobotDisconnectNotice("消息发送失败，请检查机器人连接");
                 }
                 else
                 {
                     writeLog(TCPevent.Msg);
                     DataModel.Settingmodel.RobotConnect.IsConnected = false;
+                    ShowRobotDisconnectNotice("请检查机器人TCP连接");
                 }
             }
             catch (Exception ex) {; }
@@ -698,6 +768,12 @@ namespace BusbarCompressionSystem.ViewModel
             }
             catch (Exception ex)
             {
+                if (IsRobotDisconnectException(ex))
+                {
+                    DataModel.Settingmodel.RobotConnect.IsConnected = false;
+                    ShowRobotDisconnectNotice("机器人消息处理方法异常RobotTcpServer_MessageReceived");
+                }
+
                 writeLog($"[机器人交互] ❌ 指令处理异常 cmd={cmd}: {ex.Message}", true);
                 sqlite.WriteErrorLog("[机器人交互异常]指令处理失败", $"cmd={cmd}, 异常: {ex.Message}, 堆栈: {ex.StackTrace}");
             }
