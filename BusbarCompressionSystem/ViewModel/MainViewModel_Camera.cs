@@ -767,7 +767,7 @@ namespace BusbarCompressionSystem.ViewModel
                         {
                             if (tool.ToolStatus == ToolStatus.OK)
                             {
-                                if (DataModel.Settingmodel.ImageSaveSetting.SaveOK)
+                                if (DataModel.FaraVisionDataModel.Settingmodel.ImageSaveSetting.SaveOK)
                                 {
 
                                     string savefilename = $"{DataModel.FaraVisionDataModel.Settingmodel.ImageSaveSetting.ImageSaveDir}\\外观检测\\{DateTime.Now.ToString("yyyyMMdd")}\\OK\\{DataModel.FaraVisionDataModel.Processmodel.BarcodeStr}-{tool.Index.ToString("00")}-{tool.Name}-{tool.ToolStatus}-{DateTime.Now.ToString("yyyyMMddHHmmssFFF")}.jpg";
@@ -787,7 +787,7 @@ namespace BusbarCompressionSystem.ViewModel
                             }
                             else
                             {
-                                if (DataModel.Settingmodel.ImageSaveSetting.SaveNG)
+                                if (DataModel.FaraVisionDataModel.Settingmodel.ImageSaveSetting.SaveNG)
                                 {
                                     string savefilename = $"{DataModel.FaraVisionDataModel.Settingmodel.ImageSaveSetting.ImageSaveDir}\\外观检测\\{DateTime.Now.ToString("yyyyMMdd")}\\NG\\{DataModel.FaraVisionDataModel.Processmodel.BarcodeStr}-{tool.Index.ToString("00")}-{tool.Name}-{tool.ToolStatus}-{DateTime.Now.ToString("yyyyMMddHHmmssFFF")}.jpg";
                                     try

@@ -49,21 +49,34 @@ namespace AT9620
         [XmlIgnore]
         public Action<string> CommunicationLog { get; set; }
 
-        /// <summary>Fetch? 单次 Socket 接收超时（毫秒）。</summary>
+        /// <summary>
+        /// Fetch 指令单次 Socket 接收超时（毫秒）。
+        /// 该值来自耐压仪独立配置文件，用于单次接收与轮询等待；默认值 200 保持现有现场节拍。
+        /// </summary>
         public int FetchReceiveTimeoutMs { get; set; } = 200;
 
         /// <summary>
-        /// Fetch? 最大尝试次数（含首次）：共 N 次 = 1 次首发 + (N - 1) 次重试。
+        /// Fetch 指令最大尝试次数（含首次发送）。
+        /// 该值来自耐压仪独立配置文件，决定单次读取的完整重试窗口；默认值 3 保持现有现场节拍。
         /// </summary>
         public int FetchMaxAttempts { get; set; } = 3;
 
-        /// <summary>Fetch? 失败后到下一次重新发送前的间隔（毫秒）。</summary>
+        /// <summary>
+        /// Fetch 指令失败后到下一次重新发送前的间隔（毫秒）。
+        /// 该值来自耐压仪独立配置文件，用于控制同一读数窗口内的重试节拍；默认值 100 保持现有现场节拍。
+        /// </summary>
         public int FetchRetryDelayMs { get; set; } = 100;
 
-        /// <summary>rp?、FUNC:SOUR:STEP? 等单次接收超时（毫秒）。</summary>
+        /// <summary>
+        /// 其它耐压命令单次接收超时（毫秒）。
+        /// 适用于 rp?、FUNC:SOUR:STEP? 这类单次等待更长的命令；默认值 3000 保持现有现场节拍。
+        /// </summary>
         public int OtherCommandReceiveTimeoutMs { get; set; } = 3000;
 
-        /// <summary>发送后、Receive 前的等待（毫秒）。</summary>
+        /// <summary>
+        /// 每次发送后、Receive 前的等待（毫秒）。
+        /// 该值用于控制发包后的最小节拍，默认值 100 保持现有现场节拍。
+        /// </summary>
         public int PostSendDelayMs { get; set; } = 100;
 
         /// <summary>最近一次 Fetch? 返回的原始字符串（供诊断；失败时可能为空）。</summary>

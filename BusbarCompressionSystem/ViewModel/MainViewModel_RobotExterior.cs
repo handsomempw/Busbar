@@ -257,7 +257,7 @@ namespace BusbarCompressionSystem.ViewModel
                             DataModel.FaraVisionDataModel.Processmodel.CameraList[cameraindex].CameraModel.exposuretime = DataModel.FaraVisionDataModel.Processmodel.Tools[i].ExposureTime;
                             DataModel.FaraVisionDataModel.Processmodel.CameraList[cameraindex].CameraModel.camera.Exposure = DataModel.FaraVisionDataModel.Processmodel.Tools[i].ExposureTime;
                             DataModel.FaraVisionDataModel.Processmodel.CameraList[cameraindex].CameraModel.camera.bnSetParam_Click();
-                            Thread.Sleep(DataModel.FaraVisionDataModel.Settingmodel.delaytime);
+                            Thread.Sleep(DataModel.FaraVisionDataModel.Settingmodel.ACommandTriggerWaitMs);
                             writeLog($"机器人->视觉:{cmd}开始触发", false);
                             DataModel.FaraVisionDataModel.Processmodel.CameraList[cameraindex].CameraModel.camera.bnTriggerExec_Click();
                             writeLog($"机器人->视觉:{cmd}触发完成", false);

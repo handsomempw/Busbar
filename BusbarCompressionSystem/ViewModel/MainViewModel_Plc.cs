@@ -769,7 +769,7 @@ namespace BusbarCompressionSystem.ViewModel
         /// 失败时不返回旧SN/旧工单，调用方必须按本次流程失败处理，避免电测或CHECK结果串到上一件产品。
         /// </summary>
         private bool TryReadProductCodeFromPlc(int address, string context, out string sn, out string wocode, out string raw,
-            int maxAttempts = 3, int delayMs = 300)
+            int maxAttempts = 3, int productCodeRetryDelayMs = 300)
         {
             sn = string.Empty;
             wocode = string.Empty;
@@ -804,7 +804,7 @@ namespace BusbarCompressionSystem.ViewModel
 
                 if (attempt < maxAttempts)
                 {
-                    Thread.Sleep(delayMs);
+                    Thread.Sleep(productCodeRetryDelayMs);
                 }
             }
 

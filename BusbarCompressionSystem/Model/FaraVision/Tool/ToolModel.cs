@@ -62,7 +62,7 @@ namespace BusbarCompressionSystem.Model.FaraVision.Tool
         public ROI BarCodeROI { set; get; } = new ROI();
 
         [XmlElement("延时")]
-        public int Delaytimes { set; get; } = 100;
+        public int ToolSoftInteractionDelayMs { set; get; } = 100;
 
         [XmlElement("结束码")]
 

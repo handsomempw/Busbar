@@ -1386,18 +1386,18 @@ namespace BusbarCompressionSystem.ViewModel
                 {
                     using (var stream = File.OpenRead(filename))
                     {
-                        var serializer = new XmlSerializer(typeof(SettingModel));
-                        DataModel.FaraVisionDataModel.Settingmodel = serializer.Deserialize(stream) as SettingModel;
+                        var serializer = new XmlSerializer(typeof(VisionSettingModel));
+                        DataModel.FaraVisionDataModel.Settingmodel = serializer.Deserialize(stream) as VisionSettingModel;
                     }
                 }
                 else
                 {
-                    DataModel.FaraVisionDataModel.Settingmodel = new SettingModel();
+                    DataModel.FaraVisionDataModel.Settingmodel = new VisionSettingModel();
                 }
             }
             catch (Exception ex)
             {
-                DataModel.FaraVisionDataModel.Settingmodel = new SettingModel();
+                DataModel.FaraVisionDataModel.Settingmodel = new VisionSettingModel();
 
                 MessageBox.Show($"配置数据.xml加载失败,软件已重置配置，请进入配置文件按需求修改,再重新打开软件:\r\n{ex.Message}");
 
