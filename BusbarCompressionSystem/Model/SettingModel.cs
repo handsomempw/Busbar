@@ -415,6 +415,16 @@ namespace BusbarCompressionSystem.Model
         public int AOI_NG_InspectionAddress { set; get; } = 3040;
 
         /// <summary>
+        /// 报工失败后报警信号地址（M 寄存器线圈，Bool）。
+        /// </summary>
+        /// <remarks>
+        /// 报工失败且「报工失败报警使能」为 true 时上位机写 1；清零由 PLC/现场处理，上位机不复位。
+        /// 使能为 false 时不写该线圈、不弹窗。
+        /// </remarks>
+        [XmlElement("报工失败报警线圈")]
+        public int ReportFailBlockCoilAddress { get; set; } = 3045;
+
+        /// <summary>
         /// 下料位扫码触发地址。
         /// PLC 置位后，上位机读取下料位条码。
         /// </summary>

@@ -182,6 +182,7 @@
     <Compile Include="ViewModel\MainViewModel_Logging.cs" />
     <Compile Include="ViewModel\MainViewModel_Persistence.cs" />
     <Compile Include="ViewModel\MainViewModel_Plc.cs" />
+    <Compile Include="ViewModel\MainViewModel_ReportFailBlock.cs" />
     <Compile Include="ViewModel\MainViewModel_RobotExterior.cs" />
     <Compile Include="ViewModel\ViewModelLocator.cs" />
     <Compile Include="View\TVTestControl.xaml.cs">

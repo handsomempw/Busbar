@@ -100,6 +100,23 @@ namespace BusbarCompressionSystem.ViewModel
         #endregion
 
         #region 配置数据
+
+        /// <summary>
+        /// 配置数据 XML 无「报工失败报警使能」节点时，反序列化会得到 false；缺节点时按业务默认视为开启。
+        /// </summary>
+        private void ApplyReportFailAlarmDefaultFromXml(string xmlText)
+        {
+            if (DataModel?.Settingmodel?.SETTING_DATA == null || string.IsNullOrEmpty(xmlText))
+            {
+                return;
+            }
+
+            if (xmlText.IndexOf("报工失败报警使能", StringComparison.Ordinal) < 0)
+            {
+                DataModel.Settingmodel.SETTING_DATA.ReportFailAlarmEnabled = true;
+            }
+        }
+
         public void SaveSettingModel()
         {
             string filename = GetConfigPath("配置数据.xml");
@@ -117,11 +134,14 @@ namespace BusbarCompressionSystem.ViewModel
                 }
                 if (File.Exists(filename))
                 {
-                    using (var stream = File.OpenRead(filename))
+                    string xmlText = File.ReadAllText(filename);
+                    using (var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(xmlText)))
                     {
                         var serializer = new XmlSerializer(typeof(SettingModel));
                         DataModel.Settingmodel = serializer.Deserialize(stream) as SettingModel;
                     }
+
+                    ApplyReportFailAlarmDefaultFromXml(xmlText);
                 }
                 else
                 {

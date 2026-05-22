@@ -787,6 +787,7 @@ namespace BusbarCompressionSystem.ViewModel
         {
             try
             {
+                string failMessage;
                 var r = MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.Save_EquipmentRecord_mes(
                         DataModel.Settingmodel.SETTING_DATA.StationCode,
                         wocode,
@@ -794,8 +795,8 @@ namespace BusbarCompressionSystem.ViewModel
                         DataModel.Settingmodel.SETTING_DATA.ProcedureName,
                         DataModel.Settingmodel.SETTING_DATA.MachineID,
                         result == "OK" ? "合格" : result,
-                        DataModel.Settingmodel.SETTING_DATA.StandardCode
-                        );
+                        DataModel.Settingmodel.SETTING_DATA.StandardCode,
+                        out failMessage);
 
                 if (r)
                 {
@@ -803,7 +804,8 @@ namespace BusbarCompressionSystem.ViewModel
                 }
                 else
                 {
-                    writeLog($"{sn}:{result};报工:False(失败原因见数据库错误日志)");
+                    writeLog($"{sn}:{result};报工:False;{failMessage}");
+                    HandleReportWorkFailure(sn, failMessage);
                 }
                 return r;
             }
@@ -811,6 +813,7 @@ namespace BusbarCompressionSystem.ViewModel
             {
                 writeLog($"{sn}:{result};报工:False(程序异常)");
                 writeError($"报工程序异常: SN={sn}, 工单={wocode}, 异常={ex.Message}");
+                HandleReportWorkFailure(sn, ex.Message);
                 return false;
             }
         }
@@ -818,6 +821,7 @@ namespace BusbarCompressionSystem.ViewModel
         {
             try
             {
+                string failMessage;
                 var r = MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.Save_EquipmentRecord_mes(
                         DataModel.Settingmodel.SETTING_DATA.StationCode2,
                         wocode,
@@ -825,8 +829,8 @@ namespace BusbarCompressionSystem.ViewModel
                         DataModel.Settingmodel.SETTING_DATA.ProcedureName2,
                         DataModel.Settingmodel.SETTING_DATA.MachineID,
                         result == "OK" ? "合格" : result,
-                        DataModel.Settingmodel.SETTING_DATA.StandardCode2
-                        );
+                        DataModel.Settingmodel.SETTING_DATA.StandardCode2,
+                        out failMessage);
 
                 if (r)
                 {
@@ -834,7 +838,8 @@ namespace BusbarCompressionSystem.ViewModel
                 }
                 else
                 {
-                    writeLog($"{sn}:{result};报工2:False(失败原因见数据库错误日志)");
+                    writeLog($"{sn}:{result};报工2:False;{failMessage}");
+                    HandleReportWorkFailure(sn, failMessage);
                 }
                 return r;
             }
@@ -842,6 +847,7 @@ namespace BusbarCompressionSystem.ViewModel
             {
                 writeLog($"{sn}:{result};报工2:False(程序异常)");
                 writeError($"报工2程序异常: SN={sn}, 工单={wocode}, 异常={ex.Message}");
+                HandleReportWorkFailure(sn, ex.Message);
                 return false;
             }
         }

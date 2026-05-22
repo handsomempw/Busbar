@@ -65,6 +65,11 @@ namespace BusbarCompressionSystem.Model.Setting1
         [XmlElement("IR参数下发调试日志")]
         public bool IrDownloadDebugLog { get; set; } = false;
 
+        /// <summary>
+        /// 报工失败报警使能：为 true 时写 M3045 禁止进站线圈并弹窗提示；为 false 时仅记日志，不写 PLC、不弹窗。
+        /// </summary>
+        [XmlElement("报工失败报警使能")]
+        public bool ReportFailAlarmEnabled { get; set; } = true;
 
         [XmlElement("仪器类型1")]
         public TVMeterType TVMeterType1 { set; get; } = TVMeterType.AT9620;
