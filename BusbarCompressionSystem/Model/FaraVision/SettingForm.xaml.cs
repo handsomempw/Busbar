@@ -46,6 +46,7 @@ namespace BusbarCompressionSystem.Model.FaraVision
         bool selectdroi = false;
         bool selectmeasureobject1roi = false;
         bool selectmeasureobject2roi = false;
+        bool selectlinedetectroi = false;
 
         // 线段ROI绘制状态（两次点击模式）
         private bool _lineDrawingInProgress = false;  // 是否正在绘制线段（已点击第一个点）
@@ -91,6 +92,11 @@ namespace BusbarCompressionSystem.Model.FaraVision
             {
                 // 按当前测量类型同步 ROI 类型（Line/Circle），无需用户再次切换下拉框
                 ApplyMeasureTypeToROIType();
+
+                if (t.TestMode == TestModes.直线检测)
+                {
+                    t.LineDetectROI.Type = ROIType.Line;
+                }
 
                 // 同步参数区显隐
                 UpdateROIParamsUIVisibility();
@@ -208,7 +214,7 @@ namespace BusbarCompressionSystem.Model.FaraVision
             }
             
             // === 分支2：线段ROI实时预览 ===
-            if (_lineDrawingInProgress && (selectmeasureobject1roi || selectmeasureobject2roi))
+            if (_lineDrawingInProgress && (selectmeasureobject1roi || selectmeasureobject2roi || selectlinedetectroi))
             {
                 var currentPoint = e.GetPosition(show_image_canvas);
 
@@ -221,6 +227,11 @@ namespace BusbarCompressionSystem.Model.FaraVision
                 {
                     LineMeasureObject2.X2 = currentPoint.X;
                     LineMeasureObject2.Y2 = currentPoint.Y;
+                }
+                else if (selectlinedetectroi)
+                {
+                    LineLineDetect.X2 = currentPoint.X;
+                    LineLineDetect.Y2 = currentPoint.Y;
                 }
                 return;
             }
@@ -285,7 +296,8 @@ namespace BusbarCompressionSystem.Model.FaraVision
             
             // === 分支2：线段ROI第一次点击（记录起点） ===
             if ((selectmeasureobject1roi && t.MeasureObject1ROI.Type == ROIType.Line) ||
-                (selectmeasureobject2roi && t.MeasureObject2ROI.Type == ROIType.Line))
+                (selectmeasureobject2roi && t.MeasureObject2ROI.Type == ROIType.Line) ||
+                selectlinedetectroi)
             {
                 var clickPoint = e.GetPosition(show_image_canvas);
 
@@ -309,6 +321,13 @@ namespace BusbarCompressionSystem.Model.FaraVision
                         LineMeasureObject2.Y1 = clickPoint.Y;
                         LineMeasureObject2.X2 = clickPoint.X;
                         LineMeasureObject2.Y2 = clickPoint.Y;
+                    }
+                    else if (selectlinedetectroi)
+                    {
+                        LineLineDetect.X1 = clickPoint.X;
+                        LineLineDetect.Y1 = clickPoint.Y;
+                        LineLineDetect.X2 = clickPoint.X;
+                        LineLineDetect.Y2 = clickPoint.Y;
                     }
                 }
                 // 第二次点击在MouseUp中处理
@@ -410,7 +429,7 @@ namespace BusbarCompressionSystem.Model.FaraVision
             }
             
             // === 分支2：线段ROI完成处理 ===
-            if (_lineDrawingInProgress && (selectmeasureobject1roi || selectmeasureobject2roi))
+            if (_lineDrawingInProgress && (selectmeasureobject1roi || selectmeasureobject2roi || selectlinedetectroi))
             {
                 var endPoint = e.GetPosition(show_image_canvas);
 
@@ -447,6 +466,17 @@ namespace BusbarCompressionSystem.Model.FaraVision
 
                     selectmeasureobject2roi = false;
                     SelectMeasureObject2ROI.Background = System.Windows.Media.Brushes.Gray;
+                }
+                else if (selectlinedetectroi)
+                {
+                    t.LineDetectROI.Type = ROIType.Line;
+                    t.LineDetectROI.Row1 = (int)_lineStartPoint.Y;
+                    t.LineDetectROI.Col1 = (int)_lineStartPoint.X;
+                    t.LineDetectROI.Row2 = (int)endPoint.Y;
+                    t.LineDetectROI.Col2 = (int)endPoint.X;
+
+                    selectlinedetectroi = false;
+                    SelectLineDetectROI.Background = System.Windows.Media.Brushes.Gray;
                 }
 
                 _lineDrawingInProgress = false;
@@ -586,6 +616,15 @@ namespace BusbarCompressionSystem.Model.FaraVision
                     LineMeasureObject2.Y1 = t.MeasureObject2ROI.Row1;
                     LineMeasureObject2.X2 = t.MeasureObject2ROI.Col2;
                     LineMeasureObject2.Y2 = t.MeasureObject2ROI.Row2;
+                }
+
+                if (t.TestMode == TestModes.直线检测 && t.LineDetectROI != null)
+                {
+                    LineLineDetect.Visibility = Visibility.Visible;
+                    LineLineDetect.X1 = t.LineDetectROI.Col1;
+                    LineLineDetect.Y1 = t.LineDetectROI.Row1;
+                    LineLineDetect.X2 = t.LineDetectROI.Col2;
+                    LineLineDetect.Y2 = t.LineDetectROI.Row2;
                 }
             }
             catch (Exception ex) { }
@@ -1204,6 +1243,18 @@ namespace BusbarCompressionSystem.Model.FaraVision
                     }
                 }
 
+                if (t.TestMode == TestModes.直线检测 &&
+                    t.LineDetectROI != null &&
+                    t.LineDetectROI.Type == ROIType.Line &&
+                    IsROIValid(t.LineDetectROI))
+                {
+                    if (TryEstimateThresholdForLineROI(t.Image, t, t.LineDetectROI, out double thLine))
+                    {
+                        thresholdList.Add(thLine);
+                        detailList.Add($"直线检测ROI: {thLine:F1}");
+                    }
+                }
+
                 if (thresholdList.Count == 0)
                 {
                     NoticeBox.Show("未找到有效的线段ROI，无法自动估算阈值", "提示", MessageBoxIcon.Warning, true, 6000);
@@ -1511,6 +1562,7 @@ namespace BusbarCompressionSystem.Model.FaraVision
             // 重置测量对象ROI选择状态
             selectmeasureobject1roi = false;
             selectmeasureobject2roi = false;
+            selectlinedetectroi = false;
             
             // 重置绘制进度标志
             _lineDrawingInProgress = false;
@@ -1523,9 +1575,180 @@ namespace BusbarCompressionSystem.Model.FaraVision
             SelectDimensionROI.Background = System.Windows.Media.Brushes.Gray;
             SelectMeasureObject1ROI.Background = System.Windows.Media.Brushes.Gray;
             SelectMeasureObject2ROI.Background = System.Windows.Media.Brushes.Gray;
+            SelectLineDetectROI.Background = System.Windows.Media.Brushes.Gray;
             
             // 清理临时预览控件
             RemoveCirclePreview();
+        }
+
+        #endregion
+
+        /// <summary>
+        /// 工具模式切换后同步 ROI 类型与画布叠加层，避免直线检测与尺寸测量控件状态残留。
+        /// </summary>
+        private void TestMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (t == null || e.AddedItems == null || e.AddedItems.Count == 0)
+            {
+                return;
+            }
+
+            if (t.TestMode == TestModes.直线检测)
+            {
+                t.LineDetectROI.Type = ROIType.Line;
+            }
+
+            ApplyMeasureTypeToROIType();
+            UpdateROIParamsUIVisibility();
+            refreshrectangle();
+            ResetDrawingStates();
+        }
+
+        #region 直线检测相关事件处理
+
+        /// <summary>
+        /// 进入直线检测 ROI 绘制模式；两次点击确定线段起点与终点。
+        /// </summary>
+        private void SelectLineDetectROI_Click(object sender, RoutedEventArgs e)
+        {
+            selectlinedetectroi = !selectlinedetectroi;
+            SelectLineDetectROI.Background = selectlinedetectroi
+                ? System.Windows.Media.Brushes.Gold
+                : System.Windows.Media.Brushes.Gray;
+
+            if (selectlinedetectroi)
+            {
+                selectmeasureobject1roi = false;
+                selectmeasureobject2roi = false;
+                SelectMeasureObject1ROI.Background = System.Windows.Media.Brushes.Gray;
+                SelectMeasureObject2ROI.Background = System.Windows.Media.Brushes.Gray;
+                t.LineDetectROI.Type = ROIType.Line;
+                _lineDrawingInProgress = false;
+                _circleDrawingInProgress = false;
+                _isFirstCircleClick = true;
+            }
+        }
+
+        /// <summary>
+        /// 使用当前模板图测试直线存在性判定，结果仅用于参数验证。
+        /// </summary>
+        private void LineDetectApply_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (t.Image == null)
+                {
+                    NoticeBox.Show("请先选择图片", "提示", MessageBoxIcon.Warning, true, 5000);
+                    return;
+                }
+
+                if (!IsROIValid(t.LineDetectROI))
+                {
+                    NoticeBox.Show("请先选择直线检测 ROI", "提示", MessageBoxIcon.Warning, true, 5000);
+                    return;
+                }
+
+                var hwindow = vml.Main.DataModel.FaraVisionDataModel.Settingmodel.HWindow;
+                if (!vml.Main.PrepareDimensionResultDisplay(t.Image, hwindow))
+                {
+                    NoticeBox.Show("主界面预览窗口未初始化，无法显示检测画面", "提示", MessageBoxIcon.Warning, true, 5000);
+                    return;
+                }
+
+                var lineResult = vml.Main.DetectLinePresence(t.Image, t, hwindow, true);
+                ShowLineDetectTestResult(lineResult, "请查看主界面 AOI 结果窗口中的绿色 ROI、青色拟合线与调试图层。");
+            }
+            catch (Exception ex)
+            {
+                NoticeBox.Show($"直线检测失败: {ex.Message}", "错误", MessageBoxIcon.Error, true, 10000);
+            }
+        }
+
+        /// <summary>
+        /// 使用外部照片临时测试直线检测，不写回模板图与工程参数。
+        /// </summary>
+        private void LineDetectApply_Pic_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (t == null)
+                {
+                    return;
+                }
+
+                OpenFileDialog ofd = new OpenFileDialog();
+                ofd.Filter = "*.jpg|*.jpg";
+                if (ofd.ShowDialog() != true)
+                {
+                    return;
+                }
+
+                if (!IsROIValid(t.LineDetectROI))
+                {
+                    NoticeBox.Show("请先选择直线检测 ROI", "提示", MessageBoxIcon.Warning, true, 5000);
+                    return;
+                }
+
+                string filename = ofd.FileName;
+                HObject image = null;
+                try
+                {
+                    HOperatorSet.GenEmptyObj(out image);
+                    HOperatorSet.ReadImage(out image, filename);
+
+                    var hwindow = vml.Main.DataModel.FaraVisionDataModel.Settingmodel.HWindow;
+                    if (!vml.Main.PrepareDimensionResultDisplay(image, hwindow))
+                    {
+                        NoticeBox.Show("主界面预览窗口未初始化，无法显示检测画面", "提示", MessageBoxIcon.Warning, true, 5000);
+                        return;
+                    }
+
+                    var lineResult = vml.Main.DetectLinePresence(image, t, hwindow, true);
+                    ShowLineDetectTestResult(lineResult, "请查看主界面 AOI 结果窗口中的绿色 ROI、青色拟合线与调试图层。");
+                }
+                finally
+                {
+                    image?.Dispose();
+                }
+            }
+            catch (Exception ex)
+            {
+                NoticeBox.Show($"检测照片失败: {ex.Message}", "错误", MessageBoxIcon.Error, true, 10000);
+            }
+        }
+
+        /// <summary>
+        /// 将直线检测测试结果转为操作者可读的提示框文案。
+        /// </summary>
+        private void ShowLineDetectTestResult(MainViewModel.LinePresenceResult lineResult, string displayHint = null)
+        {
+            if (lineResult == null)
+            {
+                return;
+            }
+
+            if (lineResult.DetectFailed)
+            {
+                NoticeBox.Show(
+                    $"检测失败\n{lineResult.FailReason}\n{displayHint}",
+                    "直线检测",
+                    MessageBoxIcon.Error,
+                    true,
+                    8000);
+                return;
+            }
+
+            string status = lineResult.JudgementOk ? "OK" : "NG";
+            string expectText = t.ExpectLinePresent ? "期望有线" : "期望无线";
+            string detail = lineResult.JudgementOk
+                ? $"角度偏差={lineResult.AngleDeviation:F2}°, 命中率={lineResult.EdgeHitRatio:P0}, 分数={lineResult.FitScore:F2}"
+                : lineResult.FailReason;
+            NoticeBox.Show(
+                $"状态: {status}\n口径: {expectText}\n{detail}\n{displayHint}",
+                "直线检测结果",
+                lineResult.JudgementOk ? MessageBoxIcon.Info : MessageBoxIcon.Warning,
+                true,
+                10000);
         }
 
         #endregion

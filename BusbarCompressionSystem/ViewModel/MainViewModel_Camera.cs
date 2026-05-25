@@ -688,6 +688,45 @@ namespace BusbarCompressionSystem.ViewModel
                                 GC.Collect();
                                 #endregion
                             }
+                            else if (tool.TestMode == TestModes.直线检测)
+                            {
+                                #region 直线检测
+
+                                try
+                                {
+                                    var lineResult = DetectLinePresence(Image, tool, hwindow, true);
+                                    if (lineResult.DetectFailed)
+                                    {
+                                        tool.ToolStatus = ToolStatus.NG2;
+                                        tool.LastLineDetectFailReason = lineResult.FailReason;
+                                        writeLog($"直线检测失败[{tool.Name}]: {lineResult.FailReason}", false);
+                                    }
+                                    else if (lineResult.JudgementOk)
+                                    {
+                                        tool.ToolStatus = ToolStatus.OK;
+                                        writeLog(
+                                            $"直线检测OK[{tool.Name}]: 角度偏差={lineResult.AngleDeviation:F2}°, 命中率={lineResult.EdgeHitRatio:P0}, 分数={lineResult.FitScore:F2}",
+                                            false);
+                                    }
+                                    else
+                                    {
+                                        tool.ToolStatus = ToolStatus.NG;
+                                        tool.LastLineDetectFailReason = lineResult.FailReason;
+                                        writeLog(
+                                            $"直线检测NG[{tool.Name}]: {lineResult.FailReason}, 角度偏差={lineResult.AngleDeviation:F2}°, 命中率={lineResult.EdgeHitRatio:P0}",
+                                            false);
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    tool.ToolStatus = ToolStatus.NG2;
+                                    tool.LastLineDetectFailReason = ex.Message;
+                                    writeLog($"直线检测异常[{tool.Name}]: {ex.Message}", false);
+                                }
+
+                                GC.Collect();
+                                #endregion
+                            }
                         }
                         catch {; }
 
@@ -953,6 +992,11 @@ namespace BusbarCompressionSystem.ViewModel
             tool.ActualMeasureValue = 0;
             tool.LastResultImagePath = null;
             tool.LastMeasurePixelValue = -1;
+            tool.ActualLineAngle = 0;
+            tool.ActualAngleDeviation = 0;
+            tool.LastEdgeHitRatio = 0;
+            tool.LastLineDetectScore = 0;
+            tool.LastLineDetectFailReason = string.Empty;
             tool.ToolStatus = ToolStatus.等待中;
 
         }

@@ -447,6 +447,115 @@ namespace BusbarCompressionSystem.Model.FaraVision.Tool
 
         #endregion
 
+        #region 直线检测
+
+        /// <summary>
+        /// 直线检测 ROI。线段方向表示期望边缘走向，端点坐标参与工程 XML 持久化。
+        /// </summary>
+        [XmlElement("直线检测ROI")]
+        public ROI LineDetectROI { set; get; } = new ROI() { Type = ROIType.Line };
+
+        /// <summary>
+        /// 拟合直线相对 ROI 方向的最大允许夹角；单位为度。超出该值判 NG。
+        /// </summary>
+        [XmlElement("直线检测允许角度偏差")]
+        public double LineDetectAllowAngleDelta { set; get; } = 5.0;
+
+        /// <summary>
+        /// 内部判定：沿线有效边缘卡尺占比下限，默认 0.6。工程 XML 可覆盖；配置界面不向操作员暴露。
+        /// </summary>
+        [XmlElement("直线检测最小边缘命中率")]
+        public double LineDetectMinEdgeHitRatio { set; get; } = 0.6;
+
+        /// <summary>
+        /// 期望检测结果：true 表示必须有线状边缘；false 表示必须无线（断边/缺口检测）。
+        /// </summary>
+        [XmlElement("直线检测期望有线")]
+        public bool ExpectLinePresent { set; get; } = true;
+
+        /// <summary>
+        /// 内部判定：期望无线时低阈值复检允许的最大边缘散点数，默认 0。工程 XML 可覆盖；配置界面不向操作员暴露。
+        /// </summary>
+        [XmlElement("直线检测无线最大散点数")]
+        public int LineDetectAbsentMaxEdgePoints { set; get; } = 0;
+
+        private double _actualLineAngle;
+        /// <summary>
+        /// 运行态：拟合直线方向角；单位为度，相对图像坐标系。
+        /// </summary>
+        [XmlIgnore]
+        public double ActualLineAngle
+        {
+            get => _actualLineAngle;
+            set
+            {
+                _actualLineAngle = value;
+                RaisePropertyChanged(() => ActualLineAngle);
+            }
+        }
+
+        private double _actualAngleDeviation;
+        /// <summary>
+        /// 运行态：拟合线与 ROI 方向的无方向夹角偏差；单位为度。
+        /// </summary>
+        [XmlIgnore]
+        public double ActualAngleDeviation
+        {
+            get => _actualAngleDeviation;
+            set
+            {
+                _actualAngleDeviation = value;
+                RaisePropertyChanged(() => ActualAngleDeviation);
+            }
+        }
+
+        private double _lastEdgeHitRatio;
+        /// <summary>
+        /// 运行态：本次找边有效卡尺命中率；0~1。
+        /// </summary>
+        [XmlIgnore]
+        public double LastEdgeHitRatio
+        {
+            get => _lastEdgeHitRatio;
+            set
+            {
+                _lastEdgeHitRatio = value;
+                RaisePropertyChanged(() => LastEdgeHitRatio);
+            }
+        }
+
+        private double _lastLineDetectScore;
+        /// <summary>
+        /// 运行态：Metrology 拟合分数；0~1。
+        /// </summary>
+        [XmlIgnore]
+        public double LastLineDetectScore
+        {
+            get => _lastLineDetectScore;
+            set
+            {
+                _lastLineDetectScore = value;
+                RaisePropertyChanged(() => LastLineDetectScore);
+            }
+        }
+
+        private string _lastLineDetectFailReason = string.Empty;
+        /// <summary>
+        /// 运行态：最近一次判定失败说明，供主界面与日志追溯。
+        /// </summary>
+        [XmlIgnore]
+        public string LastLineDetectFailReason
+        {
+            get => _lastLineDetectFailReason;
+            set
+            {
+                _lastLineDetectFailReason = value ?? string.Empty;
+                RaisePropertyChanged(() => LastLineDetectFailReason);
+            }
+        }
+
+        #endregion
+
         [XmlIgnore]
         public BitmapSource BitmapSource { get; set; } = null;
         [XmlIgnore]

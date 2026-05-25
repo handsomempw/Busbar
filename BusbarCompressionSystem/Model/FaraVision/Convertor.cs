@@ -408,6 +408,33 @@ namespace BusbarCompressionSystem.Model.FaraVision
     }
 
     /// <summary>
+    /// 直线检测模式的 Visibility 转换器。
+    /// 仅在工具模式为直线检测时显示配置面板与画布叠加层。
+    /// </summary>
+    [ValueConversion(typeof(TestModes), typeof(Visibility))]
+    public class TestMode2Visibility_LineDetect : IValueConverter
+    {
+        public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            if (value == null)
+            { throw new ArgumentNullException("value can not be null"); }
+            if ((TestModes)value != TestModes.直线检测)
+            {
+                return Visibility.Collapsed;
+            }
+            else
+            {
+                return Visibility.Visible;
+            }
+        }
+
+        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
     /// 尺寸测量模式的Visibility转换器
     /// </summary>
     [ValueConversion(typeof(TestModes), typeof(Visibility))]
@@ -468,7 +495,8 @@ namespace BusbarCompressionSystem.Model.FaraVision
         面积,
         二维码,
         模板匹配,
-        尺寸测量
+        尺寸测量,
+        直线检测
     }
 
     /// <summary>

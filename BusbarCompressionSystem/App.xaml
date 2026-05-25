@@ -31,6 +31,7 @@
             <FaraVision:TestMode2Visibility_Dimension     x:Key="TestMode2Visibility_Dimension"/>
             <FaraVision:TestMode2Visibility_ShapeMatch    x:Key="TestMode2Visibility_ShapeMatch"/>
             <FaraVision:TestMode2Visibility_DimensionMeasure x:Key="TestMode2Visibility_DimensionMeasure"/>
+            <FaraVision:TestMode2Visibility_LineDetect         x:Key="TestMode2Visibility_LineDetect"/>
 
         </ResourceDictionary>
     </Application.Resources>

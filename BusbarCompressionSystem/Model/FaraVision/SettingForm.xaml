@@ -88,6 +88,10 @@
                     <Ellipse x:Name="CircleMeasureObject2" Visibility="{Binding TestMode,Converter={StaticResource TestMode2Visibility_DimensionMeasure}}"
                              StrokeThickness="3" Stroke="Cyan" Fill="Transparent" Width="50" Height="50" />
 
+                    <!-- 直线检测 ROI（线段） -->
+                    <Line x:Name="LineLineDetect" Visibility="{Binding TestMode,Converter={StaticResource TestMode2Visibility_LineDetect}}"
+                          StrokeThickness="3" Stroke="Gold" X1="10" Y1="10" X2="100" Y2="100"/>
+
                 </Canvas>
 
             </ContentControl>
@@ -132,7 +136,7 @@
                     <TextBlock Grid.Row="0" Grid.Column="1" Margin="2" Text="{Binding Index  }"/>
                     <ComboBox Grid.Row="1"  Grid.Column="1" Margin="2"  Text="{Binding TestMode,UpdateSourceTrigger=PropertyChanged}" IsEditable="True"  IsReadOnly="True" 
                             ItemsSource="{Binding Source={StaticResource testmodes}}"
-                              />
+                            SelectionChanged="TestMode_SelectionChanged"/>
                     <TextBox Grid.Row="2" Grid.Column="1"   Margin="2" Text="{Binding Name}" />
                     <TextBox Grid.Row="3" Grid.Column="1"   Margin="2" Text="{Binding Command}" />
                     <TextBox Grid.Row="4" Grid.Column="1"   Margin="2" Text="{Binding ExposureTime}" />
@@ -488,6 +492,7 @@
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
                             </Grid.RowDefinitions>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="auto"/>
@@ -797,6 +802,156 @@
                                 <Button Name="DimensionMeasureApply_Pic"
                                         Grid.Column="1"
                                         Click="DimensionMeasureApply_Pic_Click" Margin="5" Padding="5"
+                                        Background="Orange" Foreground="White">检测照片</Button>
+                            </Grid>
+                        </Grid>
+                    </ScrollViewer>
+                </GroupBox>
+
+                <!-- 直线检测配置 -->
+                <GroupBox Header="直线检测" Grid.Row="5" p:GroupBoxHelper.HeaderBackground="Goldenrod" BorderBrush="Goldenrod" Margin="0,5"
+                          VerticalAlignment="Top" p:GroupBoxHelper.HeaderForeground="White"
+                          Visibility="{Binding TestMode,Converter={StaticResource TestMode2Visibility_LineDetect}}">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="500">
+                        <Grid Margin="2">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+
+                            <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Margin="0,5"
+                                       ToolTip="沿线段方向表达期望边缘走向，两次点击确定起点与终点">直线检测ROI:</TextBlock>
+                            <Button Grid.Row="0" Grid.Column="1" Margin="2" Name="SelectLineDetectROI"
+                                    Click="SelectLineDetectROI_Click" Padding="5" HorizontalAlignment="Left">选择</Button>
+
+                            <Grid Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2" Margin="10,2,2,2">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition/>
+                                    <RowDefinition/>
+                                </Grid.RowDefinitions>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="auto"/>
+                                    <ColumnDefinition/>
+                                    <ColumnDefinition Width="auto"/>
+                                    <ColumnDefinition/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center">ROW1:</TextBlock>
+                                <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center">ROW2:</TextBlock>
+                                <TextBlock Grid.Row="0" Grid.Column="2" VerticalAlignment="Center">COL1:</TextBlock>
+                                <TextBlock Grid.Row="1" Grid.Column="2" VerticalAlignment="Center">COL2:</TextBlock>
+                                <TextBox Grid.Row="0" Grid.Column="1" Margin="2" Text="{Binding LineDetectROI.Row1}" IsReadOnly="True" Background="#F0F0F0"/>
+                                <TextBox Grid.Row="1" Grid.Column="1" Margin="2" Text="{Binding LineDetectROI.Row2}" IsReadOnly="True" Background="#F0F0F0"/>
+                                <TextBox Grid.Row="0" Grid.Column="3" Margin="2" Text="{Binding LineDetectROI.Col1}" IsReadOnly="True" Background="#F0F0F0"/>
+                                <TextBox Grid.Row="1" Grid.Column="3" Margin="2" Text="{Binding LineDetectROI.Col2}" IsReadOnly="True" Background="#F0F0F0"/>
+                            </Grid>
+
+                            <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" Margin="0,5"
+                                       ToolTip="拟合线相对 ROI 方向的最大无方向夹角；单位为度">允许角度偏差(°):</TextBlock>
+                            <TextBox Grid.Row="2" Grid.Column="1" Margin="2" Text="{Binding LineDetectAllowAngleDelta}" MinWidth="60"/>
+
+                            <CheckBox Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="2" Margin="2,8,2,2"
+                                      IsChecked="{Binding ExpectLinePresent}"
+                                      Content="期望检测到边缘直线"
+                                      ToolTip="勾选：产品必须有母排边缘；取消：检测断边/缺口（无边缘为OK）"/>
+
+                            <Expander Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="2" Header="Metrology参数（高级设置）" Margin="0,5" IsExpanded="False">
+                                <Grid Margin="5">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*" MinWidth="120"/>
+                                        <ColumnDefinition Width="Auto" MinWidth="56"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Margin="0,5"
+                                               ToolTip="沿线段分布的卡尺数量">卡尺数量:</TextBlock>
+                                    <Slider Grid.Row="0" Grid.Column="1" Minimum="5" Maximum="50" Margin="4,5"
+                                            HorizontalAlignment="Stretch"
+                                            Value="{Binding MetrologyNumMeasures}" TickFrequency="1" IsSnapToTickEnabled="True"
+                                            ValueChanged="MetrologyParameter_Changed"/>
+                                    <TextBlock Grid.Row="0" Grid.Column="2" Text="{Binding MetrologyNumMeasures, StringFormat='{}{0}个'}"
+                                               VerticalAlignment="Center" Margin="8,0,0,0"/>
+
+                                    <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Margin="0,5"
+                                               ToolTip="灰度梯度阈值，低于此值的边缘将被忽略">边缘阈值:</TextBlock>
+                                    <Slider Grid.Row="1" Grid.Column="1" Minimum="1" Maximum="100" Margin="4,5"
+                                            HorizontalAlignment="Stretch"
+                                            Value="{Binding MetrologyMeasureThreshold}" TickFrequency="5" IsSnapToTickEnabled="True"
+                                            ValueChanged="MetrologyParameter_Changed"/>
+                                    <StackPanel Grid.Row="1" Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Margin="8,0,0,0">
+                                        <TextBlock Text="{Binding MetrologyMeasureThreshold}" VerticalAlignment="Center" MinWidth="28"/>
+                                        <Button Content="自动" Padding="8,2" MinWidth="48" Height="22" Margin="4,0,0,0"
+                                                Click="AutoMetrologyThreshold_Click"
+                                                ToolTip="基于当前模板图像与直线检测 ROI 估算阈值"/>
+                                    </StackPanel>
+
+                                    <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" Margin="0,5">高斯平滑:</TextBlock>
+                                    <Slider Grid.Row="2" Grid.Column="1" Minimum="0.5" Maximum="5" Margin="4,5"
+                                            HorizontalAlignment="Stretch"
+                                            Value="{Binding MetrologyMeasureSigma}" TickFrequency="0.5" IsSnapToTickEnabled="True"
+                                            ValueChanged="MetrologyParameter_Changed"/>
+                                    <TextBlock Grid.Row="2" Grid.Column="2" Text="{Binding MetrologyMeasureSigma, StringFormat={}{0:F1}}"
+                                               VerticalAlignment="Center" Margin="8,0,0,0"/>
+
+                                    <TextBlock Grid.Row="3" Grid.Column="0" VerticalAlignment="Center" Margin="0,5">边缘过渡:</TextBlock>
+                                    <ComboBox Grid.Row="3" Grid.Column="1" Margin="4,2" MinWidth="0"
+                                              HorizontalAlignment="Stretch"
+                                              SelectedValue="{Binding MetrologyMeasureTransition}" SelectedValuePath="Tag"
+                                              SelectionChanged="MetrologyParameter_Changed">
+                                        <ComboBoxItem Content="双向（推荐）" Tag="uniform"/>
+                                        <ComboBoxItem Content="暗到亮" Tag="positive"/>
+                                        <ComboBoxItem Content="亮到暗" Tag="negative"/>
+                                        <ComboBoxItem Content="全部" Tag="all"/>
+                                    </ComboBox>
+
+                                    <TextBlock Grid.Row="4" Grid.Column="0" VerticalAlignment="Center" Margin="0,5">最小分数:</TextBlock>
+                                    <Slider Grid.Row="4" Grid.Column="1" Minimum="0.1" Maximum="1.0" Margin="4,5"
+                                            HorizontalAlignment="Stretch"
+                                            Value="{Binding MetrologyMinScore}" TickFrequency="0.1" IsSnapToTickEnabled="True"
+                                            ValueChanged="MetrologyParameter_Changed"/>
+                                    <TextBlock Grid.Row="4" Grid.Column="2" Text="{Binding MetrologyMinScore, StringFormat={}{0:F1}}"
+                                               VerticalAlignment="Center" Margin="8,0,0,0"/>
+
+                                    <TextBlock Grid.Row="5" Grid.Column="0" VerticalAlignment="Center" Margin="0,5"
+                                               ToolTip="垂直于 ROI 线的搜索半深度">垂直方向搜索深度:</TextBlock>
+                                    <Slider Grid.Row="5" Grid.Column="1" Minimum="5" Maximum="500" Margin="4,5"
+                                            HorizontalAlignment="Stretch"
+                                            Value="{Binding MetrologyMeasureLength1}" TickFrequency="1" IsSnapToTickEnabled="True"
+                                            ValueChanged="MetrologyParameter_Changed"/>
+                                    <TextBlock Grid.Row="5" Grid.Column="2" Text="{Binding MetrologyMeasureLength1, StringFormat={}{0}像素}"
+                                               VerticalAlignment="Center" Margin="8,0,0,0"/>
+
+                                    <CheckBox Grid.Row="6" Grid.Column="0" Grid.ColumnSpan="3" Margin="0,8,0,0"
+                                              IsChecked="{Binding ShowMetrologyDebugInfo}"
+                                              Content="显示调试信息（卡尺位置、边缘点）"/>
+                                </Grid>
+                            </Expander>
+
+                            <Grid Grid.Row="5" Grid.ColumnSpan="2" Margin="0,8,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Button Name="LineDetectApply" Grid.Column="0" Click="LineDetectApply_Click"
+                                        Margin="5" Padding="5" HorizontalAlignment="Stretch" MinHeight="32">测试此模板</Button>
+                                <Button Name="LineDetectApply_Pic" Grid.Column="1" Click="LineDetectApply_Pic_Click"
+                                        Margin="5" Padding="5" HorizontalAlignment="Stretch" MinHeight="32"
                                         Background="Orange" Foreground="White">检测照片</Button>
                             </Grid>
                         </Grid>
