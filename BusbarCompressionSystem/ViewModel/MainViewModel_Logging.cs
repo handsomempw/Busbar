@@ -140,6 +140,12 @@ namespace BusbarCompressionSystem.ViewModel
 
             double calibratedUmPerPixel = tool?.DimensionK ?? 0;
             double measuredPixel = tool?.LastMeasurePixelValue ?? -1;
+            string remeasureImageName = string.IsNullOrWhiteSpace(tool?.DimensionRemeasureImagePath)
+                ? string.Empty
+                : Path.GetFileName(tool.DimensionRemeasureImagePath);
+            string remeasureMessage = SanitizeMeasurementLogText(tool?.DimensionRemeasureMessage);
+            string remeasureOriginalError = SanitizeMeasurementLogText(tool?.DimensionRemeasureOriginalError);
+            string remeasureError = SanitizeMeasurementLogText(tool?.DimensionRemeasureError);
 
             int threshold = tool?.MetrologyMeasureThreshold ?? 0;
             string select = tool?.MetrologyMeasureSelect ?? string.Empty;
@@ -163,7 +169,35 @@ namespace BusbarCompressionSystem.ViewModel
                 $"卡尺数量={numMeasures}|" +
                 $"最小得分={minScore:F2}|" +
                 $"ROI1={FormatRoiForLog(tool?.MeasureObject1ROI)}|" +
-                $"ROI2={FormatRoiForLog(tool?.MeasureObject2ROI)}";
+                $"ROI2={FormatRoiForLog(tool?.MeasureObject2ROI)}|" +
+                $"复测触发={(tool?.DimensionRemeasureAttempted == true ? "是" : "否")}|" +
+                $"复测成功={(tool?.DimensionRemeasureSucceeded == true ? "是" : "否")}|" +
+                $"复测说明={remeasureMessage}|" +
+                $"复测图片={remeasureImageName}|" +
+                $"复测值(mm)={(tool?.DimensionRemeasureMeasureValue ?? -1):F3}|" +
+                $"复测像素(px)={(tool?.DimensionRemeasurePixelValue ?? -1):F2}|" +
+                $"首次失败={remeasureOriginalError}|" +
+                $"复测失败={remeasureError}";
+        }
+
+        /// <summary>
+        /// 规整尺寸测量诊断日志中的自由文本。
+        /// 现场日志使用竖线分隔字段；异常文本写入前替换分隔符和换行，保证后续按列查看时不会错位。
+        /// </summary>
+        /// <param name="value">来自测量异常或复测诊断的文本。</param>
+        /// <returns>可安全写入单行诊断日志的文本。</returns>
+        private string SanitizeMeasurementLogText(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return string.Empty;
+            }
+
+            return value
+                .Replace("|", "/")
+                .Replace("\r", " ")
+                .Replace("\n", " ")
+                .Trim();
         }
 
         private void AppendDailyLogLine(string subDirName, DateTime measureTime, string line, string errorPrefix)
@@ -186,6 +220,83 @@ namespace BusbarCompressionSystem.ViewModel
             {
                 writeError($"{errorPrefix}: {ex.Message}\r\n{ex.StackTrace}");
             }
+        }
+        #endregion
+
+        #region 模板匹配追溯日志
+        /// <summary>
+        /// 模板匹配专用追溯落盘，记录模型加载与 AOI 在线匹配结果，便于对照 shm、ROI 与 NG/NG2 判定。
+        /// 输出路径：日志\模板匹配追溯\{yyyyMMdd}.txt
+        /// </summary>
+        /// <param name="eventKind">事件类型，如模型加载、在线匹配。</param>
+        /// <param name="tool">模板匹配工具；读取 ROI、阈值与运行态测量值。</param>
+        /// <param name="shmPath">形状模型完整路径；加载事件与匹配事件共用。</param>
+        /// <param name="detail">补充说明，如加载失败原因、Match 返回的 ErrorInfo 或异常摘要。</param>
+        /// <param name="productInfo">AOI 产品信息；可为 null（工程加载阶段）。</param>
+        /// <param name="traceTime">追溯时间戳；默认取当前时间。</param>
+        internal void WriteTemplateMatchTraceLog(
+            string eventKind,
+            ToolModel tool,
+            string shmPath,
+            string detail,
+            Productinfo productInfo = null,
+            DateTime? traceTime = null)
+        {
+            DateTime time = traceTime ?? DateTime.Now;
+            lock (_templateMatchLogLock)
+            {
+                AppendDailyLogLine(
+                    "模板匹配追溯",
+                    time,
+                    BuildTemplateMatchTraceLine(eventKind, tool, shmPath, detail, productInfo, time),
+                    "写入模板匹配追溯日志失败");
+            }
+        }
+
+        /// <summary>
+        /// 组装模板匹配追溯单行文本，字段以竖线分隔便于现场检索与 Excel 分列。
+        /// </summary>
+        private string BuildTemplateMatchTraceLine(
+            string eventKind,
+            ToolModel tool,
+            string shmPath,
+            string detail,
+            Productinfo productInfo,
+            DateTime traceTime)
+        {
+            string partNo = productInfo?.PartNOID ?? string.Empty;
+            string woCode = productInfo?.WOCODE ?? string.Empty;
+            string sn = productInfo?.SN ?? string.Empty;
+            string toolName = tool?.Name ?? string.Empty;
+            int toolIndex = tool?.Index ?? 0;
+            string roi = FormatRoiForLog(tool?.PositionROI);
+            string imageName = string.IsNullOrWhiteSpace(tool?.LastResultImagePath)
+                ? string.Empty
+                : Path.GetFileName(tool.LastResultImagePath);
+            double minScore = tool?.MinScore ?? 0;
+            double score = tool?.ActualScore ?? 0;
+            double deltaX = tool?.DeltaX ?? 0;
+            double deltaY = tool?.DeltaY ?? 0;
+            double angle = tool?.ActualAngle ?? 0;
+            ToolStatus status = tool?.ToolStatus ?? ToolStatus.NG2;
+            double allowX = tool?.Allow_X_Delta ?? 0;
+            double allowY = tool?.Allow_Y_Delta ?? 0;
+            double allowAngle = tool?.AllowAngleDelta ?? 0;
+            bool modelLoaded = tool?.ShapeMatch?.ModelLoaded ?? false;
+
+            return $"[{traceTime:yyyy-MM-dd HH:mm:ss.fff}] " +
+                $"事件={eventKind}|" +
+                $"{partNo}|{woCode}|{sn}|" +
+                $"工具={toolIndex:00}-{toolName}|" +
+                $"模型已加载={modelLoaded}|" +
+                $"模型路径={shmPath}|" +
+                $"ROI={roi}|" +
+                $"MinScore={minScore:F3}|Score={score:F3}|" +
+                $"ΔXmm={deltaX:F3}|ΔYmm={deltaY:F3}|角度deg={angle:F2}|" +
+                $"允许ΔXmm={allowX:F3}|允许ΔYmm={allowY:F3}|允许角度deg={allowAngle:F2}|" +
+                $"判定={GetMeasurementStatusText(status)}|" +
+                $"图片={imageName}|" +
+                $"说明={detail}";
         }
         #endregion
 

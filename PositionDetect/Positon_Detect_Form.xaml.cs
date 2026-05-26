@@ -97,6 +97,26 @@ namespace PositionDetect
             }
         }
 
+        private void ListBox_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            DependencyObject source = e.OriginalSource as DependencyObject;
+            while (source != null && !(source is ListBoxItem))
+            {
+                source = VisualTreeHelper.GetParent(source);
+            }
+
+            if (source is ListBoxItem item)
+            {
+                item.IsSelected = true;
+                item.Focus();
+            }
+        }
+
+        private void DeleteSelectedFeature_Click(object sender, RoutedEventArgs e)
+        {
+            vm.deletelistitem();
+        }
+
         private void UserControl_DataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
         {
             vm = (PositionDetectViewModel)DataContext;

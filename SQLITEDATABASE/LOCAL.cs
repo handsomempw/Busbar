@@ -144,6 +144,39 @@ namespace SQLITEDATABASE
         }
 
         /// <summary>
+        /// 记录压力 NG3 追踪日志，落盘路径与阻值 NG3 相同（日志\数据库追踪\{yyyyMMdd}.txt）。
+        /// 判定口径与 CHECK 前 UpdatePressure 一致：最大压力不超过上限，最小压力不低于下限。
+        /// </summary>
+        /// <param name="stageTag">流程阶段标识，如 CHECK1、CHECK2、点检CHECK1。</param>
+        /// <param name="pressureMax">最大压力，单位与 PLC/数据库 PRESSURE_MAX 一致。</param>
+        /// <param name="pressureMin">最小压力，单位与 PLC/数据库 PRESSURE_MIN 一致。</param>
+        /// <param name="pressureAverage">平均压力，单位与 PLC/数据库 PRESSURE_AVERAGE 一致。</param>
+        /// <param name="maxLimit">压力上限阈值，来自过程参数 PressureParamter.Max_Pressure。</param>
+        /// <param name="minLimit">压力下限阈值，来自过程参数 PressureParamter.Min_Pressure。</param>
+        /// <param name="sn">产品 SN，便于按条码检索。</param>
+        /// <param name="wocode">批次号，便于按工单检索。</param>
+        public static void WritePressureThresholdNg3Trace(string stageTag, float pressureMax, float pressureMin, float pressureAverage, float maxLimit, float minLimit, string sn = "", string wocode = "")
+        {
+            var reasons = new List<string>();
+            if (pressureMax > maxLimit)
+            {
+                reasons.Add($"Max={FormatSqlNumber(pressureMax)} > maxLimit={FormatSqlNumber(maxLimit)}");
+            }
+            if (pressureMin < minLimit)
+            {
+                reasons.Add($"Min={FormatSqlNumber(pressureMin)} < minLimit={FormatSqlNumber(minLimit)}");
+            }
+            if (reasons.Count == 0)
+            {
+                reasons.Add($"PRESSURE_RESULT=0，Max={FormatSqlNumber(pressureMax)}, Min={FormatSqlNumber(pressureMin)}, Avg={FormatSqlNumber(pressureAverage)}，阈值=[{FormatSqlNumber(minLimit)},{FormatSqlNumber(maxLimit)}]");
+            }
+
+            WriteErrorLog($"[追踪]{stageTag}-压力阈值判定NG3",
+                $"{string.Join("; ", reasons)}，直接返回=3(压力不合格)",
+                sn, wocode);
+        }
+
+        /// <summary>
         /// 添加SQLite操作性能诊断日志方法
         /// 写入性能诊断日志到独立文件
         /// </summary>
@@ -955,10 +988,10 @@ namespace SQLITEDATABASE
         ///   0 = 全部合格
         ///   1 = 拍照留底不良（TakePhoto1=false 或数据解析失败 或数据库异常）
         ///   2 = 耐压测试不合格（TVMaxVoltage异常 或 TVResult=false）
-        ///   3 = 阻值测试不合格（RES=0 或数据解析失败）
+        ///   3 = 阻值或压力测试不合格（RES 超阈值、PRESSURE_RESULT=false 或相关字段缺失/解析失败）
         /// 注意：所有系统异常都会被映射为业务不良返回，通过独立日志详细记录实际原因
         /// </summary>
-        /// <returns>错误代码：0=合格，1=拍照不良，2=耐压不良，3=阻值不良</returns>
+        /// <returns>错误代码：0=合格，1=拍照不良，2=耐压不良，3=阻值或压力不良</returns>
         public static int Check1(string WOCODE, string PARTNOID, string SN, float resMax = 50, bool aoiOnlyMode = false)
         {
             try
@@ -1173,7 +1206,7 @@ namespace SQLITEDATABASE
         ///   0 = 全部合格
         ///   1 = 拍照留底不良（或数据库异常）
         ///   2 = 耐压测试不合格
-        ///   3 = 阻值测试不合格
+        ///   3 = 阻值或压力测试不合格
         ///   4 = AOI外观检测不合格（TakePhoto2=false）
         /// 设计思路：Check2是最终出站校验，确保所有工序数据完整且合格
         /// 注意：所有系统异常都会被映射为业务不良返回，通过独立日志详细记录实际原因

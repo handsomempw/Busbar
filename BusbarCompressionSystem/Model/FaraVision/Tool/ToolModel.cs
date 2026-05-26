@@ -62,7 +62,7 @@ namespace BusbarCompressionSystem.Model.FaraVision.Tool
         public ROI BarCodeROI { set; get; } = new ROI();
 
         [XmlElement("延时")]
-        public int Delaytimes { set; get; } = 100;
+        public int ToolSoftInteractionDelayMs { set; get; } = 100;
 
         [XmlElement("结束码")]
 
@@ -290,6 +290,62 @@ namespace BusbarCompressionSystem.Model.FaraVision.Tool
         public double LastMeasurePixelValue { set; get; } = -1;
 
         /// <summary>
+        /// 运行态：尺寸测量在线图找边失败后，是否已经执行落盘图复测。
+        /// 工程 XML 省略该字段；用于把同一周期内的在线测量、复测图片和最终判定串起来排查。
+        /// </summary>
+        [XmlIgnore]
+        public bool DimensionRemeasureAttempted { set; get; } = false;
+
+        /// <summary>
+        /// 运行态：尺寸测量落盘图复测是否成功得到测量值。
+        /// 成功后最终状态仍按尺寸上下限判定；失败时工具保持测量失败状态。
+        /// </summary>
+        [XmlIgnore]
+        public bool DimensionRemeasureSucceeded { set; get; } = false;
+
+        /// <summary>
+        /// 运行态：触发复测时保存的 NG 图片路径。
+        /// 诊断日志使用该路径定位复测输入图，和最终结果图路径分开记录。
+        /// </summary>
+        [XmlIgnore]
+        public string DimensionRemeasureImagePath { set; get; } = null;
+
+        /// <summary>
+        /// 运行态：在线相机内存图首次尺寸测量失败原因。
+        /// 诊断日志使用该信息区分在线图找边失败和落盘图复测结果。
+        /// </summary>
+        [XmlIgnore]
+        public string DimensionRemeasureOriginalError { set; get; } = string.Empty;
+
+        /// <summary>
+        /// 运行态：落盘图复测失败原因。
+        /// 复测成功时为空；复测失败时用于判断图片保存、读取或找边环节。
+        /// </summary>
+        [XmlIgnore]
+        public string DimensionRemeasureError { set; get; } = string.Empty;
+
+        /// <summary>
+        /// 运行态：落盘图复测得到的毫米值。
+        /// 复测成功时写入测量值，复测失败时约定为 -1。
+        /// </summary>
+        [XmlIgnore]
+        public double DimensionRemeasureMeasureValue { set; get; } = -1;
+
+        /// <summary>
+        /// 运行态：落盘图复测得到的原始像素距离，单位 px。
+        /// 复测成功时写入像素值，复测失败时约定为 -1。
+        /// </summary>
+        [XmlIgnore]
+        public double DimensionRemeasurePixelValue { set; get; } = -1;
+
+        /// <summary>
+        /// 运行态：尺寸测量复测诊断说明。
+        /// 日志使用短句描述“在线图失败、落盘图复测成功/失败”及最终判定来源。
+        /// </summary>
+        [XmlIgnore]
+        public string DimensionRemeasureMessage { set; get; } = string.Empty;
+
+        /// <summary>
         /// 最小允许值（单位：mm）
         /// </summary>
         [XmlElement("最小测量值mm")]
@@ -444,6 +500,115 @@ namespace BusbarCompressionSystem.Model.FaraVision.Tool
         /// </summary>
         [XmlElement("显示Metrology调试信息")]
         public bool ShowMetrologyDebugInfo { set; get; } = true;
+
+        #endregion
+
+        #region 直线检测
+
+        /// <summary>
+        /// 直线检测 ROI。线段方向表示期望边缘走向，端点坐标参与工程 XML 持久化。
+        /// </summary>
+        [XmlElement("直线检测ROI")]
+        public ROI LineDetectROI { set; get; } = new ROI() { Type = ROIType.Line };
+
+        /// <summary>
+        /// 拟合直线相对 ROI 方向的最大允许夹角；单位为度。超出该值判 NG。
+        /// </summary>
+        [XmlElement("直线检测允许角度偏差")]
+        public double LineDetectAllowAngleDelta { set; get; } = 5.0;
+
+        /// <summary>
+        /// 内部判定：沿线有效边缘卡尺占比下限，默认 0.6。工程 XML 可覆盖；配置界面不向操作员暴露。
+        /// </summary>
+        [XmlElement("直线检测最小边缘命中率")]
+        public double LineDetectMinEdgeHitRatio { set; get; } = 0.6;
+
+        /// <summary>
+        /// 期望检测结果：true 表示必须有线状边缘；false 表示必须无线（断边/缺口检测）。
+        /// </summary>
+        [XmlElement("直线检测期望有线")]
+        public bool ExpectLinePresent { set; get; } = true;
+
+        /// <summary>
+        /// 内部判定：期望无线时低阈值复检允许的最大边缘散点数，默认 0。工程 XML 可覆盖；配置界面不向操作员暴露。
+        /// </summary>
+        [XmlElement("直线检测无线最大散点数")]
+        public int LineDetectAbsentMaxEdgePoints { set; get; } = 0;
+
+        private double _actualLineAngle;
+        /// <summary>
+        /// 运行态：拟合直线方向角；单位为度，相对图像坐标系。
+        /// </summary>
+        [XmlIgnore]
+        public double ActualLineAngle
+        {
+            get => _actualLineAngle;
+            set
+            {
+                _actualLineAngle = value;
+                RaisePropertyChanged(() => ActualLineAngle);
+            }
+        }
+
+        private double _actualAngleDeviation;
+        /// <summary>
+        /// 运行态：拟合线与 ROI 方向的无方向夹角偏差；单位为度。
+        /// </summary>
+        [XmlIgnore]
+        public double ActualAngleDeviation
+        {
+            get => _actualAngleDeviation;
+            set
+            {
+                _actualAngleDeviation = value;
+                RaisePropertyChanged(() => ActualAngleDeviation);
+            }
+        }
+
+        private double _lastEdgeHitRatio;
+        /// <summary>
+        /// 运行态：本次找边有效卡尺命中率；0~1。
+        /// </summary>
+        [XmlIgnore]
+        public double LastEdgeHitRatio
+        {
+            get => _lastEdgeHitRatio;
+            set
+            {
+                _lastEdgeHitRatio = value;
+                RaisePropertyChanged(() => LastEdgeHitRatio);
+            }
+        }
+
+        private double _lastLineDetectScore;
+        /// <summary>
+        /// 运行态：Metrology 拟合分数；0~1。
+        /// </summary>
+        [XmlIgnore]
+        public double LastLineDetectScore
+        {
+            get => _lastLineDetectScore;
+            set
+            {
+                _lastLineDetectScore = value;
+                RaisePropertyChanged(() => LastLineDetectScore);
+            }
+        }
+
+        private string _lastLineDetectFailReason = string.Empty;
+        /// <summary>
+        /// 运行态：最近一次判定失败说明，供主界面与日志追溯。
+        /// </summary>
+        [XmlIgnore]
+        public string LastLineDetectFailReason
+        {
+            get => _lastLineDetectFailReason;
+            set
+            {
+                _lastLineDetectFailReason = value ?? string.Empty;
+                RaisePropertyChanged(() => LastLineDetectFailReason);
+            }
+        }
 
         #endregion
 

@@ -550,6 +550,15 @@ namespace MES_ORACLE_DATABASE
 
         public static Boolean Save_EquipmentRecord_mes(string STATION_CODE, string WO_CODE, string M_SN, string PROCEDURE_NAME, string EQUIPMENT_NUMBER, string result, string PROCEDURE_NUMBER)
         {
+            return Save_EquipmentRecord_mes(STATION_CODE, WO_CODE, M_SN, PROCEDURE_NAME, EQUIPMENT_NUMBER, result, PROCEDURE_NUMBER, out _);
+        }
+
+        /// <summary>
+        /// 向 MES 报工，并在失败时返回可读原因供上位机弹窗与日志使用。
+        /// </summary>
+        public static Boolean Save_EquipmentRecord_mes(string STATION_CODE, string WO_CODE, string M_SN, string PROCEDURE_NAME, string EQUIPMENT_NUMBER, string result, string PROCEDURE_NUMBER, out string failMessage)
+        {
+            failMessage = string.Empty;
             if (dicStandardGroup.Count == 0)
             {
                 try
@@ -575,12 +584,14 @@ namespace MES_ORACLE_DATABASE
                     else
                     {
                         WriteError($"获取工序码字典失败: {r.Message}", "GetStandardWorkGroupList");
+                        failMessage = $"获取工序码失败: {r.Message}";
                         return false;
                     }
                 }
                 catch (Exception ex)
                 {
                     WriteError($"获取工序码字典异常: {ex.Message}", "GetStandardWorkGroupList");
+                    failMessage = $"获取工序码异常: {ex.Message}";
                     return false;
                 }
             }
@@ -635,6 +646,7 @@ namespace MES_ORACLE_DATABASE
             if (!dicStandardGroup.ContainsKey(PROCEDURE_NAME))
             {
                 WriteError($"工序名称不存在: {PROCEDURE_NAME}, 可用工序: {string.Join(",", dicStandardGroup.Keys)}", "Save_EquipmentRecord_mes");
+                failMessage = $"工序名称不存在: {PROCEDURE_NAME}";
                 return false;
             }
 
@@ -656,12 +668,14 @@ namespace MES_ORACLE_DATABASE
                 else
                 {
                     WriteError($"报工失败: SN={M_SN}, 工位={STATION_CODE}, 员工={employeeNo}, 工序={PROCEDURE_NAME}, 状态={status}, 不良类型={errorType}, 不良描述={errorDesc}, 错误信息={r.Message}", "ReportWorkByProduct");
+                    failMessage = string.IsNullOrWhiteSpace(r.Message) ? "MES报工返回失败" : r.Message;
                     return false;
                 }
             }
             catch (Exception ex)
             {
                 WriteError($"报工异常: SN={M_SN}, 工位={STATION_CODE}, 员工={employeeNo}, 工序={PROCEDURE_NAME}, 状态={status}, 不良类型={errorType}, 不良描述={errorDesc}, 异常信息={ex.Message}", "ReportWorkByProduct");
+                failMessage = ex.Message;
                 return false;
             }
 

@@ -183,6 +183,30 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
+        /// 压力判定 NG3 时写入数据库追踪日志。
+        /// </summary>
+        /// <param name="stageTag">流程阶段标识，如 CHECK1、点检CHECK1。</param>
+        /// <param name="maxPressure">PLC 读取的最大压力。</param>
+        /// <param name="minPressure">PLC 读取的最小压力。</param>
+        /// <param name="averagePressure">PLC 读取的平均压力。</param>
+        /// <param name="pressureResult">当前判定的压力合格标志。</param>
+        /// <param name="sn">产品 SN。</param>
+        /// <param name="wocode">批次号。</param>
+        private void TracePressureNg3IfFailed(string stageTag, UInt16 maxPressure, UInt16 minPressure, UInt16 averagePressure, bool pressureResult, string sn, string wocode)
+        {
+            if (pressureResult)
+            {
+                return;
+            }
+
+            sqlite.WritePressureThresholdNg3Trace(stageTag,
+                maxPressure, minPressure, averagePressure,
+                DataModel.Processmodel.PressureParamter.Max_Pressure,
+                DataModel.Processmodel.PressureParamter.Min_Pressure,
+                sn, wocode);
+        }
+
+        /// <summary>
         /// 机器人TCP服务端消息接收处理方法
         /// 业务流程：机器人作为客户端连接本视觉系统，通过指令驱动各工位的检测流程
         /// 
@@ -257,7 +281,7 @@ namespace BusbarCompressionSystem.ViewModel
                             DataModel.FaraVisionDataModel.Processmodel.CameraList[cameraindex].CameraModel.exposuretime = DataModel.FaraVisionDataModel.Processmodel.Tools[i].ExposureTime;
                             DataModel.FaraVisionDataModel.Processmodel.CameraList[cameraindex].CameraModel.camera.Exposure = DataModel.FaraVisionDataModel.Processmodel.Tools[i].ExposureTime;
                             DataModel.FaraVisionDataModel.Processmodel.CameraList[cameraindex].CameraModel.camera.bnSetParam_Click();
-                            Thread.Sleep(DataModel.FaraVisionDataModel.Settingmodel.delaytime);
+                            Thread.Sleep(DataModel.FaraVisionDataModel.Settingmodel.ACommandTriggerWaitMs);
                             writeLog($"机器人->视觉:{cmd}开始触发", false);
                             DataModel.FaraVisionDataModel.Processmodel.CameraList[cameraindex].CameraModel.camera.bnTriggerExec_Click();
                             writeLog($"机器人->视觉:{cmd}触发完成", false);
@@ -361,6 +385,10 @@ namespace BusbarCompressionSystem.ViewModel
                             DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN,
                            AveragePressure, MaxPressure, MinPressure, PressureResult);
                         updatepressure(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, AveragePressure, MaxPressure, MinPressure, PressureResult);
+                        TracePressureNg3IfFailed("点检CHECK1",
+                            MaxPressure, MinPressure, AveragePressure, PressureResult,
+                            DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN,
+                            DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE);
 
                         #endregion
 
@@ -463,6 +491,10 @@ namespace BusbarCompressionSystem.ViewModel
                                 DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN,
                                AveragePressure, MaxPressure, MinPressure, PressureResult);
                             updatepressure(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, AveragePressure, MaxPressure, MinPressure, PressureResult);
+                            TracePressureNg3IfFailed("CHECK1",
+                                MaxPressure, MinPressure, AveragePressure, PressureResult,
+                                DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN,
+                                DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE);
                         }
 
                         #endregion
@@ -787,6 +819,7 @@ namespace BusbarCompressionSystem.ViewModel
         {
             try
             {
+                string failMessage;
                 var r = MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.Save_EquipmentRecord_mes(
                         DataModel.Settingmodel.SETTING_DATA.StationCode,
                         wocode,
@@ -794,8 +827,8 @@ namespace BusbarCompressionSystem.ViewModel
                         DataModel.Settingmodel.SETTING_DATA.ProcedureName,
                         DataModel.Settingmodel.SETTING_DATA.MachineID,
                         result == "OK" ? "合格" : result,
-                        DataModel.Settingmodel.SETTING_DATA.StandardCode
-                        );
+                        DataModel.Settingmodel.SETTING_DATA.StandardCode,
+                        out failMessage);
 
                 if (r)
                 {
@@ -803,7 +836,8 @@ namespace BusbarCompressionSystem.ViewModel
                 }
                 else
                 {
-                    writeLog($"{sn}:{result};报工:False(失败原因见数据库错误日志)");
+                    writeLog($"{sn}:{result};报工:False;{failMessage}");
+                    HandleReportWorkFailure(sn, failMessage);
                 }
                 return r;
             }
@@ -811,6 +845,7 @@ namespace BusbarCompressionSystem.ViewModel
             {
                 writeLog($"{sn}:{result};报工:False(程序异常)");
                 writeError($"报工程序异常: SN={sn}, 工单={wocode}, 异常={ex.Message}");
+                HandleReportWorkFailure(sn, ex.Message);
                 return false;
             }
         }
@@ -818,6 +853,7 @@ namespace BusbarCompressionSystem.ViewModel
         {
             try
             {
+                string failMessage;
                 var r = MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.Save_EquipmentRecord_mes(
                         DataModel.Settingmodel.SETTING_DATA.StationCode2,
                         wocode,
@@ -825,8 +861,8 @@ namespace BusbarCompressionSystem.ViewModel
                         DataModel.Settingmodel.SETTING_DATA.ProcedureName2,
                         DataModel.Settingmodel.SETTING_DATA.MachineID,
                         result == "OK" ? "合格" : result,
-                        DataModel.Settingmodel.SETTING_DATA.StandardCode2
-                        );
+                        DataModel.Settingmodel.SETTING_DATA.StandardCode2,
+                        out failMessage);
 
                 if (r)
                 {
@@ -834,7 +870,8 @@ namespace BusbarCompressionSystem.ViewModel
                 }
                 else
                 {
-                    writeLog($"{sn}:{result};报工2:False(失败原因见数据库错误日志)");
+                    writeLog($"{sn}:{result};报工2:False;{failMessage}");
+                    HandleReportWorkFailure(sn, failMessage);
                 }
                 return r;
             }
@@ -842,6 +879,7 @@ namespace BusbarCompressionSystem.ViewModel
             {
                 writeLog($"{sn}:{result};报工2:False(程序异常)");
                 writeError($"报工2程序异常: SN={sn}, 工单={wocode}, 异常={ex.Message}");
+                HandleReportWorkFailure(sn, ex.Message);
                 return false;
             }
         }

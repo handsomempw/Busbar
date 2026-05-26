@@ -174,6 +174,7 @@ namespace BusbarCompressionSystem.Model
 
         /// <summary>
         /// 上料扫码器模式（"HF800" 或 "Scanner"）
+        /// 配置文件节点沿用属性名 ScannerMode，与下料扫码器模式并列。
         /// </summary>
         public string ScannerMode { set; get; } = "HF800";
 
@@ -188,50 +189,55 @@ namespace BusbarCompressionSystem.Model
         #region ==================== PLC通信配置（序列化保存） ====================
 
         /// <summary>
-        /// PLC通讯IP地址（Modbus TCP）
+        /// PLC 通讯 IP 地址（Modbus TCP）。
+        /// 现场更换控制器或切换网段时，直接调整这一项即可完成目标站点切换。
         /// </summary>
         [XmlElement("PLC通讯IP")]
-        public string PLC_IP { set; get; } = "127.0.0.1";
+        public string PLC_IP { set; get; } = "192.168.1.88";
 
         /// <summary>
-        /// PLC通讯端口（默认502为Modbus标准端口）
+        /// PLC 通讯端口（Modbus TCP）。
+        /// 默认值 502 对应标准 Modbus 端口，与 <see cref="PLC_IP"/> 共同组成连接参数。
         /// </summary>
         [XmlElement("PLC通讯端口")]
         public int PLC_Port { set; get; } = 502;
 
         /// <summary>
-        /// 信号交互起始地址（D寄存器）
+        /// PLC 信号交互起始地址（D 寄存器）。
+        /// 从这一组连续寄存器开始承载扫码、拍照、耐压触发和完成反馈。
         /// </summary>
         /// <remarks>
-        /// 从此地址开始的连续寄存器用于上位机与PLC的信号交互：
+        /// 地址组用途：
         /// - AddressStart+0: 扫码触发
         /// - AddressStart+1: 拍照触发
         /// - AddressStart+2: 耐压触发
         /// - AddressStart+3: 拍照完成反馈
-        /// 具体定义参见PLC程序文档
+        /// 具体定义对应 PLC 程序中的固定信号组。
         /// </remarks>
         [XmlElement("信号交互地址")]
         public int AddressStart { set; get; } = 1000;
 
         /// <summary>
-        /// 产品SN码起始地址（D寄存器，字符串类型）
+        /// 产品 SN 起始地址（D 寄存器，字符串类型）。
+        /// 上料、耐压1、耐压2工位通过固定偏移共享这一基址。
         /// </summary>
         /// <remarks>
-        /// PLC将产品SN码写入此地址，格式为"SN;工单号"
-        /// 不同工位使用不同偏移：
-        /// - AddressSN: 拍照工位SN
-        /// - AddressSN+25: 耐压1工位SN
-        /// - AddressSN+50: 耐压2工位SN
+        /// 地址组用途：
+        /// - AddressSN: 拍照工位 SN
+        /// - AddressSN+25: 耐压 1 工位 SN
+        /// - AddressSN+50: 耐压 2 工位 SN
+        /// PLC 写入格式为 "SN;工单号"。
         /// </remarks>
         [XmlElement("SN起始地址")]
         public int AddressSN { set; get; } = 800;
 
         /// <summary>
-        /// 阻值数据起始地址（D寄存器，Float类型）
+        /// 阻值结果起始地址（D 寄存器，Float 类型）。
+        /// PLC 使用连续寄存器写入三个阻值点的数据。
         /// </summary>
         /// <remarks>
-        /// PLC将阻值测试结果写入此地址：
-        /// - AddressRes: 阻值1（D1200-D1201，Float占2个字）
+        /// 地址组用途：
+        /// - AddressRes: 阻值 1（D1200-D1201，Float 占 2 个字）
         /// - AddressRes+2: 阻值2
         /// - AddressRes+4: 阻值3
         /// </remarks>
@@ -239,10 +245,11 @@ namespace BusbarCompressionSystem.Model
         public int AddressRes { set; get; } = 1200;
 
         /// <summary>
-        /// 压力数据起始地址（D寄存器）
+        /// 压力监控起始地址（D 寄存器）。
+        /// 压接过程的平均、最大、最小压力使用这一组连续寄存器。
         /// </summary>
         /// <remarks>
-        /// 压接过程的压力监控数据：
+        /// 地址组用途：
         /// - AddressPressure: 平均压力
         /// - AddressPressure+2: 最大压力
         /// - AddressPressure+4: 最小压力
@@ -251,7 +258,8 @@ namespace BusbarCompressionSystem.Model
         public int AddressPressure { set; get; } = 1600;
 
         /// <summary>
-        /// IR 绝缘电阻测试触发地址（D 寄存器，PLC→PC）
+        /// IR 绝缘电阻测试触发地址（D 寄存器，PLC -> PC）。
+        /// PLC 使用 1/2 作为启动和停止指令。
         /// </summary>
         /// <remarks>
         /// D1014：
@@ -262,7 +270,8 @@ namespace BusbarCompressionSystem.Model
         public int IRTrigAddress { get; set; } = 1014;
 
         /// <summary>
-        /// IR 绝缘电阻测试结果地址（D 寄存器，PC→PLC）
+        /// IR 绝缘电阻测试结果地址（D 寄存器，PC -> PLC）。
+        /// 上位机把 OK / NG 结果写回 PLC，供后续节拍判断。
         /// </summary>
         /// <remarks>
         /// D1015：
@@ -273,147 +282,175 @@ namespace BusbarCompressionSystem.Model
         public int IRResultAddress { get; set; } = 1015;
 
         /// <summary>
-        /// IR 仪器可用标志地址（M 寄存器，PLC→PC）
+        /// IR 仪器可用标志地址（M 寄存器，PLC -> PC）。
+        /// PLC 通过 1 / 0 提示第三电测位当前的可用状态。
         /// </summary>
         /// <remarks>
         /// M3033：
-        /// 1 = 仪器开启/可用（现场确认：IR 与耐压可用逻辑相反）
-        /// 0 = 仪器关闭/不可用
+        /// 1 = 仪器开启 / 可用
+        /// 0 = 仪器关闭 / 可用状态解除
         /// </remarks>
         [XmlElement("IR仪器启用地址")]
         public int IRMeterAvailableAddress { get; set; } = 3033;
 
         /// <summary>
-        /// TV1 耐压结果反馈给 PLC（用于决定是否启用 IR 测试）
+        /// TV1 耐压结果反馈地址（用于决定 IR 流程放行）。
+        /// PLC 读取这项结果后，决定第三电测位是否进入 IR 逻辑。
         /// </summary>
         /// <remarks>
-        /// M3041：0=不合格(NG)，1=合格(OK)
+        /// M3041：0=NG，1=OK
         /// </remarks>
         [XmlElement("IR启用判断-TV1耐压结果地址")]
         public int IrEnableByTv1ResultAddress { get; set; } = 3041;
 
         /// <summary>
-        /// TV2 耐压结果反馈给 PLC（用于决定是否启用 IR 测试）
+        /// TV2 耐压结果反馈地址（用于决定 IR 流程放行）。
+        /// PLC 读取这项结果后，决定第三电测位是否进入 IR 逻辑。
         /// </summary>
         /// <remarks>
-        /// M3042：0=不合格(NG)，1=合格(OK)
+        /// M3042：0=NG，1=OK
         /// </remarks>
         [XmlElement("IR启用判断-TV2耐压结果地址")]
         public int IrEnableByTv2ResultAddress { get; set; } = 3042;
 
         /// <summary>
-        /// 压力上限参数地址（用于判定压力是否超标）
+        /// 压力上限参数地址。
+        /// PLC 读取这一项作为压力超限判定基准。
         /// </summary>
         [XmlElement("压力上限地址")]
         public int MaxPressure_Address { set; get; } = 2038;
 
         /// <summary>
-        /// 压力下限参数地址（用于判定压力是否达标）
+        /// 压力下限参数地址。
+        /// PLC 读取这一项作为压力达标判定基准。
         /// </summary>
         [XmlElement("压力下限地址")]
         public int MinPressure_Address { set; get; } = 2048;
 
         /// <summary>
-        /// 实时压力显示地址
+        /// 实时压力显示地址。
+        /// PLC 使用这一项传递当前压力值，供上位机显示与记录。
         /// </summary>
         [XmlElement("压力地址")]
         public int Pressure_Address { set; get; } = 2054;
 
         /// <summary>
-        /// 耐压仪1启用状态地址（M寄存器，Bool类型）
+        /// 耐压仪 1 启用状态地址（M 寄存器，Bool 类型）。
+        /// 现场口径与耐压 2 保持一致，PLC 用 1 / 0 表达可用状态。
         /// </summary>
         [XmlElement("仪器1启用地址")]
         public int Meter1AvailableAddress { set; get; } = 3012;
 
         /// <summary>
-        /// 耐压仪2启用状态地址
+        /// 耐压仪 2 启用状态地址。
+        /// 现场口径与耐压 1 保持一致，PLC 用 1 / 0 表达可用状态。
         /// </summary>
         [XmlElement("仪器2启用地址")]
         public int Meter2AvailableAddress { set; get; } = 3022;
 
         /// <summary>
-        /// 耐压仪3启用状态地址（M寄存器，Bool类型）。
-        /// 现场口径与耐压1/2一致：1=不可用，0=可用；上位机取反写入TV3Available。
-        /// TV3与IR共用第三电测位置，M3032与M3033由PLC按产品节拍保持互斥。
+        /// 耐压仪 3 启用状态地址（M 寄存器，Bool 类型）。
+        /// TV3 与 IR 共用第三电测位，PLC 按产品节拍保持互斥。
         /// </summary>
         [XmlElement("仪器3启用地址")]
         public int Meter3AvailableAddress { set; get; } = 3032;
 
         /// <summary>
-        /// 阻值1读取触发地址（M寄存器，Bool类型）
+        /// 阻值 1 读取触发地址（M 寄存器，Bool 类型）。
+        /// PLC 置位后，上位机读取阻值 1 数据。
         /// </summary>
-        /// <remarks>PLC置1时，上位机读取阻值1数据</remarks>
         [XmlElement("阻值1触发地址")]
         public int Res1TrigAddress { set; get; } = 3035;
 
         /// <summary>
-        /// 阻值2读取触发地址
+        /// 阻值 2 读取触发地址。
+        /// PLC 置位后，上位机读取阻值 2 数据。
         /// </summary>
         [XmlElement("阻值2触发地址")]
         public int Res2TrigAddress { set; get; } = 3036;
 
         /// <summary>
-        /// 阻值3读取触发地址
+        /// 阻值 3 读取触发地址。
+        /// PLC 置位后，上位机读取阻值 3 数据。
         /// </summary>
         [XmlElement("阻值3触发地址")]
         public int Res3TrigAddress { set; get; } = 3037;
 
         /// <summary>
-        /// 阻值上限参数地址（用于判定阻值是否超标，默认14μΩ）
+        /// 阻值上限参数地址（用于判定阻值是否超标，默认 14 μΩ）。
+        /// PLC 读取这一项作为阻值上限判定基准。
         /// </summary>
         [XmlElement("阻值上限地址")]
         public int Res_Max_Address { set; get; } = 2020;
 
         /// <summary>
-        /// 阻值下限参数地址
+        /// 阻值下限参数地址。
+        /// PLC 读取这一项作为阻值下限判定基准。
         /// </summary>
         [XmlElement("阻值下限地址")]
         public int Res_Min_Address { set; get; } = 2022;
 
         /// <summary>
-        /// 设备允许启动状态地址（上位机写入，告知PLC可以开始生产）
+        /// 设备允许启动状态地址（上位机写入 PLC）。
+        /// 这一项用于告知 PLC 可以进入生产节拍。
         /// </summary>
         [XmlElement("设备是否允许启动")]
         public int DeviceAvailableAddress { set; get; } = 1620;
 
         /// <summary>
-        /// 心跳信号地址（上位机定时翻转，PLC监控通信状态）
+        /// 设备心跳地址（上位机定时翻转，PLC 监控通信状态）。
+        /// 这一项用于维持联机心跳和掉线判断。
         /// </summary>
         [XmlElement("设备心跳地址")]
         public int ShankHandAddress { set; get; } = 1622;
 
         /// <summary>
-        /// AOI NG点检通过信号地址（M寄存器，Bool类型）
+        /// AOI NG 点检通过信号地址（M 寄存器，Bool 类型）。
+        /// 当所有 AOI 工具均为 NG 时，上位机向该地址写入通过信号。
         /// </summary>
         /// <remarks>
-        /// 用于AOI NG点检场景：当所有AOI工具均为NG时，向此地址写入1表示点检通过
+        /// 用于 AOI NG 点检场景。
         /// </remarks>
         [XmlElement("AOI_NG点检通过信号地址")]
         public int AOI_NG_InspectionAddress { set; get; } = 3040;
 
         /// <summary>
-        /// 下料位扫码触发地址
+        /// 报工失败后报警信号地址（M 寄存器线圈，Bool）。
+        /// </summary>
+        /// <remarks>
+        /// 报工失败且「报工失败报警使能」为 true 时上位机写 1；清零由 PLC/现场处理，上位机不复位。
+        /// 使能为 false 时不写该线圈、不弹窗。
+        /// </remarks>
+        [XmlElement("报工失败报警线圈")]
+        public int ReportFailBlockCoilAddress { get; set; } = 3045;
+
+        /// <summary>
+        /// 下料位扫码触发地址。
+        /// PLC 置位后，上位机读取下料位条码。
         /// </summary>
         [XmlElement("下料扫码触发地址")]
         public int SecondScanTrigAddress { set; get; } = 1100;
 
         /// <summary>
-        /// 下料位扫码结果反馈地址
+        /// 下料位扫码结果反馈地址。
+        /// 上位机把解析后的扫码结果写回 PLC。
         /// </summary>
         [XmlElement("下料扫码返回地址")]
         public int SecondScanResultAddress { set; get; } = 1101;
 
         /// <summary>
-        /// 下料位产品SN地址
+        /// 下料位产品 SN 地址。
+        /// PLC 在这一组寄存器中保存下料位产品标识。
         /// </summary>
         [XmlElement("下料位SN地址")]
         public int SecondScanSNAddress { set; get; } = 1150;
 
         /// <summary>
-        /// 测试模式信号地址（D寄存器，uint16类型）
+        /// 测试模式信号地址（D 寄存器，uint16 类型）。
+        /// 上位机写入这一项后，PLC 进入对应的电测顺序。
         /// </summary>
         /// <remarks>
-        /// 上位机向PLC写入测试模式值：
+        /// 上位机向 PLC 写入测试模式值：
         /// - 0: 只测交流(ACW Only)
         /// - 1: 只测直流(DCW Only)
         /// - 2: 先交后直(ACW then DCW)
@@ -424,10 +461,11 @@ namespace BusbarCompressionSystem.Model
         public int TestModeAddress { set; get; } = 1012;
 
         /// <summary>
-        /// 当前测试模式配置
+        /// 当前测试模式配置值。
+        /// 系统启动或配置变更后，将这一项写入 PLC 的测试模式地址。
         /// </summary>
         /// <remarks>
-        /// 系统启动或配置变更时，将此值写入PLC TestModeAddress地址
+        /// 这一项与 PLC 的 <see cref="TestModeAddress"/> 保持一致。
         /// </remarks>
         private AT9620.ElectricalTestMode _currentTestMode = AT9620.ElectricalTestMode.ACWOnly;
 
@@ -444,7 +482,8 @@ namespace BusbarCompressionSystem.Model
         }
 
         /// <summary>
-        /// 当前测试模式的中文显示名称（用于界面绑定）
+        /// 当前测试模式的中文显示名称（用于界面绑定）。
+        /// 这一项只负责界面展示。
         /// </summary>
         [XmlIgnore]
         public string CurrentTestModeDisplay
@@ -472,7 +511,8 @@ namespace BusbarCompressionSystem.Model
         #region ==================== 机器人通信配置 ====================
 
         /// <summary>
-        /// 机器人TCP通信配置（IP、端口）
+        /// 机器人 TCP 通信配置（IP、端口）。
+        /// 这一项保存机器人联机参数，供工位联动时调用。
         /// </summary>
         [XmlElement("机器人")]
         public TcpSetting RobotConnect { set; get; } = new TcpSetting();

@@ -24,7 +24,7 @@ namespace BusbarCompressionSystem.FaraVision
         public RecordModel Recordmodel { get; set; } = new RecordModel();
 
         [XmlElement("配置模型")]
-        public SettingModel Settingmodel { get; set; } = new SettingModel();
+        public VisionSettingModel Settingmodel { get; set; } = new VisionSettingModel();
 
         #endregion
     }
@@ -212,7 +212,7 @@ namespace BusbarCompressionSystem.FaraVision
     }
 
 
-    public class SettingModel : ObservableObject
+    public class VisionSettingModel : ObservableObject
     {
         [XmlIgnore]
         public HWindow HWindow { get; set; } = null;
@@ -339,8 +339,7 @@ namespace BusbarCompressionSystem.FaraVision
 
 
         [XmlElement("测试延时")]
-
-        public int delaytime { set; get; } = 1000;
+        public int ACommandTriggerWaitMs { set; get; } = 1000;
 
 
         [XmlElement("缩放照片尺寸")]

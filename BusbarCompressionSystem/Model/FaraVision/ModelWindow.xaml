@@ -11,23 +11,38 @@
            Closing="WindowX_Closing"
        p:WindowXCaption.Foreground="WhiteSmoke"
             xmlns:ctr="clr-namespace:PositionDetect;assembly=PositionDetect"
-        Title="模型设置文件" Height="450" Width="800">
+        Title="模型设置文件" Height="560" Width="900" MinHeight="520" MinWidth="860">
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition/>
             <RowDefinition Height="auto"/>
         </Grid.RowDefinitions>
         <ctr:UserControl1 Grid.Row="0" x:Name="userctr" DataContext="{Binding Source={StaticResource Locator},Path=PositionDetectViewModel}" />
-        <Grid Grid.Row="1">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition/>
-                <ColumnDefinition/>
-                <ColumnDefinition/>
-            </Grid.ColumnDefinitions>
-            <Button Grid.Column="0"  Margin="5" Padding="5" Background="OrangeRed" Foreground="White" p:ButtonHelper.CornerRadius="10" Name="loadshmfromfile" Click="loadshmfromfile_Click">重载模型</Button>
-            <Button Grid.Column="1"  Margin="5" Padding="5" Background="Orange" Foreground="White" p:ButtonHelper.CornerRadius="10" Name="getinitpositionbymodelimage" Click="getinitpositionbymodelimage_Click">从模板提取基准点</Button>
-            <Button Grid.Column="2"  Margin="5" Padding="5" Background="Black"  Foreground="White" p:ButtonHelper.CornerRadius="10" Name="getinitpositonfromimagefile" Click="getinitpositonfromimagefile_Click">从图片提取基准点</Button>
-
-        </Grid>
+        <Border Grid.Row="1" Background="#F3F3F3" BorderBrush="#D0D0D0" BorderThickness="0,1,0,0" Padding="8">
+            <DockPanel LastChildFill="True">
+                <TextBlock DockPanel.Dock="Top" Name="ModelStatusText" Margin="4,0,4,6" FontWeight="Bold" Foreground="#444"
+                           Text="模型状态：未导出"/>
+                <WrapPanel DockPanel.Dock="Bottom" HorizontalAlignment="Center">
+                    <Button Margin="4" Padding="12,6" MinWidth="120" Background="#666666" Foreground="White"
+                            p:ButtonHelper.CornerRadius="10" Name="selectFeature" Click="selectFeature_Click"
+                            ToolTip="开启后在模板图片上圈出用于生成模型的稳定特征；画完后在图像窗口点鼠标右键确认。">1 选择特征</Button>
+                    <Button Margin="4" Padding="12,6" MinWidth="130" Background="Orange" Foreground="White"
+                            p:ButtonHelper.CornerRadius="10" Name="previewGenerateModel" Click="previewGenerateModel_Click"
+                            ToolTip="根据圈选特征生成临时模型，并在图片上显示红色匹配轮廓。">2 预览生成模型</Button>
+                    <Button Margin="4" Padding="12,6" MinWidth="130" Background="SeaGreen" Foreground="White"
+                            p:ButtonHelper.CornerRadius="10" Name="exportModel" Click="exportModel_Click"
+                            ToolTip="把当前预览生成的模型保存为 Tool序号.shm，在线检测会读取该文件。">3 保存模型文件</Button>
+                    <Button Margin="4" Padding="12,6" MinWidth="130" Background="OrangeRed" Foreground="White"
+                            p:ButtonHelper.CornerRadius="10" Name="loadshmfromfile" Click="loadshmfromfile_Click"
+                            ToolTip="重新读取工程目录下的 Tool序号.shm，保存模型后需要执行一次。">4 加载当前模型</Button>
+                    <Button Margin="4" Padding="12,6" MinWidth="150" Background="#333333" Foreground="White"
+                            p:ButtonHelper.CornerRadius="10" Name="getinitpositionbymodelimage" Click="getinitpositionbymodelimage_Click"
+                            ToolTip="用当前模板图片匹配一次，并把找到的位置写入基准X/Y。">5 用模板图设基准点</Button>
+                    <Button Margin="4" Padding="12,6" MinWidth="150" Background="#555555" Foreground="White"
+                            p:ButtonHelper.CornerRadius="10" Name="getinitpositonfromimagefile" Click="getinitpositonfromimagefile_Click"
+                            ToolTip="选择一张现场图片匹配，并把该图片中的位置写入基准X/Y。">用现场图设基准点</Button>
+                </WrapPanel>
+            </DockPanel>
+        </Border>
     </Grid>
 </p:WindowX>

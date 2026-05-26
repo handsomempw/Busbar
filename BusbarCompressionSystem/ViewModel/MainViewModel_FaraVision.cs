@@ -69,7 +69,7 @@ namespace BusbarCompressionSystem.ViewModel
             }
         }
         /// <summary>
-        /// 初始化模板匹配（shm）文件，若缺失或加载失败会记录日志。
+        /// 初始化模板匹配（shm）文件；缺失或加载失败时写入工作日志与模板匹配追溯日志。
         /// </summary>
         public void InitShm()
         {
@@ -77,21 +77,33 @@ namespace BusbarCompressionSystem.ViewModel
             {
                 if (DataModel.FaraVisionDataModel.Processmodel.Tools[i].TestMode == TestModes.模板匹配)
                 {
+                    ToolModel tool = DataModel.FaraVisionDataModel.Processmodel.Tools[i];
+                    string shmfilename = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{tool.Index}.shm";
                     try
                     {
-                        string shmfilename = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{DataModel.FaraVisionDataModel.Processmodel.Tools[i].Index}.shm";
                         if (File.Exists(shmfilename))
                         {
-                            DataModel.FaraVisionDataModel.Processmodel.Tools[i].ShapeMatch.init(shmfilename);
+                            bool loaded = tool.ShapeMatch.init(shmfilename);
+                            if (loaded)
+                            {
+                                WriteTemplateMatchTraceLog("模型加载", tool, shmfilename, "成功");
+                            }
+                            else
+                            {
+                                writeLog($"模型文件加载失败:{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{tool.Index}.shm");
+                                WriteTemplateMatchTraceLog("模型加载", tool, shmfilename, "ReadShapeModel失败");
+                            }
                         }
                         else
                         {
-                            writeLog($"模型文件不存在:{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{DataModel.FaraVisionDataModel.Processmodel.Tools[i].Index}.shm");
+                            writeLog($"模型文件不存在:{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{tool.Index}.shm");
+                            WriteTemplateMatchTraceLog("模型加载", tool, shmfilename, "文件不存在");
                         }
                     }
                     catch (Exception ex)
                     {
-                        writeLog($"模型文件加载失败:{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{DataModel.FaraVisionDataModel.Processmodel.Tools[i].Index}.shm;{ex.Message}");
+                        writeLog($"模型文件加载失败:{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{tool.Index}.shm;{ex.Message}");
+                        WriteTemplateMatchTraceLog("模型加载", tool, shmfilename, ex.Message);
                         continue;
                     }
                 }
@@ -1117,13 +1129,18 @@ namespace BusbarCompressionSystem.ViewModel
 
         public ROI New_ROI(ROI roi)
         {
-            ROI r = new ROI();
-            r.Row1 = roi.Row1;
-            r.Row2 = roi.Row2;
-            r.Col1 = roi.Col1;
-            r.Col2 = roi.Col2;
+            ROI r = new ROI
+            {
+                Type = roi.Type,
+                Row1 = roi.Row1,
+                Row2 = roi.Row2,
+                Col1 = roi.Col1,
+                Col2 = roi.Col2,
+                CircleCenterRow = roi.CircleCenterRow,
+                CircleCenterCol = roi.CircleCenterCol,
+                CircleRadius = roi.CircleRadius
+            };
             return r;
-
         }
 
         public ToolModel New_Tool_Model(ToolModel tool)
@@ -1179,14 +1196,49 @@ namespace BusbarCompressionSystem.ViewModel
             t.MaxBlue = tool.MaxBlue;
             t.MinAreaFilter = tool.MinAreaFilter;
             t.MaxAreaFilter = tool.MaxAreaFilter;
+            t.TestMode = tool.TestMode;
+            t.ExposureTime = tool.ExposureTime;
+            t.ProductPositionNO = tool.ProductPositionNO;
+            t.CameraIndex = tool.CameraIndex;
+            t.MeasureType = tool.MeasureType;
+            t.MeasureObject1ROI = New_ROI(tool.MeasureObject1ROI);
+            t.MeasureObject2ROI = New_ROI(tool.MeasureObject2ROI);
+            t.DimensionK = tool.DimensionK;
+            t.CalibrationRealSize = tool.CalibrationRealSize;
+            t.CalibrationPixelSize = tool.CalibrationPixelSize;
+            t.MinMeasureValue = tool.MinMeasureValue;
+            t.MaxMeasureValue = tool.MaxMeasureValue;
+            t.MetrologyTolerance = tool.MetrologyTolerance;
+            t.MetrologyNumMeasures = tool.MetrologyNumMeasures;
+            t.MetrologyMeasureSigma = tool.MetrologyMeasureSigma;
+            t.MetrologyMeasureThreshold = tool.MetrologyMeasureThreshold;
+            t.MetrologyMeasureTransition = tool.MetrologyMeasureTransition;
+            t.MetrologyMeasureSelect = tool.MetrologyMeasureSelect;
+            t.MetrologyMinScore = tool.MetrologyMinScore;
+            t.MetrologyMeasureLength1 = tool.MetrologyMeasureLength1;
+            t.MetrologyMeasureLength2 = tool.MetrologyMeasureLength2;
+            t.LineDistanceExtendRatio = tool.LineDistanceExtendRatio;
+            t.ShowMetrologyDebugInfo = tool.ShowMetrologyDebugInfo;
+            t.LineDetectROI = New_ROI(tool.LineDetectROI);
+            t.LineDetectAllowAngleDelta = tool.LineDetectAllowAngleDelta;
+            t.LineDetectMinEdgeHitRatio = tool.LineDetectMinEdgeHitRatio;
+            t.ExpectLinePresent = tool.ExpectLinePresent;
+            t.LineDetectAbsentMaxEdgePoints = tool.LineDetectAbsentMaxEdgePoints;
             t.BitmapSource = null;
             t.CurrentBitmapSource = null;
-            t.BitmapSource = tool.BitmapSource.Clone();
-            t.CurrentBitmapSource = tool.CurrentBitmapSource.Clone();
+            if (tool.BitmapSource != null)
+            {
+                t.BitmapSource = tool.BitmapSource.Clone();
+            }
+            if (tool.CurrentBitmapSource != null)
+            {
+                t.CurrentBitmapSource = tool.CurrentBitmapSource.Clone();
+            }
             t.CurrentBitmapFileName = tool.CurrentBitmapFileName;
-            t.Image = tool.Image.Clone();
-
-
+            if (tool.Image != null)
+            {
+                t.Image = tool.Image.Clone();
+            }
 
             return t;
         }
@@ -1386,18 +1438,18 @@ namespace BusbarCompressionSystem.ViewModel
                 {
                     using (var stream = File.OpenRead(filename))
                     {
-                        var serializer = new XmlSerializer(typeof(SettingModel));
-                        DataModel.FaraVisionDataModel.Settingmodel = serializer.Deserialize(stream) as SettingModel;
+                        var serializer = new XmlSerializer(typeof(VisionSettingModel));
+                        DataModel.FaraVisionDataModel.Settingmodel = serializer.Deserialize(stream) as VisionSettingModel;
                     }
                 }
                 else
                 {
-                    DataModel.FaraVisionDataModel.Settingmodel = new SettingModel();
+                    DataModel.FaraVisionDataModel.Settingmodel = new VisionSettingModel();
                 }
             }
             catch (Exception ex)
             {
-                DataModel.FaraVisionDataModel.Settingmodel = new SettingModel();
+                DataModel.FaraVisionDataModel.Settingmodel = new VisionSettingModel();
 
                 MessageBox.Show($"配置数据.xml加载失败,软件已重置配置，请进入配置文件按需求修改,再重新打开软件:\r\n{ex.Message}");
 
@@ -1783,7 +1835,7 @@ namespace BusbarCompressionSystem.ViewModel
                 HTuple edge1Rows, edge1Cols;
                 if (!DetectEdgeWithMetrology(image, tool, tool.MeasureObject1ROI,
                     out line1RowBegin, out line1ColBegin, out line1RowEnd, out line1ColEnd,
-                    out edge1Rows, out edge1Cols))
+                    out edge1Rows, out edge1Cols, out _))
                 {
                     throw new Exception("测量对象1边缘检测失败：请检查ROI位置、Metrology参数设置");
                 }
@@ -1793,7 +1845,7 @@ namespace BusbarCompressionSystem.ViewModel
                 HTuple edge2Rows, edge2Cols;
                 if (!DetectEdgeWithMetrology(image, tool, tool.MeasureObject2ROI,
                     out line2RowBegin, out line2ColBegin, out line2RowEnd, out line2ColEnd,
-                    out edge2Rows, out edge2Cols))
+                    out edge2Rows, out edge2Cols, out _))
                 {
                     throw new Exception("测量对象2边缘检测失败：请检查ROI位置、Metrology参数设置");
                 }
@@ -1920,7 +1972,7 @@ namespace BusbarCompressionSystem.ViewModel
                 HTuple lineEdgeRows, lineEdgeCols;
                 if (!DetectEdgeWithMetrology(image, tool, tool.MeasureObject1ROI,
                     out lineRowBegin, out lineColBegin, out lineRowEnd, out lineColEnd,
-                    out lineEdgeRows, out lineEdgeCols))
+                    out lineEdgeRows, out lineEdgeCols, out _))
                 {
                     throw new Exception("直线检测失败：请检查ROI位置、Metrology参数设置");
                 }
@@ -2755,17 +2807,20 @@ namespace BusbarCompressionSystem.ViewModel
         /// <param name="lineColEnd">输出：拟合直线终点Col坐标</param>
         /// <param name="edgeRows">输出：检测到的边缘点Row坐标数组</param>
         /// <param name="edgeCols">输出：检测到的边缘点Col坐标数组</param>
+        /// <param name="fitScore">输出：Metrology 拟合分数，范围 0~1；找边失败时为 0。</param>
         /// <returns>是否检测成功</returns>
         private bool DetectEdgeWithMetrology(
             HObject image, ToolModel tool, ROI roi,
             out double lineRowBegin, out double lineColBegin,
             out double lineRowEnd, out double lineColEnd,
-            out HTuple edgeRows, out HTuple edgeCols)
+            out HTuple edgeRows, out HTuple edgeCols,
+            out double fitScore)
         {
             // 初始化输出参数
             lineRowBegin = lineColBegin = lineRowEnd = lineColEnd = 0;
             edgeRows = new HTuple();
             edgeCols = new HTuple();
+            fitScore = 0;
 
             HTuple metrologyHandle = null;
             HTuple width = null, height = null;
@@ -2837,6 +2892,26 @@ namespace BusbarCompressionSystem.ViewModel
                 lineColBegin = parameter[1].D;
                 lineRowEnd = parameter[2].D;
                 lineColEnd = parameter[3].D;
+
+                try
+                {
+                    HTuple scoreTuple;
+                    HOperatorSet.GetMetrologyObjectResult(
+                        metrologyHandle,
+                        0,
+                        "all",
+                        "result_type",
+                        "score",
+                        out scoreTuple);
+                    if (scoreTuple != null && scoreTuple.Length > 0)
+                    {
+                        fitScore = scoreTuple[0].D;
+                    }
+                }
+                catch
+                {
+                    fitScore = 1.0;
+                }
 
                 // 9. 获取边缘点坐标（用于可视化）
                 HObject contours;
@@ -3099,6 +3174,460 @@ namespace BusbarCompressionSystem.ViewModel
 
         #endregion
 
+        #region 直线检测
+
+        /// <summary>
+        /// 单次直线存在性检测的业务结果。
+        /// 供配置界面测试与 AOI 运行分支映射 ToolStatus，不参与尺寸测量与毫米换算。
+        /// </summary>
+        public class LinePresenceResult
+        {
+            /// <summary>
+            /// 找边失败或 ROI 无效时为 true，运行分支映射为 ToolStatus.NG2。
+            /// </summary>
+            public bool DetectFailed { get; set; }
+
+            /// <summary>
+            /// 判定口径满足时为 true，运行分支映射为 ToolStatus.OK。
+            /// </summary>
+            public bool JudgementOk { get; set; }
+
+            /// <summary>
+            /// 拟合线相对 ROI 的无方向夹角偏差；单位为度。
+            /// </summary>
+            public double AngleDeviation { get; set; }
+
+            /// <summary>
+            /// Metrology 拟合直线方向角；单位为度，相对图像坐标系。
+            /// </summary>
+            public double FittedLineAngle { get; set; }
+
+            /// <summary>
+            /// 有效边缘卡尺数占 Metrology 卡尺总数的比例；范围 0~1。
+            /// </summary>
+            public double EdgeHitRatio { get; set; }
+
+            /// <summary>
+            /// Metrology 拟合质量分数；范围 0~1，与 MetrologyMinScore 比较。
+            /// </summary>
+            public double FitScore { get; set; }
+
+            /// <summary>
+            /// 判定失败说明，写入日志与 LastLineDetectFailReason 供主界面追溯。
+            /// </summary>
+            public string FailReason { get; set; } = string.Empty;
+        }
+
+        /// <summary>
+        /// 表示一次直线检测中可参与业务判定的线状边缘。
+        /// 该对象把 Metrology 的找边结果转换为直线检测工具的判定指标，供有线与无线两种口径共用。
+        /// </summary>
+        private class LinePresenceCandidate
+        {
+            public bool Found { get; set; }
+            public bool IsEffective { get; set; }
+            public double RowBegin { get; set; }
+            public double ColBegin { get; set; }
+            public double RowEnd { get; set; }
+            public double ColEnd { get; set; }
+            public HTuple EdgeRows { get; set; } = new HTuple();
+            public HTuple EdgeCols { get; set; } = new HTuple();
+            public int EdgePointCount { get; set; }
+            public double EdgeHitRatio { get; set; }
+            public double FitScore { get; set; }
+            public double FittedLineAngle { get; set; }
+            public double AngleDeviation { get; set; }
+            public string RejectReason { get; set; } = string.Empty;
+        }
+
+        /// <summary>
+        /// 直线存在性检测：判断 ROI 沿线是否形成满足方向与质量的线状边缘。
+        ///
+        /// 业务边界：
+        /// - 仅输出 OK/NG/NG2 判定依据，不参与尺寸测量、毫米标定与距离计算。
+        /// - 期望方向取自 LineDetectROI 线段走向；拟合方向来自 Metrology 输出。
+        /// </summary>
+        /// <param name="image">待测图像，作为 Metrology 找边输入。</param>
+        /// <param name="tool">直线检测工具配置，含 ROI、角度阈值、命中率与 Metrology 参数。</param>
+        /// <param name="hwindow">HALCON 窗口；非空且 redraw 为 true 时绘制拟合线与调试图层。</param>
+        /// <param name="redraw">是否在窗口叠加检测结果。</param>
+        /// <returns>检测与判定结果；DetectFailed 为 true 时表示 NG2。</returns>
+        public LinePresenceResult DetectLinePresence(HObject image, ToolModel tool, HWindow hwindow, bool redraw)
+        {
+            var result = new LinePresenceResult();
+            ROI roi = tool?.LineDetectROI;
+            if (roi == null)
+            {
+                roi = new ROI { Type = ROIType.Line };
+            }
+
+            if (!IsROIValid(roi))
+            {
+                result.DetectFailed = true;
+                result.FailReason = "直线检测 ROI 无效或未绘制";
+                tool.LastLineDetectFailReason = result.FailReason;
+                tool.ActualAngleDeviation = 0;
+                tool.LastEdgeHitRatio = 0;
+                tool.LastLineDetectScore = 0;
+                return result;
+            }
+
+            LinePresenceCandidate candidate = EvaluateLinePresenceCandidate(image, tool, roi);
+            ApplyLinePresenceCandidateToResult(result, tool, candidate);
+
+            if (tool.ExpectLinePresent)
+            {
+                if (!candidate.Found)
+                {
+                    result.DetectFailed = true;
+                    result.FailReason = "未找到可拟合的线状边缘";
+                    ApplyLinePresenceResultToTool(tool, result);
+                    DrawLinePresenceResultIfNeeded(redraw, hwindow, tool, roi, candidate);
+                    return result;
+                }
+
+                if (!candidate.IsEffective)
+                {
+                    result.FailReason = candidate.RejectReason;
+                    ApplyLinePresenceResultToTool(tool, result);
+                    DrawLinePresenceResultIfNeeded(redraw, hwindow, tool, roi, candidate);
+                    return result;
+                }
+
+                result.JudgementOk = true;
+                ApplyLinePresenceResultToTool(tool, result);
+                DrawLinePresenceResultIfNeeded(redraw, hwindow, tool, roi, candidate);
+                return result;
+            }
+
+            if (candidate.IsEffective)
+            {
+                result.FailReason = "检测到有效边缘直线，与“期望无线”配置冲突";
+                ApplyLinePresenceResultToTool(tool, result);
+                DrawLinePresenceResultIfNeeded(redraw, hwindow, tool, roi, candidate);
+                return result;
+            }
+
+            if (candidate.Found)
+            {
+                result.FailReason = string.IsNullOrWhiteSpace(candidate.RejectReason)
+                    ? "检测到边缘但未满足无线口径，不能判为无线OK"
+                    : candidate.RejectReason;
+                ApplyLinePresenceResultToTool(tool, result);
+                DrawLinePresenceResultIfNeeded(redraw, hwindow, tool, roi, candidate);
+                return result;
+            }
+
+            LinePresenceCandidate weakCandidate = EvaluateWeakLinePresenceCandidate(image, tool, roi);
+            if (weakCandidate.IsEffective)
+            {
+                ApplyLinePresenceCandidateToResult(result, tool, weakCandidate);
+                result.FailReason = "低阈值复检发现有效边缘直线，与“期望无线”配置冲突";
+                ApplyLinePresenceResultToTool(tool, result);
+                DrawLinePresenceResultIfNeeded(redraw, hwindow, tool, roi, weakCandidate);
+                return result;
+            }
+
+            if (weakCandidate.Found || weakCandidate.EdgePointCount > tool.LineDetectAbsentMaxEdgePoints)
+            {
+                ApplyLinePresenceCandidateToResult(result, tool, weakCandidate);
+                result.DetectFailed = true;
+                result.FailReason = string.IsNullOrWhiteSpace(weakCandidate.RejectReason)
+                    ? "低阈值复检仍可见边缘散点，搜索条件无法确认无线"
+                    : $"低阈值复检可见边缘散点：{weakCandidate.RejectReason}";
+                ApplyLinePresenceResultToTool(tool, result);
+                DrawLinePresenceResultIfNeeded(redraw, hwindow, tool, roi, weakCandidate);
+                return result;
+            }
+
+            result.JudgementOk = true;
+            result.FailReason = string.Empty;
+            ApplyLinePresenceResultToTool(tool, result);
+            DrawLinePresenceResultIfNeeded(redraw, hwindow, tool, roi, candidate);
+            return result;
+        }
+
+        /// <summary>
+        /// 按直线检测工具的判定口径评估一次 Metrology 找边结果。
+        /// 该评估同时服务有线与无线模式，使“有效直线”的定义在两种业务口径下保持一致。
+        /// </summary>
+        /// <param name="image">当前待测图像，作为 Metrology 找边输入。</param>
+        /// <param name="tool">直线检测工具配置，提供 ROI 之外的 Metrology 参数和判定阈值。</param>
+        /// <param name="roi">直线检测 ROI；坐标单位为像素。</param>
+        /// <returns>包含找边、角度、命中率和有效性判断的候选结果。</returns>
+        private LinePresenceCandidate EvaluateLinePresenceCandidate(HObject image, ToolModel tool, ROI roi)
+        {
+            var candidate = new LinePresenceCandidate();
+
+            double rowBegin, colBegin, rowEnd, colEnd;
+            HTuple edgeRows, edgeCols;
+            double fitScore;
+            candidate.Found = DetectEdgeWithMetrology(
+                image, tool, roi,
+                out rowBegin, out colBegin, out rowEnd, out colEnd,
+                out edgeRows, out edgeCols, out fitScore);
+
+            candidate.RowBegin = rowBegin;
+            candidate.ColBegin = colBegin;
+            candidate.RowEnd = rowEnd;
+            candidate.ColEnd = colEnd;
+            candidate.EdgeRows = edgeRows ?? new HTuple();
+            candidate.EdgeCols = edgeCols ?? new HTuple();
+            candidate.EdgePointCount = candidate.EdgeRows.Length;
+            candidate.FitScore = fitScore;
+            candidate.EdgeHitRatio = CalculateLineDetectEdgeHitRatio(candidate.EdgePointCount, tool.MetrologyNumMeasures);
+
+            if (!candidate.Found)
+            {
+                candidate.RejectReason = "未形成可拟合直线";
+                return candidate;
+            }
+
+            candidate.FittedLineAngle = Math.Atan2(rowEnd - rowBegin, colEnd - colBegin) * 180.0 / Math.PI;
+            candidate.AngleDeviation = CalculateUndirectedLineAngleDeviationDegrees(
+                roi.Row1, roi.Col1, roi.Row2, roi.Col2,
+                rowBegin, colBegin, rowEnd, colEnd);
+
+            if (candidate.FitScore < tool.MetrologyMinScore)
+            {
+                candidate.RejectReason = $"拟合分数不足({candidate.FitScore:F2} < {tool.MetrologyMinScore:F2})";
+                return candidate;
+            }
+
+            if (candidate.EdgeHitRatio < tool.LineDetectMinEdgeHitRatio)
+            {
+                candidate.RejectReason = $"边缘命中率不足({candidate.EdgeHitRatio:P0} < {tool.LineDetectMinEdgeHitRatio:P0})";
+                return candidate;
+            }
+
+            if (candidate.AngleDeviation > tool.LineDetectAllowAngleDelta)
+            {
+                candidate.RejectReason = $"角度偏差超限({candidate.AngleDeviation:F2}° > {tool.LineDetectAllowAngleDelta:F2}°)";
+                return candidate;
+            }
+
+            candidate.IsEffective = true;
+            return candidate;
+        }
+
+        /// <summary>
+        /// 无线判定前使用较低阈值复检 ROI，识别原阈值可能漏掉的弱边缘。
+        /// 复检只改变本次临时计算参数，完成后恢复工具配置，工程 XML 与界面参数保持原值。
+        /// </summary>
+        /// <param name="image">当前待测图像。</param>
+        /// <param name="tool">直线检测工具配置；方法内部会临时降低边缘阈值与最小分数。</param>
+        /// <param name="roi">直线检测 ROI；坐标单位为像素。</param>
+        /// <returns>低阈值复检得到的候选结果。</returns>
+        private LinePresenceCandidate EvaluateWeakLinePresenceCandidate(HObject image, ToolModel tool, ROI roi)
+        {
+            int savedThreshold = tool.MetrologyMeasureThreshold;
+            double savedMinScore = tool.MetrologyMinScore;
+            try
+            {
+                tool.MetrologyMeasureThreshold = Math.Max(1, savedThreshold / 2);
+                tool.MetrologyMinScore = Math.Min(savedMinScore, 0.15);
+                return EvaluateLinePresenceCandidate(image, tool, roi);
+            }
+            finally
+            {
+                tool.MetrologyMeasureThreshold = savedThreshold;
+                tool.MetrologyMinScore = savedMinScore;
+            }
+        }
+
+        /// <summary>
+        /// 将边缘点数量换算为直线检测使用的命中率显示值。
+        /// 该值用于现场调参和日志追溯；正式有效性仍由拟合分数、命中率与角度共同决定。
+        /// </summary>
+        /// <param name="edgePointCount">Metrology 返回的边缘点数量。</param>
+        /// <param name="numMeasures">工具配置的卡尺数量。</param>
+        /// <returns>0~1 的命中率估计值。</returns>
+        private double CalculateLineDetectEdgeHitRatio(int edgePointCount, int numMeasures)
+        {
+            int safeNumMeasures = Math.Max(1, numMeasures);
+            return Math.Min(1.0, (double)Math.Min(edgePointCount, safeNumMeasures) / safeNumMeasures);
+        }
+
+        /// <summary>
+        /// 将候选线指标写入直线检测结果对象，供运行分支和配置测试提示使用。
+        /// </summary>
+        /// <param name="result">本次检测的业务结果。</param>
+        /// <param name="tool">当前工具配置；用于保持调用口径一致。</param>
+        /// <param name="candidate">Metrology 找边候选结果。</param>
+        private void ApplyLinePresenceCandidateToResult(LinePresenceResult result, ToolModel tool, LinePresenceCandidate candidate)
+        {
+            result.AngleDeviation = candidate.AngleDeviation;
+            result.FittedLineAngle = candidate.FittedLineAngle;
+            result.EdgeHitRatio = candidate.EdgeHitRatio;
+            result.FitScore = candidate.FitScore;
+        }
+
+        /// <summary>
+        /// 将直线检测结果写回工具运行态字段，刷新主界面显示并保存最近失败原因。
+        /// 运行态字段不写入工程 XML，只服务当次 AOI 结果展示和日志追溯。
+        /// </summary>
+        /// <param name="tool">当前工具实例。</param>
+        /// <param name="result">本次直线检测业务结果。</param>
+        private void ApplyLinePresenceResultToTool(ToolModel tool, LinePresenceResult result)
+        {
+            tool.ActualLineAngle = result.FittedLineAngle;
+            tool.ActualAngleDeviation = result.AngleDeviation;
+            tool.LastEdgeHitRatio = result.EdgeHitRatio;
+            tool.LastLineDetectScore = result.FitScore;
+            tool.LastLineDetectFailReason = result.JudgementOk ? string.Empty : result.FailReason;
+        }
+
+        /// <summary>
+        /// 按当前候选结果绘制直线检测预览图层。
+        /// 找到拟合线时绘制拟合线；仅完成无线确认或搜索失败时只绘制 ROI 与卡尺框，避免操作者误读为检测到有效线。
+        /// </summary>
+        /// <param name="redraw">true 表示调用方需要刷新 HALCON 预览。</param>
+        /// <param name="hwindow">接收图层的 HALCON 窗口。</param>
+        /// <param name="tool">当前工具配置，提供调试显示开关。</param>
+        /// <param name="roi">直线检测 ROI。</param>
+        /// <param name="candidate">本次候选线结果。</param>
+        private void DrawLinePresenceResultIfNeeded(bool redraw, HWindow hwindow, ToolModel tool, ROI roi, LinePresenceCandidate candidate)
+        {
+            if (!redraw || hwindow == null)
+            {
+                return;
+            }
+
+            DrawLinePresenceOverlay(
+                hwindow,
+                tool,
+                roi,
+                candidate.Found ? candidate.RowBegin : roi.Row1,
+                candidate.Found ? candidate.ColBegin : roi.Col1,
+                candidate.Found ? candidate.RowEnd : roi.Row2,
+                candidate.Found ? candidate.ColEnd : roi.Col2,
+                candidate.EdgeRows,
+                candidate.EdgeCols,
+                candidate.Found);
+        }
+
+        /// <summary>
+        /// 计算两条线段方向的无方向夹角偏差；0° 与 180° 等价，单位为度。
+        /// </summary>
+        private static double CalculateUndirectedLineAngleDeviationDegrees(
+            double roiRow1, double roiCol1, double roiRow2, double roiCol2,
+            double fitRow1, double fitCol1, double fitRow2, double fitCol2)
+        {
+            double dir1Row = roiRow2 - roiRow1;
+            double dir1Col = roiCol2 - roiCol1;
+            double dir2Row = fitRow2 - fitRow1;
+            double dir2Col = fitCol2 - fitCol1;
+            double len1 = Math.Sqrt(dir1Row * dir1Row + dir1Col * dir1Col);
+            double len2 = Math.Sqrt(dir2Row * dir2Row + dir2Col * dir2Col);
+            if (len1 < GeometryEpsilon || len2 < GeometryEpsilon)
+            {
+                return 180.0;
+            }
+
+            dir1Row /= len1;
+            dir1Col /= len1;
+            dir2Row /= len2;
+            dir2Col /= len2;
+            double cosAngle = Math.Abs(dir1Row * dir2Row + dir1Col * dir2Col);
+            cosAngle = Math.Max(0, Math.Min(1, cosAngle));
+            return Math.Acos(cosAngle) * 180.0 / Math.PI;
+        }
+
+        /// <summary>
+        /// 在 HALCON 窗口绘制直线检测的 ROI、拟合线与边缘点，供配置测试与运行追溯。
+        /// </summary>
+        private void DrawLinePresenceOverlay(
+            HWindow hwindow, ToolModel tool, ROI roi,
+            double lineRowBegin, double lineColBegin, double lineRowEnd, double lineColEnd,
+            HTuple edgeRows, HTuple edgeCols,
+            bool drawFittedLine = true)
+        {
+            hwindow.SetLineWidth(2);
+            hwindow.SetColor("green");
+            hwindow.SetLineStyle(new HTuple(new int[] { 10, 5 }));
+            hwindow.DispLine((double)roi.Row1, (double)roi.Col1, (double)roi.Row2, (double)roi.Col2);
+            hwindow.SetLineStyle(new HTuple());
+
+            if (drawFittedLine)
+            {
+                hwindow.SetColor("cyan");
+                hwindow.DispLine(lineRowBegin, lineColBegin, lineRowEnd, lineColEnd);
+            }
+
+            if (tool.ShowMetrologyDebugInfo)
+            {
+                if (edgeRows != null && edgeCols != null)
+                {
+                    hwindow.SetColor("spring green");
+                    hwindow.SetLineWidth(1);
+                    for (int i = 0; i < edgeRows.Length; i++)
+                    {
+                        hwindow.DispCross(edgeRows[i].D, edgeCols[i].D, 6, 0);
+                    }
+                }
+
+                DrawMetrologyCaliperFramesOnRoi(hwindow, tool, roi);
+            }
+        }
+
+        /// <summary>
+        /// 沿 ROI 线段绘制 Metrology 卡尺框，供直线检测与尺寸测量预览共用。
+        /// </summary>
+        private void DrawMetrologyCaliperFramesOnRoi(HWindow hwindow, ToolModel tool, ROI roi)
+        {
+            int numMeasures = Math.Max(0, tool.MetrologyNumMeasures);
+            if (numMeasures <= 0)
+            {
+                return;
+            }
+
+            double roiRowBegin = roi.Row1;
+            double roiColBegin = roi.Col1;
+            double roiRowEnd = roi.Row2;
+            double roiColEnd = roi.Col2;
+            double dirRow = roiRowEnd - roiRowBegin;
+            double dirCol = roiColEnd - roiColBegin;
+            double lineLength = Math.Sqrt(dirRow * dirRow + dirCol * dirCol);
+            if (lineLength <= 1e-6)
+            {
+                return;
+            }
+
+            dirRow /= lineLength;
+            dirCol /= lineLength;
+            double perpRow = -dirCol;
+            double perpCol = dirRow;
+            double halfLen1 = tool.MetrologyMeasureLength1;
+            double halfLen2 = tool.MetrologyMeasureLength2;
+
+            hwindow.SetColor("orange");
+            hwindow.SetLineWidth(1);
+            hwindow.SetDraw("margin");
+
+            for (int i = 0; i < numMeasures; i++)
+            {
+                double t = (numMeasures == 1) ? 0.5 : (double)i / (numMeasures - 1);
+                double centerRow = roiRowBegin + t * (roiRowEnd - roiRowBegin);
+                double centerCol = roiColBegin + t * (roiColEnd - roiColBegin);
+
+                double row1 = centerRow - halfLen1 * perpRow - halfLen2 * dirRow;
+                double col1 = centerCol - halfLen1 * perpCol - halfLen2 * dirCol;
+                double row2 = centerRow + halfLen1 * perpRow - halfLen2 * dirRow;
+                double col2 = centerCol + halfLen1 * perpCol - halfLen2 * dirCol;
+                double row3 = centerRow + halfLen1 * perpRow + halfLen2 * dirRow;
+                double col3 = centerCol + halfLen1 * perpCol + halfLen2 * dirCol;
+                double row4 = centerRow - halfLen1 * perpRow + halfLen2 * dirRow;
+                double col4 = centerCol - halfLen1 * perpCol + halfLen2 * dirCol;
+
+                hwindow.DispLine(row1, col1, row2, col2);
+                hwindow.DispLine(row2, col2, row3, col3);
+                hwindow.DispLine(row3, col3, row4, col4);
+                hwindow.DispLine(row4, col4, row1, col1);
+            }
+        }
+
+        #endregion
+
         #region 边缘预览
 
         /// <summary>
@@ -3118,6 +3647,16 @@ namespace BusbarCompressionSystem.ViewModel
                 if (!IsROIValid(roi))
                 {
                     return false; // ROI无效，跳过预览
+                }
+
+                if (tool.TestMode == TestModes.直线检测)
+                {
+                    if (roi.Type == ROIType.Line)
+                    {
+                        return PreviewEdgesWithMetrology(image, tool, roi, hwindow, color);
+                    }
+
+                    return false;
                 }
 
                 // 判断测量类型，选择合适的预览方法
@@ -3268,7 +3807,7 @@ namespace BusbarCompressionSystem.ViewModel
                 HTuple edgeRows, edgeCols;
                 if (!DetectEdgeWithMetrology(image, tool, roi,
                     out lineRowBegin, out lineColBegin, out lineRowEnd, out lineColEnd,
-                    out edgeRows, out edgeCols))
+                    out edgeRows, out edgeCols, out _))
                 {
                     return false;
                 }

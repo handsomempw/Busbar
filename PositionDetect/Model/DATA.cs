@@ -30,7 +30,7 @@ namespace PositionDetect
         }
         public string ROIModeStr
         {
-            get { return _ROImode ? "停止选择特征" : "开始选择特征"; }
+            get { return _ROImode ? "停止圈选模板特征" : "1 开始圈选模板特征"; }
         }
 
 
