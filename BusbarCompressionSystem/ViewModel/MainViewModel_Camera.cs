@@ -678,6 +678,8 @@ namespace BusbarCompressionSystem.ViewModel
 
                                 try
                                 {
+                                    ClearDimensionRemeasureTrace(tool);
+
                                     // AOI 流程在接收图像时已经清空窗口并显示当前图像；
                                     // 尺寸测量这里只叠加完整测量层，避免找边预览覆盖测距结果。
                                     double measureValue = MeasureDimension(Image, tool, hwindow, true);
@@ -703,6 +705,11 @@ namespace BusbarCompressionSystem.ViewModel
                                     tool.ActualMeasureValue = -1;
                                     tool.LastMeasurePixelValue = -1;
                                     writeLog($"尺寸测量失败: {ex.Message}", false);
+
+                                    if (IsDimensionEdgeDetectFailure(ex))
+                                    {
+                                        TryRemeasureDimensionFromSavedNgImage(Image, tool, hwindow, ex);
+                                    }
                                 }
 
                                 GC.Collect();
@@ -1034,6 +1041,152 @@ namespace BusbarCompressionSystem.ViewModel
             catch (Exception ex) {; }
 
         }
+
+        /// <summary>
+        /// 判断尺寸测量失败是否属于 Metrology 找边失败。
+        /// 该判断只用于 AOI 在线图失败后的落盘图复测，校准缺失、ROI 无效和尺寸超限保持原判定路径。
+        /// </summary>
+        /// <param name="ex">尺寸测量流程抛出的异常，通常包含 MeasureDimension 包装后的业务提示。</param>
+        /// <returns>true 表示失败原因来自测量对象边缘检测，可进入落盘图复测；false 表示保持原失败结果。</returns>
+        private bool IsDimensionEdgeDetectFailure(Exception ex)
+        {
+            string message = ex?.ToString() ?? string.Empty;
+            return message.Contains("边缘检测失败");
+        }
+
+        /// <summary>
+        /// 清理尺寸测量复测的运行态诊断字段。
+        /// AOI 每个工具进入尺寸测量前调用，保证日志只描述当前拍照周期的在线图和落盘图结果。
+        /// </summary>
+        /// <param name="tool">当前 AOI 尺寸测量工具；为空时直接返回。</param>
+        private void ClearDimensionRemeasureTrace(ToolModel tool)
+        {
+            if (tool == null)
+            {
+                return;
+            }
+
+            tool.DimensionRemeasureAttempted = false;
+            tool.DimensionRemeasureSucceeded = false;
+            tool.DimensionRemeasureImagePath = null;
+            tool.DimensionRemeasureOriginalError = string.Empty;
+            tool.DimensionRemeasureError = string.Empty;
+            tool.DimensionRemeasureMeasureValue = -1;
+            tool.DimensionRemeasurePixelValue = -1;
+            tool.DimensionRemeasureMessage = string.Empty;
+        }
+
+        /// <summary>
+        /// 在线相机内存图尺寸测量找边失败后，保存 NG 图片并读取该图片复测一次。
+        /// 复测使用同一个工具参数和尺寸上下限；复测成功时最终状态按复测尺寸判定，复测失败时保持 NG2。
+        /// 诊断字段记录首次失败原因、复测图片、复测测量值和复测失败原因，供现场对齐“在线图”和“落盘图”差异。
+        /// </summary>
+        /// <param name="sourceImage">相机回调得到的在线 HALCON 图像，作为复测 NG 图片的保存来源。</param>
+        /// <param name="tool">当前尺寸测量工具，包含 ROI、校准系数、Metrology 参数和尺寸上下限。</param>
+        /// <param name="hwindow">AOI 显示窗口；复测只计算尺寸，传入窗口用于保持 MeasureDimension 调用签名一致。</param>
+        /// <param name="originalException">在线图首次尺寸测量失败原因，写入诊断日志用于追溯。</param>
+        private void TryRemeasureDimensionFromSavedNgImage(HObject sourceImage, ToolModel tool, HWindow hwindow, Exception originalException)
+        {
+            if (sourceImage == null || tool == null)
+            {
+                return;
+            }
+
+            tool.DimensionRemeasureAttempted = true;
+            tool.DimensionRemeasureSucceeded = false;
+            tool.DimensionRemeasureOriginalError = originalException?.Message ?? string.Empty;
+            tool.DimensionRemeasureError = string.Empty;
+            tool.DimensionRemeasureMeasureValue = -1;
+            tool.DimensionRemeasurePixelValue = -1;
+            tool.DimensionRemeasureMessage = "在线图找边失败，准备保存NG图复测";
+
+            string remeasureImagePath = string.Empty;
+            HObject remeasureImage = null;
+
+            try
+            {
+                remeasureImagePath = BuildDimensionRemeasureImagePath(tool);
+                string dir = Path.GetDirectoryName(remeasureImagePath);
+                if (!Directory.Exists(dir))
+                {
+                    Directory.CreateDirectory(dir);
+                }
+
+                HOperatorSet.WriteImage(sourceImage, "jpg", 0, remeasureImagePath);
+                tool.DimensionRemeasureImagePath = remeasureImagePath;
+
+                HOperatorSet.ReadImage(out remeasureImage, remeasureImagePath);
+                double remeasureValue = MeasureDimension(remeasureImage, tool, hwindow, false);
+                if (remeasureValue < 0)
+                {
+                    throw new Exception("落盘图复测返回失败值-1");
+                }
+
+                tool.DimensionRemeasureSucceeded = true;
+                tool.DimensionRemeasureMeasureValue = remeasureValue;
+                tool.DimensionRemeasurePixelValue = tool.LastMeasurePixelValue;
+                tool.ActualMeasureValue = remeasureValue;
+
+                if (remeasureValue >= tool.MinMeasureValue && remeasureValue <= tool.MaxMeasureValue)
+                {
+                    tool.ToolStatus = ToolStatus.OK;
+                }
+                else
+                {
+                    tool.ToolStatus = ToolStatus.NG;
+                }
+
+                tool.DimensionRemeasureMessage = "在线图找边失败，落盘图复测成功，最终按复测尺寸判定";
+                writeLog($"尺寸测量复测成功[{tool.Name}]: 在线图找边失败，落盘图={Path.GetFileName(remeasureImagePath)}，复测值={remeasureValue:F3}mm，最终状态={tool.ToolStatus}", false);
+            }
+            catch (Exception retryEx)
+            {
+                tool.ToolStatus = ToolStatus.NG2;
+                tool.ActualMeasureValue = -1;
+                tool.LastMeasurePixelValue = -1;
+                tool.DimensionRemeasureSucceeded = false;
+                tool.DimensionRemeasureMeasureValue = -1;
+                tool.DimensionRemeasurePixelValue = -1;
+                tool.DimensionRemeasureError = retryEx.Message;
+                tool.DimensionRemeasureMessage = "在线图找边失败，落盘图复测失败，工具结果保持NG2";
+                writeLog($"尺寸测量复测失败[{tool.Name}]: 在线图找边失败，落盘图={Path.GetFileName(remeasureImagePath)}，原因={retryEx.Message}", false);
+            }
+            finally
+            {
+                remeasureImage?.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// 生成尺寸测量找边失败后的落盘复测图片路径。
+        /// 图片放入 AOI 当天 NG 目录，文件名带 Remeasure 标记，便于和最终 OK/NG/NG2 图片区分。
+        /// </summary>
+        /// <param name="tool">当前尺寸测量工具，提供产品位置、工具序号和工具名。</param>
+        /// <returns>用于写入和读回复测的 JPG 图片完整路径。</returns>
+        private string BuildDimensionRemeasureImagePath(ToolModel tool)
+        {
+            string imageSaveDir = DataModel.FaraVisionDataModel.Settingmodel.ImageSaveSetting.ImageSaveDir;
+            if (string.IsNullOrWhiteSpace(imageSaveDir))
+            {
+                imageSaveDir = Environment.CurrentDirectory;
+            }
+
+            string sn = DataModel.FaraVisionDataModel.Processmodel.BarcodeStr ?? "UNKNOWN";
+            try
+            {
+                sn = DataModel.FaraVisionDataModel.Processmodel.SNList[tool.ProductPositionNO];
+            }
+            catch
+            {
+                if (string.IsNullOrWhiteSpace(sn))
+                {
+                    sn = "UNKNOWN";
+                }
+            }
+
+            return $"{imageSaveDir}\\外观检测\\{DateTime.Now:yyyyMMdd}\\NG\\{sn}-{tool.Index:00}-{tool.Name}-NG2-Remeasure-{DateTime.Now:yyyyMMddHHmmssFFF}.jpg";
+        }
+
         public void ClearTools()
         {
             for (int i = 0; i < DataModel.FaraVisionDataModel.Processmodel.Tools.Count; i++)
@@ -1056,6 +1209,7 @@ namespace BusbarCompressionSystem.ViewModel
             tool.ActualMeasureValue = 0;
             tool.LastResultImagePath = null;
             tool.LastMeasurePixelValue = -1;
+            ClearDimensionRemeasureTrace(tool);
             tool.ActualLineAngle = 0;
             tool.ActualAngleDeviation = 0;
             tool.LastEdgeHitRatio = 0;

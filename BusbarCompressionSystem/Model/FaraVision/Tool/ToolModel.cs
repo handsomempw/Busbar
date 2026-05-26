@@ -290,6 +290,62 @@ namespace BusbarCompressionSystem.Model.FaraVision.Tool
         public double LastMeasurePixelValue { set; get; } = -1;
 
         /// <summary>
+        /// 运行态：尺寸测量在线图找边失败后，是否已经执行落盘图复测。
+        /// 工程 XML 省略该字段；用于把同一周期内的在线测量、复测图片和最终判定串起来排查。
+        /// </summary>
+        [XmlIgnore]
+        public bool DimensionRemeasureAttempted { set; get; } = false;
+
+        /// <summary>
+        /// 运行态：尺寸测量落盘图复测是否成功得到测量值。
+        /// 成功后最终状态仍按尺寸上下限判定；失败时工具保持测量失败状态。
+        /// </summary>
+        [XmlIgnore]
+        public bool DimensionRemeasureSucceeded { set; get; } = false;
+
+        /// <summary>
+        /// 运行态：触发复测时保存的 NG 图片路径。
+        /// 诊断日志使用该路径定位复测输入图，和最终结果图路径分开记录。
+        /// </summary>
+        [XmlIgnore]
+        public string DimensionRemeasureImagePath { set; get; } = null;
+
+        /// <summary>
+        /// 运行态：在线相机内存图首次尺寸测量失败原因。
+        /// 诊断日志使用该信息区分在线图找边失败和落盘图复测结果。
+        /// </summary>
+        [XmlIgnore]
+        public string DimensionRemeasureOriginalError { set; get; } = string.Empty;
+
+        /// <summary>
+        /// 运行态：落盘图复测失败原因。
+        /// 复测成功时为空；复测失败时用于判断图片保存、读取或找边环节。
+        /// </summary>
+        [XmlIgnore]
+        public string DimensionRemeasureError { set; get; } = string.Empty;
+
+        /// <summary>
+        /// 运行态：落盘图复测得到的毫米值。
+        /// 复测成功时写入测量值，复测失败时约定为 -1。
+        /// </summary>
+        [XmlIgnore]
+        public double DimensionRemeasureMeasureValue { set; get; } = -1;
+
+        /// <summary>
+        /// 运行态：落盘图复测得到的原始像素距离，单位 px。
+        /// 复测成功时写入像素值，复测失败时约定为 -1。
+        /// </summary>
+        [XmlIgnore]
+        public double DimensionRemeasurePixelValue { set; get; } = -1;
+
+        /// <summary>
+        /// 运行态：尺寸测量复测诊断说明。
+        /// 日志使用短句描述“在线图失败、落盘图复测成功/失败”及最终判定来源。
+        /// </summary>
+        [XmlIgnore]
+        public string DimensionRemeasureMessage { set; get; } = string.Empty;
+
+        /// <summary>
         /// 最小允许值（单位：mm）
         /// </summary>
         [XmlElement("最小测量值mm")]

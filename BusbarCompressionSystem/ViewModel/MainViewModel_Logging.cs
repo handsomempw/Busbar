@@ -140,6 +140,12 @@ namespace BusbarCompressionSystem.ViewModel
 
             double calibratedUmPerPixel = tool?.DimensionK ?? 0;
             double measuredPixel = tool?.LastMeasurePixelValue ?? -1;
+            string remeasureImageName = string.IsNullOrWhiteSpace(tool?.DimensionRemeasureImagePath)
+                ? string.Empty
+                : Path.GetFileName(tool.DimensionRemeasureImagePath);
+            string remeasureMessage = SanitizeMeasurementLogText(tool?.DimensionRemeasureMessage);
+            string remeasureOriginalError = SanitizeMeasurementLogText(tool?.DimensionRemeasureOriginalError);
+            string remeasureError = SanitizeMeasurementLogText(tool?.DimensionRemeasureError);
 
             int threshold = tool?.MetrologyMeasureThreshold ?? 0;
             string select = tool?.MetrologyMeasureSelect ?? string.Empty;
@@ -163,7 +169,35 @@ namespace BusbarCompressionSystem.ViewModel
                 $"卡尺数量={numMeasures}|" +
                 $"最小得分={minScore:F2}|" +
                 $"ROI1={FormatRoiForLog(tool?.MeasureObject1ROI)}|" +
-                $"ROI2={FormatRoiForLog(tool?.MeasureObject2ROI)}";
+                $"ROI2={FormatRoiForLog(tool?.MeasureObject2ROI)}|" +
+                $"复测触发={(tool?.DimensionRemeasureAttempted == true ? "是" : "否")}|" +
+                $"复测成功={(tool?.DimensionRemeasureSucceeded == true ? "是" : "否")}|" +
+                $"复测说明={remeasureMessage}|" +
+                $"复测图片={remeasureImageName}|" +
+                $"复测值(mm)={(tool?.DimensionRemeasureMeasureValue ?? -1):F3}|" +
+                $"复测像素(px)={(tool?.DimensionRemeasurePixelValue ?? -1):F2}|" +
+                $"首次失败={remeasureOriginalError}|" +
+                $"复测失败={remeasureError}";
+        }
+
+        /// <summary>
+        /// 规整尺寸测量诊断日志中的自由文本。
+        /// 现场日志使用竖线分隔字段；异常文本写入前替换分隔符和换行，保证后续按列查看时不会错位。
+        /// </summary>
+        /// <param name="value">来自测量异常或复测诊断的文本。</param>
+        /// <returns>可安全写入单行诊断日志的文本。</returns>
+        private string SanitizeMeasurementLogText(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return string.Empty;
+            }
+
+            return value
+                .Replace("|", "/")
+                .Replace("\r", " ")
+                .Replace("\n", " ")
+                .Trim();
         }
 
         private void AppendDailyLogLine(string subDirName, DateTime measureTime, string line, string errorPrefix)
