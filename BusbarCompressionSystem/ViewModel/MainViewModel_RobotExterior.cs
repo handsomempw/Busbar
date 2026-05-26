@@ -183,6 +183,31 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
+        /// 压接压力判定 NG3 时写入数据库追踪日志。
+        /// 落盘时机与 UpdatePressure 同源，避免 Check 层重复传入工艺阈值。
+        /// </summary>
+        /// <param name="stageTag">流程阶段标识，如 CHECK1、点检CHECK1。</param>
+        /// <param name="maxPressure">PLC 读取的最大压力。</param>
+        /// <param name="minPressure">PLC 读取的最小压力。</param>
+        /// <param name="averagePressure">PLC 读取的平均压力。</param>
+        /// <param name="pressureResult">当前判定的压力合格标志。</param>
+        /// <param name="sn">产品 SN。</param>
+        /// <param name="wocode">批次号。</param>
+        private void TracePressureNg3IfFailed(string stageTag, UInt16 maxPressure, UInt16 minPressure, UInt16 averagePressure, bool pressureResult, string sn, string wocode)
+        {
+            if (pressureResult)
+            {
+                return;
+            }
+
+            sqlite.WritePressureThresholdNg3Trace(stageTag,
+                maxPressure, minPressure, averagePressure,
+                DataModel.Processmodel.PressureParamter.Max_Pressure,
+                DataModel.Processmodel.PressureParamter.Min_Pressure,
+                sn, wocode);
+        }
+
+        /// <summary>
         /// 机器人TCP服务端消息接收处理方法
         /// 业务流程：机器人作为客户端连接本视觉系统，通过指令驱动各工位的检测流程
         /// 
@@ -361,6 +386,10 @@ namespace BusbarCompressionSystem.ViewModel
                             DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN,
                            AveragePressure, MaxPressure, MinPressure, PressureResult);
                         updatepressure(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, AveragePressure, MaxPressure, MinPressure, PressureResult);
+                        TracePressureNg3IfFailed("点检CHECK1",
+                            MaxPressure, MinPressure, AveragePressure, PressureResult,
+                            DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN,
+                            DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE);
 
                         #endregion
 
@@ -463,6 +492,10 @@ namespace BusbarCompressionSystem.ViewModel
                                 DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN,
                                AveragePressure, MaxPressure, MinPressure, PressureResult);
                             updatepressure(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, AveragePressure, MaxPressure, MinPressure, PressureResult);
+                            TracePressureNg3IfFailed("CHECK1",
+                                MaxPressure, MinPressure, AveragePressure, PressureResult,
+                                DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN,
+                                DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE);
                         }
 
                         #endregion
