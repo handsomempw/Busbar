@@ -65,6 +65,11 @@ namespace BusbarCompressionSystem.ViewModel
         /// 尺寸测量日志写入锁
         /// </summary>
         private static readonly object _measurementLogLock = new object();
+
+        /// <summary>
+        /// 模板匹配追溯日志写入锁
+        /// </summary>
+        private static readonly object _templateMatchLogLock = new object();
         #endregion
 
         /// <summary>

@@ -18,51 +18,146 @@ namespace PositionDetect
         public BasicData BasicData = new BasicData();
         public HWindow HWindow = null;
 
+        /// <summary>
+        /// 形状模型是否已成功加载，供 AOI 与示教流程在调用 HALCON 匹配前做门禁。
+        /// 仅反映最近一次 <see cref="init"/> 的结果，不参与工程 XML 持久化。
+        /// </summary>
+        public bool ModelLoaded { get; private set; }
+
+        /// <summary>
+        /// 从磁盘读取形状模型（.shm），供模板匹配算子使用。
+        /// 重复加载时会先释放旧模型句柄，避免编辑/切换工程后句柄残留。
+        /// </summary>
+        /// <param name="filename">形状模型完整路径；由工程目录与工具序号拼出。</param>
+        /// <returns>加载成功返回 true；文件无效或 HALCON 读失败返回 false，此时 <see cref="ModelLoaded"/> 为 false。</returns>
         public bool init(string filename)
         {
             try
             {
+                ClearModel();
                 HOperatorSet.ReadShapeModel(filename, out modelID);
-                return true;
+                ModelLoaded = modelID != null && modelID.Length > 0;
+                return ModelLoaded;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
+                ClearModel();
                 return false;
             }
         }
 
-        public Result Match(HObject image, int num, int row1, int row2, int col1, int col2,int MinAngle=-20,int MaxAngle=20, bool redraw = true)
+        /// <summary>
+        /// 释放当前形状模型句柄并重置加载状态。
+        /// </summary>
+        private void ClearModel()
         {
+            if (modelID != null && modelID.Length > 0)
+            {
+                try
+                {
+                    HOperatorSet.ClearShapeModel(modelID);
+                }
+                catch (Exception)
+                {
+                }
+            }
 
+            modelID = null;
+            ModelLoaded = false;
+        }
 
-            HObject ho_ROI_0;
-            HObject ho_ImageReduced;
-            HOperatorSet.GenEmptyObj(out ho_ImageReduced);
-            HOperatorSet.GenEmptyObj(out ho_ROI_0);
+        /// <summary>
+        /// 校验模板匹配 ROI 是否可用于 HALCON 矩形生成。
+        /// 参数顺序与历史调用约定一致：row1=Row1，row2=Col1，col1=Row2，col2=Col2。
+        /// </summary>
+        /// <param name="row1">ROI 起始行（px），对应工程 PositionROI.Row1。</param>
+        /// <param name="row2">ROI 起始列（px），对应工程 PositionROI.Col1。</param>
+        /// <param name="col1">ROI 结束行（px），对应工程 PositionROI.Row2。</param>
+        /// <param name="col2">ROI 结束列（px），对应工程 PositionROI.Col2。</param>
+        /// <param name="imageHeight">当前图像高度（px）。</param>
+        /// <param name="imageWidth">当前图像宽度（px）。</param>
+        /// <param name="errorInfo">校验失败时的可读原因，供追溯日志与上层 NG2 说明。</param>
+        /// <returns>ROI 合法返回 true；非法返回 false，此时不应调用 FindShapeModel。</returns>
+        private static bool TryValidateMatchRoi(int row1, int row2, int col1, int col2, int imageHeight, int imageWidth, out string errorInfo)
+        {
+            if (imageHeight <= 0 || imageWidth <= 0)
+            {
+                errorInfo = "图像尺寸无效";
+                return false;
+            }
 
-            HObject ho_ModelContours, ho_ContoursAffinTrans;
-            HOperatorSet.GenEmptyObj(out ho_ModelContours);
-            HOperatorSet.GenEmptyObj(out ho_ContoursAffinTrans);
+            if (row1 > col1 || row2 > col2)
+            {
+                errorInfo = "ROI 起止坐标颠倒";
+                return false;
+            }
+
+            if (row1 < 0 || row2 < 0 || col1 >= imageHeight || col2 >= imageWidth)
+            {
+                errorInfo = "ROI 超出图像范围";
+                return false;
+            }
+
+            if (row1 == col1 || row2 == col2)
+            {
+                errorInfo = "ROI 面积为 0";
+                return false;
+            }
+
+            errorInfo = null;
+            return true;
+        }
+
+        /// <summary>
+        /// 在指定 ROI 内执行形状模板匹配，可选将轮廓与 ROI 绘制到 HALCON 窗口。
+        /// </summary>
+        /// <param name="image">待匹配图像；单位 px。</param>
+        /// <param name="num">最多返回的匹配实例数量。</param>
+        /// <param name="row1">搜索 ROI 起始行（px），历史约定对应 PositionROI.Row1。</param>
+        /// <param name="row2">搜索 ROI 起始列（px），历史约定对应 PositionROI.Col1。</param>
+        /// <param name="col1">搜索 ROI 结束行（px），历史约定对应 PositionROI.Row2。</param>
+        /// <param name="col2">搜索 ROI 结束列（px），历史约定对应 PositionROI.Col2。</param>
+        /// <param name="MinAngle">允许的最小旋转角（deg）。</param>
+        /// <param name="MaxAngle">允许的最大旋转角（deg）。</param>
+        /// <param name="redraw">true 时在 HWindow 绘制底图、轮廓与 ROI；false 时仅计算，供 AOI 在线检测使用。</param>
+        /// <returns>匹配结果；<see cref="Result.IsSuccess"/> 为 false 时表示模型未加载、ROI 非法或 HALCON 异常。</returns>
+        public Result Match(HObject image, int num, int row1, int row2, int col1, int col2, int MinAngle = -20, int MaxAngle = 20, bool redraw = true)
+        {
+            HObject ho_ROI_0 = null;
+            HObject ho_ImageReduced = null;
+            HObject ho_ModelContours = null;
+            HObject ho_ContoursAffinTrans = null;
 
             try
             {
-                //HWindow.HalconWindow.ClearWindow();
-            
-
                 HTuple width, height;
                 HOperatorSet.GetImageSize(image, out width, out height);
-                //HWindow.HalconWindow.SetPart(0, 0, (int)height - 1, (int)width - 1);
-                
-                if (redraw)
+
+                if (!TryValidateMatchRoi(row1, row2, col1, col2, (int)height.I, (int)width.I, out string roiError))
+                {
+                    return new Result() { IsSuccess = false, ErrorInfo = roiError };
+                }
+
+                if (!ModelLoaded || modelID == null || modelID.Length == 0)
+                {
+                    return new Result() { IsSuccess = false, ErrorInfo = "形状模型未加载" };
+                }
+
+                HOperatorSet.GenEmptyObj(out ho_ROI_0);
+                HOperatorSet.GenEmptyObj(out ho_ImageReduced);
+                HOperatorSet.GenEmptyObj(out ho_ModelContours);
+                HOperatorSet.GenEmptyObj(out ho_ContoursAffinTrans);
+
+                bool canDraw = redraw && HWindow != null;
+
+                if (canDraw)
                 {
                     HWindow.ClearWindow();
-                    HWindow.SetPart(0, 0, (int)height - 1, (int)width - 1);
+                    HWindow.SetPart(0, 0, (int)height.I - 1, (int)width.I - 1);
                     HWindow.DispObj(image);
                 }
 
                 HTuple hv_Row = new HTuple(), hv_Column = new HTuple(), hv_Angle = new HTuple(), hv_Score = new HTuple();
-
-        
 
                 using (HDevDisposeHelper dh = new HDevDisposeHelper())
                 {
@@ -76,62 +171,66 @@ namespace PositionDetect
                 out hv_Column, out hv_Angle, out hv_Score);
                 }
 
-                //ho_ModelContours.Dispose();
-                HOperatorSet.GetShapeModelContours(out ho_ModelContours, modelID, 1);
-
-                //HWindow.HalconWindow.SetLineWidth(2);
-                //HWindow.HalconWindow.DispObj(image);
-                //HWindow.HalconWindow.SetColor("red");
-                HWindow.SetLineWidth(2);              
-                HWindow.SetColor("red");
                 Result r = new Result()
                 {
                     points = new List<Result_Parameter>()
                 };
 
-                Debug.WriteLine("分值");
-                for (int i = 0; i < hv_Row.DArr.Length; i++)
+                if (canDraw)
                 {
-                    Debug.WriteLine($"{hv_Column.DArr[i]},{hv_Row.DArr[i]},{hv_Angle.DArr[i]},{hv_Score.DArr[i]}");
+                    HOperatorSet.GetShapeModelContours(out ho_ModelContours, modelID, 1);
+                    HWindow.SetLineWidth(2);
+                    HWindow.SetColor("red");
+                }
 
-                    HTuple hv_HomMat2D = new HTuple();
-                    //将模板映射到目标上
-                    hv_HomMat2D.Dispose();
-                    HOperatorSet.VectorAngleToRigid(0, 0, 0, hv_Row[i], hv_Column[i], hv_Angle[i], out hv_HomMat2D);
-                    ho_ContoursAffinTrans.Dispose();
-                    HOperatorSet.AffineTransContourXld(ho_ModelContours, out ho_ContoursAffinTrans, hv_HomMat2D);
-                    HWindow.DispObj(ho_ContoursAffinTrans);
+                Debug.WriteLine("分值");
+                int matchCount = hv_Row != null && hv_Row.Length > 0 ? hv_Row.Length : 0;
+                for (int i = 0; i < matchCount; i++)
+                {
+                    Debug.WriteLine($"{hv_Column[i].D},{hv_Row[i].D},{hv_Angle[i].D},{hv_Score[i].D}");
 
                     Result_Parameter rp = new Result_Parameter()
                     {
-                        row = hv_Row.DArr[i],
-                        column = hv_Column.DArr[i],
-                        angle = hv_Angle.DArr[i],
-                        score = hv_Score.DArr[i],
+                        row = hv_Row[i].D,
+                        column = hv_Column[i].D,
+                        angle = hv_Angle[i].D,
+                        score = hv_Score[i].D,
                     };
                     r.points.Add(rp);
-                }
-                HWindow.SetDraw("margin");
-                HWindow.SetColor("yellow");
-                HWindow.DispObj(ho_ROI_0);
-                HWindow.SetColor("green");
 
-                ho_ROI_0?.Dispose();
-                ho_ImageReduced?.Dispose();
-                ho_ModelContours?.Dispose();
-                ho_ContoursAffinTrans?.Dispose();
+                    if (canDraw)
+                    {
+                        HTuple hv_HomMat2D = new HTuple();
+                        hv_HomMat2D.Dispose();
+                        HOperatorSet.VectorAngleToRigid(0, 0, 0, hv_Row[i], hv_Column[i], hv_Angle[i], out hv_HomMat2D);
+                        ho_ContoursAffinTrans.Dispose();
+                        HOperatorSet.AffineTransContourXld(ho_ModelContours, out ho_ContoursAffinTrans, hv_HomMat2D);
+                        HWindow.DispObj(ho_ContoursAffinTrans);
+                        hv_HomMat2D.Dispose();
+                    }
+                }
+
+                if (canDraw)
+                {
+                    HWindow.SetDraw("margin");
+                    HWindow.SetColor("yellow");
+                    HWindow.DispObj(ho_ROI_0);
+                    HWindow.SetColor("green");
+                }
 
                 r.IsSuccess = true;
                 return r;
             }
             catch (Exception ex)
             {
+                return new Result() { IsSuccess = false, ErrorInfo = ex.ToString() };
+            }
+            finally
+            {
                 ho_ROI_0?.Dispose();
                 ho_ImageReduced?.Dispose();
                 ho_ModelContours?.Dispose();
                 ho_ContoursAffinTrans?.Dispose();
-
-                return new Result() { IsSuccess = false, ErrorInfo = ex.ToString() };
             }
         }
 

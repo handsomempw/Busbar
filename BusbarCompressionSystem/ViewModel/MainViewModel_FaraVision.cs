@@ -69,7 +69,7 @@ namespace BusbarCompressionSystem.ViewModel
             }
         }
         /// <summary>
-        /// 初始化模板匹配（shm）文件，若缺失或加载失败会记录日志。
+        /// 初始化模板匹配（shm）文件；缺失或加载失败时写入工作日志与模板匹配追溯日志。
         /// </summary>
         public void InitShm()
         {
@@ -77,21 +77,33 @@ namespace BusbarCompressionSystem.ViewModel
             {
                 if (DataModel.FaraVisionDataModel.Processmodel.Tools[i].TestMode == TestModes.模板匹配)
                 {
+                    ToolModel tool = DataModel.FaraVisionDataModel.Processmodel.Tools[i];
+                    string shmfilename = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{tool.Index}.shm";
                     try
                     {
-                        string shmfilename = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{DataModel.FaraVisionDataModel.Processmodel.Tools[i].Index}.shm";
                         if (File.Exists(shmfilename))
                         {
-                            DataModel.FaraVisionDataModel.Processmodel.Tools[i].ShapeMatch.init(shmfilename);
+                            bool loaded = tool.ShapeMatch.init(shmfilename);
+                            if (loaded)
+                            {
+                                WriteTemplateMatchTraceLog("模型加载", tool, shmfilename, "成功");
+                            }
+                            else
+                            {
+                                writeLog($"模型文件加载失败:{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{tool.Index}.shm");
+                                WriteTemplateMatchTraceLog("模型加载", tool, shmfilename, "ReadShapeModel失败");
+                            }
                         }
                         else
                         {
-                            writeLog($"模型文件不存在:{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{DataModel.FaraVisionDataModel.Processmodel.Tools[i].Index}.shm");
+                            writeLog($"模型文件不存在:{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{tool.Index}.shm");
+                            WriteTemplateMatchTraceLog("模型加载", tool, shmfilename, "文件不存在");
                         }
                     }
                     catch (Exception ex)
                     {
-                        writeLog($"模型文件加载失败:{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{DataModel.FaraVisionDataModel.Processmodel.Tools[i].Index}.shm;{ex.Message}");
+                        writeLog($"模型文件加载失败:{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{tool.Index}.shm;{ex.Message}");
+                        WriteTemplateMatchTraceLog("模型加载", tool, shmfilename, ex.Message);
                         continue;
                     }
                 }

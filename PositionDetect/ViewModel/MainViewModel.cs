@@ -125,7 +125,7 @@ namespace PositionDetect.ViewModel
 
             //DATA.image?.Dispose();
         }
-        public void showdetect()
+        public bool showdetect()
         {
             //HObject image = null;
             HTuple hv_width, hv_height;
@@ -188,16 +188,28 @@ namespace PositionDetect.ViewModel
                     hv_HomMat2D);
                 DATA.HWindow.HalconWindow.SetColor("red");
                 DATA.HWindow.HalconWindow.DispObj(ho_ContoursAffinTrans);
+                DATA.HWindow.HalconWindow.SetDraw("margin");
+                DATA.HWindow.HalconWindow.SetColor("yellow");
+                DATA.HWindow.HalconWindow.DispObj(ROI);
 
+                return true;
             }
             catch (Exception ex)
-            {; }
+            {
+                return false;
+            }
 
 
             //DATA.image?.Dispose();
         }
         public void deletelistitem()
         {
+            if (DATA.selectedindex < 0 || DATA.selectedindex >= DATA.Objects.Count)
+            {
+                MessageBoxX.Show("请先选择需要删除的模板特征", "提示", MessageBoxButton.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
             if (MessageBoxX.Show("是否确定删除选择ROI区域?", "提示", MessageBoxButton.YesNo, MessageBoxIcon.Question, DefaultButton.NoCancel) == MessageBoxResult.Yes)
             {
                 try
@@ -209,13 +221,13 @@ namespace PositionDetect.ViewModel
             }
         }
 
-        public void OutputModel()
+        public bool OutputModel()
         {
 
             if (DATA.modelID == null)
             {
                 MessageBoxX.Show("请先预览再保存模型");
-                return;
+                return false;
             }
 
             if (string.IsNullOrEmpty(DATA.modelfilename))
@@ -226,8 +238,11 @@ namespace PositionDetect.ViewModel
                 {
                     string filename = saveFileDialog.FileName;
                     HOperatorSet.WriteShapeModel(DATA.modelID, filename);
+                    DATA.modelfilename = filename;
                     NoticeBox.Show($"{filename}", $"模型导出成功",  MessageBoxIcon.Success, true, 3000);
+                    return true;
                 }
+                return false;
             }
             else
             {
@@ -238,6 +253,7 @@ namespace PositionDetect.ViewModel
                 }
                 HOperatorSet.WriteShapeModel(DATA.modelID, DATA.modelfilename);
                 NoticeBox.Show($"{DATA.modelfilename}", $"模型导出成功",  MessageBoxIcon.Success, true, 3000);
+                return true;
             }
         }
 

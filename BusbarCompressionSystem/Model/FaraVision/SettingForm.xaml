@@ -289,7 +289,8 @@
                                 Background="PaleVioletRed" Foreground="White"
                                 Name="ApplyAll"
                                 Click="ApplyAll_Click"
-                                >全部应用</Button>
+                                ToolTip="将当前工具的X偏差、Y偏差、角度偏差、分值下限和比例参数复制到全部工具；不会复制ROI、模型文件和基准点。"
+                                >同步阈值到全部工具</Button>
                         <TextBox Grid.Row="3" Grid.Column="1" VerticalAlignment="Center" Margin="2,2,100,2" Text="{Binding MinScore}"/>
                         <TextBox Grid.Row="4" Grid.Column="1" VerticalAlignment="Center" Margin="2,2,100,2" Text="{Binding K}"  Visibility="Collapsed"/>
                         <CheckBox Grid.Row="5" Grid.Column="1" Margin="2"  IsChecked="{Binding DirectX }" Visibility="Collapsed"/>

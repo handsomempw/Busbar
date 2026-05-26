@@ -148,9 +148,9 @@ namespace SQLITEDATABASE
         /// 判定口径与 CHECK 前 UpdatePressure 一致：最大压力不超过上限，最小压力不低于下限。
         /// </summary>
         /// <param name="stageTag">流程阶段标识，如 CHECK1、CHECK2、点检CHECK1。</param>
-        /// <param name="pressureMax">压接过程最大压力，单位与 PLC/数据库 PRESSURE_MAX 一致。</param>
-        /// <param name="pressureMin">压接过程最小压力，单位与 PLC/数据库 PRESSURE_MIN 一致。</param>
-        /// <param name="pressureAverage">压接过程平均压力，单位与 PLC/数据库 PRESSURE_AVERAGE 一致。</param>
+        /// <param name="pressureMax">最大压力，单位与 PLC/数据库 PRESSURE_MAX 一致。</param>
+        /// <param name="pressureMin">最小压力，单位与 PLC/数据库 PRESSURE_MIN 一致。</param>
+        /// <param name="pressureAverage">平均压力，单位与 PLC/数据库 PRESSURE_AVERAGE 一致。</param>
         /// <param name="maxLimit">压力上限阈值，来自过程参数 PressureParamter.Max_Pressure。</param>
         /// <param name="minLimit">压力下限阈值，来自过程参数 PressureParamter.Min_Pressure。</param>
         /// <param name="sn">产品 SN，便于按条码检索。</param>

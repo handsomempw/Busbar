@@ -404,6 +404,7 @@ namespace BusbarCompressionSystem.ViewModel
                         }
                         DataModel.FaraVisionDataModel.Processmodel.ToolIndex = i + 1;
                         ToolModel tool = DataModel.FaraVisionDataModel.Processmodel.Tools[i];
+                        string templateMatchTraceDetail = string.Empty;
                         Bitmap bmp;
                         try
                         {
@@ -574,60 +575,79 @@ namespace BusbarCompressionSystem.ViewModel
 
                                 try
                                 {
-                                    ShapeMatch.Result shapmatchresult = new ShapeMatch.Result();
-                                    tool.ShapeMatch.BasicData.matchcenter_X = tool.InitX;
-                                    tool.ShapeMatch.BasicData.matchcenter_Y = tool.InitY;
-                                    tool.ShapeMatch.BasicData.matchcenterX_Basic = tool.InitX;
-                                    tool.ShapeMatch.BasicData.matchcenterY_Basic = tool.InitY;
-                                    tool.ShapeMatch.BasicData.productcenter_X = tool.InitX;
-                                    tool.ShapeMatch.BasicData.productcenter_Y = tool.InitY;
-                                    //shapmatchresult = tool.ShapeMatch.Match(Image, 1, tool.PositionROI.Row1, tool.PositionROI.Col1, tool.PositionROI.Row2, tool.PositionROI.Col2, -180, 180, false);
-                                    shapmatchresult = tool.ShapeMatch.Match(Image, 1, tool.PositionROI.Row1, tool.PositionROI.Col1, tool.PositionROI.Row2, tool.PositionROI.Col2, (int)-tool.AllowAngleDelta, (int)tool.AllowAngleDelta, false);
-                                    var Result_Data = tool.ShapeMatch.Analysis_Result(shapmatchresult);
-                                    if (Result_Data != null)
+                                    if (!tool.ShapeMatch.ModelLoaded)
                                     {
-                                        tool.ActualX = Result_Data.X_actual;
-                                        tool.ActualY = Result_Data.Y_actual;
-                                        tool.ActualAngle = (Result_Data.angle / Math.PI * 180.0);
-                                        tool.ActualScore = Result_Data.score;
-                                        tool.DeltaX = Result_Data.deltaX_actual * tool.K / 1000;
-                                        tool.DeltaY = Result_Data.deltaY_actual * tool.K / 1000;
-
-
-                                        if (tool.ActualScore >= tool.MinScore)
-                                        {
-                                            if (Math.Abs(tool.DeltaX) < tool.Allow_X_Delta &&
-                                                Math.Abs(tool.DeltaY) < tool.Allow_Y_Delta &&
-                                                Math.Abs(tool.ActualAngle) < tool.AllowAngleDelta
-                                                )
-                                            {
-                                                //if (tool.SendPositionData)
-                                                //{
-                                                //    SendMsgRobot($"{sendstr},");
-                                                //}
-                                                tool.ToolStatus = ToolStatus.OK;
-                                            }
-                                            else
-                                            {
-                                                tool.ToolStatus = ToolStatus.NG;
-
-                                            }
-
-                                        }
-                                        else
-                                        {
-                                            tool.ToolStatus = ToolStatus.NG2;
-                                        }
-
+                                        tool.ToolStatus = ToolStatus.NG2;
+                                        templateMatchTraceDetail = "形状模型未加载，已跳过 FindShapeModel";
                                     }
                                     else
                                     {
-                                        tool.ToolStatus = ToolStatus.NG2;
+                                        ShapeMatch.Result shapmatchresult = new ShapeMatch.Result();
+                                        tool.ShapeMatch.BasicData.matchcenter_X = tool.InitX;
+                                        tool.ShapeMatch.BasicData.matchcenter_Y = tool.InitY;
+                                        tool.ShapeMatch.BasicData.matchcenterX_Basic = tool.InitX;
+                                        tool.ShapeMatch.BasicData.matchcenterY_Basic = tool.InitY;
+                                        tool.ShapeMatch.BasicData.productcenter_X = tool.InitX;
+                                        tool.ShapeMatch.BasicData.productcenter_Y = tool.InitY;
+                                        shapmatchresult = tool.ShapeMatch.Match(Image, 1, tool.PositionROI.Row1, tool.PositionROI.Col1, tool.PositionROI.Row2, tool.PositionROI.Col2, (int)-tool.AllowAngleDelta, (int)tool.AllowAngleDelta, true);
+
+                                        if (!shapmatchresult.IsSuccess)
+                                        {
+                                            tool.ToolStatus = ToolStatus.NG2;
+                                            templateMatchTraceDetail = string.IsNullOrEmpty(shapmatchresult.ErrorInfo)
+                                                ? "Match返回失败"
+                                                : shapmatchresult.ErrorInfo;
+                                        }
+                                        else
+                                        {
+                                            var Result_Data = tool.ShapeMatch.Analysis_Result(shapmatchresult);
+                                            if (Result_Data != null)
+                                            {
+                                                tool.ActualX = Result_Data.X_actual;
+                                                tool.ActualY = Result_Data.Y_actual;
+                                                tool.ActualAngle = (Result_Data.angle / Math.PI * 180.0);
+                                                tool.ActualScore = Result_Data.score;
+                                                tool.DeltaX = Result_Data.deltaX_actual * tool.K / 1000;
+                                                tool.DeltaY = Result_Data.deltaY_actual * tool.K / 1000;
+
+
+                                                if (tool.ActualScore >= tool.MinScore)
+                                                {
+                                                    if (Math.Abs(tool.DeltaX) < tool.Allow_X_Delta &&
+                                                        Math.Abs(tool.DeltaY) < tool.Allow_Y_Delta &&
+                                                        Math.Abs(tool.ActualAngle) < tool.AllowAngleDelta
+                                                        )
+                                                    {
+                                                        tool.ToolStatus = ToolStatus.OK;
+                                                        templateMatchTraceDetail = "偏差在允许范围内";
+                                                    }
+                                                    else
+                                                    {
+                                                        tool.ToolStatus = ToolStatus.NG;
+                                                        templateMatchTraceDetail = "位置或角度超差";
+                                                    }
+
+                                                }
+                                                else
+                                                {
+                                                    tool.ToolStatus = ToolStatus.NG2;
+                                                    templateMatchTraceDetail = "匹配分值低于下限";
+                                                }
+
+                                            }
+                                            else
+                                            {
+                                                tool.ToolStatus = ToolStatus.NG2;
+                                                templateMatchTraceDetail = "Analysis_Result返回空";
+                                            }
+                                        }
                                     }
                                 }
-                                catch
+                                catch (Exception ex)
                                 {
-                                    ;
+                                    tool.ToolStatus = ToolStatus.NG2;
+                                    templateMatchTraceDetail = ex.Message;
+                                    writeLog($"模板匹配异常: {ex.Message}", false);
                                 }
 
 
@@ -890,6 +910,50 @@ namespace BusbarCompressionSystem.ViewModel
                             {
                                 // 日志写入失败不影响主流程，仅记录错误
                                 writeLog($"保存尺寸测量日志异常: {ex.Message}", false);
+                            }
+                        }
+                        #endregion
+
+                        #region 保存模板匹配追溯日志
+                        if (tool.TestMode == TestModes.模板匹配)
+                        {
+                            try
+                            {
+                                string shmfilename = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{tool.Index}.shm";
+                                Productinfo productInfo = DataModel.Processmodel.TakePhotoTestMode2.Productinfo;
+
+                                if (productInfo == null || string.IsNullOrEmpty(productInfo.SN))
+                                {
+                                    string sn = string.Empty;
+                                    try
+                                    {
+                                        sn = DataModel.FaraVisionDataModel.Processmodel.SNList[tool.ProductPositionNO];
+                                    }
+                                    catch
+                                    {
+                                        sn = DataModel.FaraVisionDataModel.Processmodel.BarcodeStr ?? "UNKNOWN";
+                                    }
+
+                                    productInfo = new Productinfo
+                                    {
+                                        SN = sn,
+                                        WOCODE = string.Empty,
+                                        PartNOID = string.Empty
+                                    };
+                                }
+
+                                DateTime traceTime = DateTime.Now;
+                                WriteTemplateMatchTraceLog(
+                                    "在线匹配",
+                                    tool,
+                                    shmfilename,
+                                    templateMatchTraceDetail,
+                                    productInfo,
+                                    traceTime);
+                            }
+                            catch (Exception ex)
+                            {
+                                writeLog($"保存模板匹配追溯日志异常: {ex.Message}", false);
                             }
                         }
                         #endregion

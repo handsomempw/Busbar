@@ -183,8 +183,7 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
-        /// 压接压力判定 NG3 时写入数据库追踪日志。
-        /// 落盘时机与 UpdatePressure 同源，避免 Check 层重复传入工艺阈值。
+        /// 压力判定 NG3 时写入数据库追踪日志。
         /// </summary>
         /// <param name="stageTag">流程阶段标识，如 CHECK1、点检CHECK1。</param>
         /// <param name="maxPressure">PLC 读取的最大压力。</param>
