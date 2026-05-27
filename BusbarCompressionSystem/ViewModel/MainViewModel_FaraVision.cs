@@ -69,46 +69,89 @@ namespace BusbarCompressionSystem.ViewModel
             }
         }
         /// <summary>
-        /// 初始化模板匹配（shm）文件；缺失或加载失败时写入工作日志与模板匹配追溯日志。
+        /// 初始化工程内所有模板工具的形状模型；软件启动和切换工程后调用。
+        /// 模型句柄只保存在内存中，工程 XML 仍只保存工具参数，.shm 文件作为模板模型来源。
         /// </summary>
         public void InitShm()
         {
             for (int i = 0; i < DataModel.FaraVisionDataModel.Processmodel.Tools.Count; i++)
             {
-                if (DataModel.FaraVisionDataModel.Processmodel.Tools[i].TestMode == TestModes.模板匹配
-                    || DataModel.FaraVisionDataModel.Processmodel.Tools[i].TestMode == TestModes.模板定位)
+                ToolModel tool = DataModel.FaraVisionDataModel.Processmodel.Tools[i];
+                if (IsShapeModelTool(tool))
                 {
-                    ToolModel tool = DataModel.FaraVisionDataModel.Processmodel.Tools[i];
-                    string shmfilename = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{tool.Index}.shm";
-                    try
-                    {
-                        if (File.Exists(shmfilename))
-                        {
-                            bool loaded = tool.ShapeMatch.init(shmfilename);
-                            if (loaded)
-                            {
-                                WriteTemplateMatchTraceLog("模型加载", tool, shmfilename, "成功");
-                            }
-                            else
-                            {
-                                writeLog($"模型文件加载失败:{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{tool.Index}.shm");
-                                WriteTemplateMatchTraceLog("模型加载", tool, shmfilename, "ReadShapeModel失败");
-                            }
-                        }
-                        else
-                        {
-                            writeLog($"模型文件不存在:{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{tool.Index}.shm");
-                            WriteTemplateMatchTraceLog("模型加载", tool, shmfilename, "文件不存在");
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        writeLog($"模型文件加载失败:{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{tool.Index}.shm;{ex.Message}");
-                        WriteTemplateMatchTraceLog("模型加载", tool, shmfilename, ex.Message);
-                        continue;
-                    }
+                    EnsureShapeModelLoaded(tool, "模型加载");
                 }
             }
+        }
+
+        /// <summary>
+        /// 在 AOI 执行或照片测试前确认模板模型已加载，避免重启软件后 XML 已恢复但 .shm 仍未读入内存。
+        /// 当磁盘 .shm 比内存模型更新时会自动重载；文件缺失且内存中已有同路径模型时，当前进程继续使用已加载句柄。
+        /// </summary>
+        /// <param name="tool">模板匹配或模板定位工具。</param>
+        /// <param name="eventKind">追溯事件类型，如执行前加载、照片测试加载。</param>
+        /// <returns>true 表示可进入模板匹配算子；false 表示模型文件缺失或读取失败。</returns>
+        internal bool EnsureShapeModelLoaded(ToolModel tool, string eventKind)
+        {
+            if (!IsShapeModelTool(tool))
+            {
+                return true;
+            }
+
+            string shmfilename = GetShapeModelPath(tool);
+            try
+            {
+                if (tool.ShapeMatch != null && tool.ShapeMatch.IsModelFileCurrent(shmfilename))
+                {
+                    return true;
+                }
+
+                if (File.Exists(shmfilename))
+                {
+                    bool loaded = tool.ShapeMatch.init(shmfilename);
+                    if (loaded)
+                    {
+                        WriteTemplateMatchTraceLog(eventKind, tool, shmfilename, "成功");
+                        return true;
+                    }
+
+                    writeLog($"模型文件加载失败:{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{tool.Index}.shm");
+                    WriteTemplateMatchTraceLog(eventKind, tool, shmfilename, "ReadShapeModel失败");
+                    return false;
+                }
+
+                if (tool.ShapeMatch != null && tool.ShapeMatch.ModelLoaded)
+                {
+                    WriteTemplateMatchTraceLog(eventKind, tool, shmfilename, "文件不存在，继续使用内存模型");
+                    return true;
+                }
+
+                writeLog($"模型文件不存在:{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{tool.Index}.shm");
+                WriteTemplateMatchTraceLog(eventKind, tool, shmfilename, "文件不存在");
+                return false;
+            }
+            catch (Exception ex)
+            {
+                writeLog($"模型文件加载失败:{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{tool.Index}.shm;{ex.Message}");
+                WriteTemplateMatchTraceLog(eventKind, tool, shmfilename, ex.Message);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 判断工具是否依赖工程目录下的 Tool 序号 .shm 形状模型。
+        /// </summary>
+        private static bool IsShapeModelTool(ToolModel tool)
+        {
+            return tool != null && (tool.TestMode == TestModes.模板匹配 || tool.TestMode == TestModes.模板定位);
+        }
+
+        /// <summary>
+        /// 按工程目录和工具序号生成形状模型路径；XML 中的模型文件名字段保持兼容，不改变现有 Tool 序号文件约定。
+        /// </summary>
+        private string GetShapeModelPath(ToolModel tool)
+        {
+            return $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{tool.Index}.shm";
         }
         /// <summary>
         /// 工程校验

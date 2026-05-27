@@ -34,7 +34,7 @@
                             ToolTip="把当前预览生成的模型保存为 Tool序号.shm，在线检测会读取该文件。">3 保存模型文件</Button>
                     <Button Margin="4" Padding="12,6" MinWidth="130" Background="OrangeRed" Foreground="White"
                             p:ButtonHelper.CornerRadius="10" Name="loadshmfromfile" Click="loadshmfromfile_Click"
-                            ToolTip="重新读取工程目录下的 Tool序号.shm，保存模型后需要执行一次。">4 加载当前模型</Button>
+                            ToolTip="立即读取工程目录下的 Tool序号.shm；软件启动、照片测试和在线检测会自动检查加载。">4 加载当前模型</Button>
                     <Button Margin="4" Padding="12,6" MinWidth="150" Background="#333333" Foreground="White"
                             p:ButtonHelper.CornerRadius="10" Name="getinitpositionbymodelimage" Click="getinitpositionbymodelimage_Click"
                             ToolTip="模板匹配模式写入基准X/Y；模板定位模式保存参考位姿，供在线 ROI 跟随矫正。">5 用模板图设基准点</Button>

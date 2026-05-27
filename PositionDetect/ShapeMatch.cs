@@ -25,6 +25,43 @@ namespace PositionDetect
         public bool ModelLoaded { get; private set; }
 
         /// <summary>
+        /// 最近一次成功加载的形状模型完整路径，用于工程启动、切换工程和执行前检查内存模型是否对应当前 Tool 序号。
+        /// </summary>
+        public string LoadedModelPath { get; private set; } = string.Empty;
+
+        /// <summary>
+        /// 最近一次成功加载的形状模型文件时间，用于保存模型后自动识别磁盘文件是否已更新。
+        /// </summary>
+        public DateTime LoadedModelWriteTimeUtc { get; private set; } = DateTime.MinValue;
+
+        /// <summary>
+        /// 判断内存中的形状模型是否对应指定文件，且磁盘文件未晚于本次加载时间。
+        /// 文件在加载后被移走时，内存句柄仍可服务当前进程，生产检测继续使用已加载模型。
+        /// </summary>
+        /// <param name="filename">工程目录下 Tool 序号对应的 .shm 文件。</param>
+        /// <returns>true 表示当前内存模型可直接用于本次检测；false 表示需要重新读取磁盘模型。</returns>
+        public bool IsModelFileCurrent(string filename)
+        {
+            if (!ModelLoaded || string.IsNullOrWhiteSpace(filename))
+            {
+                return false;
+            }
+
+            string fullPath = System.IO.Path.GetFullPath(filename);
+            if (!string.Equals(LoadedModelPath, fullPath, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            if (!System.IO.File.Exists(fullPath))
+            {
+                return true;
+            }
+
+            return System.IO.File.GetLastWriteTimeUtc(fullPath) <= LoadedModelWriteTimeUtc;
+        }
+
+        /// <summary>
         /// 从磁盘读取形状模型（.shm），供模板匹配算子使用。
         /// 重复加载时会先释放旧模型句柄，避免编辑/切换工程后句柄残留。
         /// </summary>
@@ -37,6 +74,13 @@ namespace PositionDetect
                 ClearModel();
                 HOperatorSet.ReadShapeModel(filename, out modelID);
                 ModelLoaded = modelID != null && modelID.Length > 0;
+                if (ModelLoaded)
+                {
+                    LoadedModelPath = System.IO.Path.GetFullPath(filename);
+                    LoadedModelWriteTimeUtc = System.IO.File.Exists(LoadedModelPath)
+                        ? System.IO.File.GetLastWriteTimeUtc(LoadedModelPath)
+                        : DateTime.MinValue;
+                }
                 return ModelLoaded;
             }
             catch (Exception)
@@ -64,6 +108,8 @@ namespace PositionDetect
 
             modelID = null;
             ModelLoaded = false;
+            LoadedModelPath = string.Empty;
+            LoadedModelWriteTimeUtc = DateTime.MinValue;
         }
 
         /// <summary>

@@ -450,6 +450,10 @@ namespace BusbarCompressionSystem.ViewModel
 
                         ClearTool(tool);
                         tool.ToolStatus = ToolStatus.识别中;
+                        if (tool.TestMode == TestModes.模板匹配 || tool.TestMode == TestModes.模板定位)
+                        {
+                            EnsureShapeModelLoaded(tool, "执行前加载");
+                        }
                         try
                         {
                             if (tool.TestMode == TestModes.二维码)

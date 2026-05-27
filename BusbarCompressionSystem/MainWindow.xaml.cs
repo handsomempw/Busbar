@@ -74,6 +74,7 @@ namespace BusbarCompressionSystem
 
             vml.Main.Faravision_LoadSettingModel();
             vml.Main.Load_Prj();
+            vml.Main.InitShm();
 
 
             inittvparameter();
@@ -680,12 +681,22 @@ namespace BusbarCompressionSystem
                 {
                     HTuple W = new HTuple(), H = new HTuple();
 
+                    var selectedIndex = vml.Main.DataModel.FaraVisionDataModel.Processmodel.selectedindex;
+                    if (selectedIndex < 0 || selectedIndex >= vml.Main.DataModel.FaraVisionDataModel.Processmodel.Tools.Count)
+                    {
+                        NoticeBox.Show("请先选择需要测试的工具", "提示", MessageBoxIcon.Warning, true, 5000);
+                        return;
+                    }
+
+                    var tool = vml.Main.DataModel.FaraVisionDataModel.Processmodel.Tools[selectedIndex];
+                    vml.Main.EnsureShapeModelLoaded(tool, "照片测试加载");
+
                     HObject image;
                     HOperatorSet.GenEmptyObj(out image);
                     HOperatorSet.ReadImage(out image, ofd.FileName);
                     HOperatorSet.GetImageSize(image, out W, out H);
-                    vml.Main.DataModel.FaraVisionDataModel.Processmodel.ToolIndex = vml.Main.DataModel.FaraVisionDataModel.Processmodel.selectedindex;
-                    vml.Main.DataModel.FaraVisionDataModel.Processmodel.RCMD = vml.Main.DataModel.FaraVisionDataModel.Processmodel.Tools[vml.Main.DataModel.FaraVisionDataModel.Processmodel.selectedindex].Command;
+                    vml.Main.DataModel.FaraVisionDataModel.Processmodel.ToolIndex = selectedIndex;
+                    vml.Main.DataModel.FaraVisionDataModel.Processmodel.RCMD = tool.Command;
                     //vml.Main.OnReceiveProcess(image, (int)H, (int)W);
                     vml.Main.OnReceiveProcessAOI(image, (int)H, (int)W);
                 }
