@@ -382,15 +382,19 @@ namespace BusbarCompressionSystem.Model.FaraVision
 
 
 
+    /// <summary>
+    /// 模板匹配/模板定位共用面板的显隐控制。
+    /// 工具模式为模板匹配或模板定位时 Visible，其余模式 Collapsed。
+    /// 绑定对象：位置检测 GroupBox、画布上的位置检测 ROI 矩形框、模型设置按钮。
+    /// </summary>
     [ValueConversion(typeof(TestModes), typeof(Visibility))]
     public class TestMode2Visibility_ShapeMatch : IValueConverter
     {
-        //源属性传给目标属性时，调用此方法ConvertBack
         public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
         {
             if (value == null)
             { throw new ArgumentNullException("value can not be null"); }
-            if ((TestModes)value != TestModes.模板匹配)
+            if ((TestModes)value != TestModes.模板匹配 && (TestModes)value != TestModes.模板定位)
             {
                 return Visibility.Collapsed;
             }
@@ -400,7 +404,72 @@ namespace BusbarCompressionSystem.Model.FaraVision
             }
         }
 
-        //目标属性传给源属性时，调用此方法ConvertBack
+        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// 模板匹配门卫参数区：仅模板匹配模式显示偏差范围等判定项，模板定位模式隐藏。
+    /// </summary>
+    [ValueConversion(typeof(TestModes), typeof(Visibility))]
+    public class TestMode2Visibility_TemplateMatchJudge : IValueConverter
+    {
+        public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            if (value == null)
+            {
+                throw new ArgumentNullException("value can not be null");
+            }
+
+            return (TestModes)value == TestModes.模板匹配 ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// 模板匹配结果区：仅模板匹配模式显示 X/Y 偏差和判定字段，模板定位使用独立结果区。
+    /// </summary>
+    [ValueConversion(typeof(TestModes), typeof(Visibility))]
+    public class TestMode2Visibility_TemplateMatchOnly : IValueConverter
+    {
+        public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            if (value == null)
+            {
+                throw new ArgumentNullException("value can not be null");
+            }
+
+            return (TestModes)value == TestModes.模板匹配 ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// 模板定位专属配置：仅模板定位模式显示 ROI 跟随矫正开关。
+    /// </summary>
+    [ValueConversion(typeof(TestModes), typeof(Visibility))]
+    public class TestMode2Visibility_TemplateLocatorOnly : IValueConverter
+    {
+        public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            if (value == null)
+            {
+                throw new ArgumentNullException("value can not be null");
+            }
+
+            return (TestModes)value == TestModes.模板定位 ? Visibility.Visible : Visibility.Collapsed;
+        }
+
         public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
         {
             return null;
@@ -495,6 +564,7 @@ namespace BusbarCompressionSystem.Model.FaraVision
         面积,
         二维码,
         模板匹配,
+        模板定位,
         尺寸测量,
         直线检测
     }

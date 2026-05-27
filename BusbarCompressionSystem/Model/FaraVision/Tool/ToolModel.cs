@@ -91,7 +91,16 @@ namespace BusbarCompressionSystem.Model.FaraVision.Tool
 
         public double MinScore { set; get; } = 0.8;
 
-        public double ActualScore { set; get; } = 0;
+        private double _actualScore;
+        public double ActualScore
+        {
+            set
+            {
+                _actualScore = value;
+                RaisePropertyChanged(() => ActualScore);
+            }
+            get { return _actualScore; }
+        }
 
 
         [XmlElement("比例um/pixel")]
@@ -104,15 +113,61 @@ namespace BusbarCompressionSystem.Model.FaraVision.Tool
 
 
         [XmlElement("检测X轴坐标")]
-        public double ActualX { set; get; } = 0;
+        public double ActualX
+        {
+            set
+            {
+                _actualX = value;
+                RaisePropertyChanged(() => ActualX);
+            }
+            get { return _actualX; }
+        }
         [XmlElement("检测Y轴坐标")]
-        public double ActualY { set; get; } = 0;
+        public double ActualY
+        {
+            set
+            {
+                _actualY = value;
+                RaisePropertyChanged(() => ActualY);
+            }
+            get { return _actualY; }
+        }
         [XmlElement("检测角度")]
-        public double ActualAngle { set; get; } = 0;
+        public double ActualAngle
+        {
+            set
+            {
+                _actualAngle = value;
+                RaisePropertyChanged(() => ActualAngle);
+            }
+            get { return _actualAngle; }
+        }
         [XmlElement("X轴偏差")]
-        public double DeltaX { set; get; } = 0;
+        public double DeltaX
+        {
+            set
+            {
+                _deltaX = value;
+                RaisePropertyChanged(() => DeltaX);
+            }
+            get { return _deltaX; }
+        }
         [XmlElement("Y轴偏差")]
-        public double DeltaY { set; get; } = 0;
+        public double DeltaY
+        {
+            set
+            {
+                _deltaY = value;
+                RaisePropertyChanged(() => DeltaY);
+            }
+            get { return _deltaY; }
+        }
+
+        private double _actualX;
+        private double _actualY;
+        private double _actualAngle;
+        private double _deltaX;
+        private double _deltaY;
 
         [XmlElement("允许角度偏差")]
         public double AllowAngleDelta { set; get; } = 20;
@@ -172,6 +227,10 @@ namespace BusbarCompressionSystem.Model.FaraVision.Tool
                         {
                             return Brushes.GreenYellow;
                         }
+                    case ToolStatus.定位未生效:
+                        {
+                            return Brushes.Gold;
+                        }
                     case ToolStatus.NG:
                     case ToolStatus.NG2:
                         {
@@ -205,6 +264,39 @@ namespace BusbarCompressionSystem.Model.FaraVision.Tool
 
         [XmlElement("位置检测ROI")]
         public ROI PositionROI { set; get; } = new ROI();
+
+        /// <summary>
+        /// 模板图上的基准匹配行坐标（px）。
+        /// 在模型设置窗口通过【从模板提取基准点】写入；
+        /// 在线检测时，系统用实时匹配位置与此基准做差，计算同指令后续工具的 ROI 平移量。
+        /// 工程 XML 持久化。
+        /// </summary>
+        [XmlElement("参考匹配行坐标px")]
+        public double ReferenceMatchRow { set; get; } = 0;
+
+        /// <summary>
+        /// 示教参考匹配点列坐标（px），由模板图定位测试写入，供在线 ROI 刚性变换。
+        /// </summary>
+        [XmlElement("参考匹配列坐标px")]
+        public double ReferenceMatchCol { set; get; } = 0;
+
+        /// <summary>
+        /// 示教参考匹配角（deg），由模板图定位测试写入，供在线 ROI 刚性变换。
+        /// </summary>
+        [XmlElement("参考匹配角度deg")]
+        public double ReferenceMatchAngleDeg { set; get; } = 0;
+
+        /// <summary>
+        /// 参考位姿是否已在模板图上完成配置；未配置时不应用 ROI 变换。
+        /// </summary>
+        [XmlElement("参考位姿已配置")]
+        public bool ReferencePoseConfigured { set; get; } = false;
+
+        /// <summary>
+        /// 对本触发指令的后续检测工具启用 ROI 跟随矫正；仅模板定位工具配置，下游 ROI XML 不变。
+        /// </summary>
+        [XmlElement("对本指令后续工具启用ROI跟随矫正")]
+        public bool EnableFollowCorrectionForCommand { set; get; } = false;
 
         #endregion
 
@@ -646,7 +738,8 @@ namespace BusbarCompressionSystem.Model.FaraVision.Tool
         识别中,
         OK,
         NG,
-        NG2
+        NG2,
+        定位未生效
     }
 
 

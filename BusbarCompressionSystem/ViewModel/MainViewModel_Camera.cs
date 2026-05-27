@@ -391,6 +391,7 @@ namespace BusbarCompressionSystem.ViewModel
                 hwindow.ClearWindow();
                 //hwindow.SetPart(0, 0, H - 1, W - 1);
                 hwindow.DispObj(Image);
+                ResetLocatorCorrectionState();
                 for (int i = 0; i < DataModel.FaraVisionDataModel.Processmodel.Tools.Count; i++)
                 {
                     if (DataModel.FaraVisionDataModel.Processmodel.Tools[i].Command == DataModel.FaraVisionDataModel.Processmodel.RCMD)
@@ -568,6 +569,37 @@ namespace BusbarCompressionSystem.ViewModel
 
                                 #endregion
                             }
+                            else if (tool.TestMode == TestModes.模板定位)
+                            {
+                                #region 模板定位（辅助）
+                                try
+                                {
+                                    string locatorTraceDetail;
+                                    ProcessTemplateLocatorTool(tool, Image, out locatorTraceDetail);
+                                    WriteLocatorCorrectionTraceLog(
+                                        "定位",
+                                        tool,
+                                        ResolveAoiProductInfo(tool),
+                                        locatorTraceDetail,
+                                        FormatRoiForLog(tool.PositionROI),
+                                        string.Empty,
+                                        false);
+                                }
+                                catch (Exception ex)
+                                {
+                                    tool.ToolStatus = ToolStatus.定位未生效;
+                                    WriteLocatorCorrectionTraceLog(
+                                        "定位",
+                                        tool,
+                                        ResolveAoiProductInfo(tool),
+                                        ex.Message,
+                                        FormatRoiForLog(tool.PositionROI),
+                                        string.Empty,
+                                        false);
+                                    writeLog($"模板定位异常: {ex.Message}", false);
+                                }
+                                #endregion
+                            }
                             else if (tool.TestMode == TestModes.模板匹配)
                             {
                                 #region 读取位置
@@ -657,7 +689,15 @@ namespace BusbarCompressionSystem.ViewModel
                             {
                                 #region 读取面积
 
-                                int Areaint = CoculateDimension(Image, tool, hwindow, false);
+                                bool correctionApplied = false;
+                                string correctionDetail = string.Empty;
+                                ROI effectiveDimensionRoi = tool.DimensionROI;
+                                if (ShouldApplyLocatorCorrectionForTool(tool))
+                                {
+                                    effectiveDimensionRoi = ResolveEffectiveRoi(tool.DimensionROI, out correctionApplied, out correctionDetail);
+                                }
+
+                                int Areaint = CoculateDimension(Image, tool, hwindow, false, effectiveDimensionRoi);
                                 tool.ActualDimension = Areaint;
 
                                 if (Areaint >= tool.MinDimension && Areaint <= tool.MaxDimension)
@@ -667,6 +707,18 @@ namespace BusbarCompressionSystem.ViewModel
                                 else
                                 {
                                     tool.ToolStatus = ToolStatus.NG;
+                                }
+
+                                if (DataModel.FaraVisionDataModel.Processmodel.LocatorCorrection.FollowEnabled)
+                                {
+                                    WriteLocatorCorrectionTraceLog(
+                                        "ROI矫正",
+                                        tool,
+                                        ResolveAoiProductInfo(tool),
+                                        correctionDetail,
+                                        FormatRoiForLog(tool.DimensionROI),
+                                        FormatRoiForLog(effectiveDimensionRoi),
+                                        correctionApplied);
                                 }
 
                                 GC.Collect();
@@ -680,9 +732,28 @@ namespace BusbarCompressionSystem.ViewModel
                                 {
                                     ClearDimensionRemeasureTrace(tool);
 
+                                    bool correctionApplied = false;
+                                    string correctionDetail = string.Empty;
+                                    ROI effectiveRoi1 = tool.MeasureObject1ROI;
+                                    ROI effectiveRoi2 = tool.MeasureObject2ROI;
+                                    if (ShouldApplyLocatorCorrectionForTool(tool))
+                                    {
+                                        effectiveRoi1 = ResolveEffectiveRoi(tool.MeasureObject1ROI, out correctionApplied, out correctionDetail);
+                                        bool correctionApplied2;
+                                        string correctionDetail2;
+                                        effectiveRoi2 = ResolveEffectiveRoi(tool.MeasureObject2ROI, out correctionApplied2, out correctionDetail2);
+                                        correctionApplied = correctionApplied || correctionApplied2;
+                                        if (!string.IsNullOrEmpty(correctionDetail2))
+                                        {
+                                            correctionDetail = string.IsNullOrEmpty(correctionDetail)
+                                                ? correctionDetail2
+                                                : $"{correctionDetail};{correctionDetail2}";
+                                        }
+                                    }
+
                                     // AOI 流程在接收图像时已经清空窗口并显示当前图像；
                                     // 尺寸测量这里只叠加完整测量层，避免找边预览覆盖测距结果。
-                                    double measureValue = MeasureDimension(Image, tool, hwindow, true);
+                                    double measureValue = MeasureDimension(Image, tool, hwindow, true, false, effectiveRoi1, effectiveRoi2);
                                     tool.ActualMeasureValue = measureValue;
 
                                     if (measureValue >= 0 && measureValue >= tool.MinMeasureValue && measureValue <= tool.MaxMeasureValue)
@@ -696,6 +767,18 @@ namespace BusbarCompressionSystem.ViewModel
                                     else
                                     {
                                         tool.ToolStatus = ToolStatus.NG; // 测量值超出范围
+                                    }
+
+                                    if (DataModel.FaraVisionDataModel.Processmodel.LocatorCorrection.FollowEnabled)
+                                    {
+                                        WriteLocatorCorrectionTraceLog(
+                                            "ROI矫正",
+                                            tool,
+                                            ResolveAoiProductInfo(tool),
+                                            correctionDetail,
+                                            $"ROI1={FormatRoiForLog(tool.MeasureObject1ROI)}|ROI2={FormatRoiForLog(tool.MeasureObject2ROI)}",
+                                            $"ROI1={FormatRoiForLog(effectiveRoi1)}|ROI2={FormatRoiForLog(effectiveRoi2)}",
+                                            correctionApplied);
                                     }
                                 }
                                 catch (Exception ex)
@@ -766,17 +849,17 @@ namespace BusbarCompressionSystem.ViewModel
                         if (i == DataModel.FaraVisionDataModel.Processmodel.Tools.Count - 1)
                         {
                             int status = -1;
-                            int c = DataModel.FaraVisionDataModel.Processmodel.Tools.Count();
-
+                            string rcmd = DataModel.FaraVisionDataModel.Processmodel.RCMD;
+                            int c = DataModel.FaraVisionDataModel.Processmodel.Tools.Count(t => t.Command == rcmd && IsJudgingTool(t));
 
                             var ok = (from ToolModel in DataModel.FaraVisionDataModel.Processmodel.Tools
-                                      where (ToolModel.ToolStatus == ToolStatus.OK)
+                                      where ToolModel.Command == rcmd && ToolModel.ToolStatus == ToolStatus.OK && IsJudgingTool(ToolModel)
                                       select ToolModel);
                             var NG1 = (from ToolModel in DataModel.FaraVisionDataModel.Processmodel.Tools
-                                       where (ToolModel.ToolStatus == ToolStatus.NG)
+                                       where ToolModel.Command == rcmd && ToolModel.ToolStatus == ToolStatus.NG && IsJudgingTool(ToolModel)
                                        select ToolModel);
                             var NG2 = (from ToolModel in DataModel.FaraVisionDataModel.Processmodel.Tools
-                                       where (ToolModel.ToolStatus == ToolStatus.NG2)
+                                       where ToolModel.Command == rcmd && ToolModel.ToolStatus == ToolStatus.NG2 && IsJudgingTool(ToolModel)
                                        select ToolModel);
                             var wait = (from ToolModel in DataModel.FaraVisionDataModel.Processmodel.Tools
                                         where (ToolModel.ToolStatus == ToolStatus.等待中 || ToolModel.ToolStatus == ToolStatus.识别中)
@@ -829,6 +912,13 @@ namespace BusbarCompressionSystem.ViewModel
                         #endregion
 
                         #region 保存图片
+                        if (tool.TestMode == TestModes.模板定位)
+                        {
+                            // 模板定位是同指令 ROI 矫正的辅助状态，产品 OK/NG 图片归类由判定工具承担。
+                            tool.LastResultImagePath = null;
+                        }
+                        else
+                        {
                         try
                         {
                             if (tool.ToolStatus == ToolStatus.OK)
@@ -874,6 +964,7 @@ namespace BusbarCompressionSystem.ViewModel
                         catch (Exception ex)
                         {
                             writeLog($"视觉->保存照片:保存失败：{ex.ToString()}", false);
+                        }
                         }
 
                         #endregion
@@ -971,7 +1062,7 @@ namespace BusbarCompressionSystem.ViewModel
                             int status = -1;
 
                             var r = (from ToolModel in DataModel.FaraVisionDataModel.Processmodel.Tools
-                                     where ToolModel.Command == DataModel.FaraVisionDataModel.Processmodel.RCMD
+                                     where ToolModel.Command == DataModel.FaraVisionDataModel.Processmodel.RCMD && IsJudgingTool(ToolModel)
                                      select ToolModel);
                             var wait = (from ToolModel in r
                                         where (ToolModel.ToolStatus == ToolStatus.等待中 || ToolModel.ToolStatus == ToolStatus.识别中)

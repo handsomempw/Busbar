@@ -1,4 +1,5 @@
-﻿using BusbarCompressionSystem.ViewModel;
+﻿using BusbarCompressionSystem.Model.FaraVision;
+using BusbarCompressionSystem.ViewModel;
 using HalconDotNet;
 using Microsoft.Win32;
 using Panuon.WPF.UI;
@@ -37,6 +38,7 @@ namespace BusbarCompressionSystem.Model.FaraVision
             HOperatorSet.CopyImage(image, out vml.PositionDetectViewModel.DATA.image);
             vml.PositionDetectViewModel.DATA.modelfilename = Modelfilename;
             UpdateModelStatus(File.Exists(Modelfilename) ? $"已导出 {System.IO.Path.GetFileName(Modelfilename)}" : "未导出");
+            ConfigureBasePointButtons();
         }
 
 
@@ -49,6 +51,26 @@ namespace BusbarCompressionSystem.Model.FaraVision
         {
             _modelStatus = status;
             ModelStatusText.Text = $"模型状态：{_modelStatus}";
+        }
+
+        /// <summary>
+        /// 按工具模式配置基准入口。模板定位只从模板图保存参考位姿，避免现场图基准入口写入模板匹配用的 InitX/InitY 后误导在线 ROI 跟随矫正。
+        /// </summary>
+        private void ConfigureBasePointButtons()
+        {
+            var tool = vml?.Main?.DataModel?.FaraVisionDataModel?.Processmodel?.tool;
+            if (tool?.TestMode == TestModes.模板定位)
+            {
+                getinitpositionbymodelimage.Content = "5 保存定位参考位姿";
+                getinitpositionbymodelimage.ToolTip = "用当前模板图匹配一次，并保存定位参考位姿；在线 ROI 跟随矫正读取这组 Row/Col/Angle。";
+                getinitpositonfromimagefile.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            getinitpositionbymodelimage.Content = "5 用模板图设基准点";
+            getinitpositionbymodelimage.ToolTip = "用当前模板图片匹配一次，并把找到的位置写入基准X/Y。";
+            getinitpositonfromimagefile.Visibility = Visibility.Visible;
+            getinitpositonfromimagefile.ToolTip = "选择一张现场图片匹配，并把该图片中的位置写入基准X/Y。";
         }
 
         private void selectFeature_Click(object sender, RoutedEventArgs e)
@@ -127,6 +149,22 @@ namespace BusbarCompressionSystem.Model.FaraVision
                     return;
                 }
 
+                var tool = vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool;
+                if (tool.TestMode == TestModes.模板定位
+                    && shapmatchresult.points != null
+                    && shapmatchresult.points.Count > 0)
+                {
+                    var rp = shapmatchresult.points[0];
+                    tool.ReferenceMatchRow = rp.row;
+                    tool.ReferenceMatchCol = rp.column;
+                    tool.ReferenceMatchAngleDeg = rp.angle * 180.0 / Math.PI;
+                    tool.ReferencePoseConfigured = true;
+                    ShowBasePointResult(
+                        $"参考位姿已保存：Row={rp.row:F1}, Col={rp.column:F1}, Angle={tool.ReferenceMatchAngleDeg:F2}deg",
+                        MessageBoxIcon.Success);
+                    return;
+                }
+
                 if (Result_Data != null)
                 {
                     vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool.InitX = Result_Data.X_actual;
@@ -148,6 +186,13 @@ namespace BusbarCompressionSystem.Model.FaraVision
         {
             try
             {
+                var tool = vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool;
+                if (tool.TestMode == TestModes.模板定位)
+                {
+                    ShowBasePointResult("模板定位参考位姿请使用模板图保存，现场图入口仅用于模板匹配基准X/Y。");
+                    return;
+                }
+
                 if (!EnsurePositionRoiReady())
                 {
                     return;

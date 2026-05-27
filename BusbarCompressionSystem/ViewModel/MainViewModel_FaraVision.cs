@@ -75,7 +75,8 @@ namespace BusbarCompressionSystem.ViewModel
         {
             for (int i = 0; i < DataModel.FaraVisionDataModel.Processmodel.Tools.Count; i++)
             {
-                if (DataModel.FaraVisionDataModel.Processmodel.Tools[i].TestMode == TestModes.模板匹配)
+                if (DataModel.FaraVisionDataModel.Processmodel.Tools[i].TestMode == TestModes.模板匹配
+                    || DataModel.FaraVisionDataModel.Processmodel.Tools[i].TestMode == TestModes.模板定位)
                 {
                     ToolModel tool = DataModel.FaraVisionDataModel.Processmodel.Tools[i];
                     string shmfilename = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{tool.Index}.shm";
@@ -1176,6 +1177,11 @@ namespace BusbarCompressionSystem.ViewModel
             t.Allow_Y_Delta = tool.Allow_Y_Delta;
             //t.StatusColor = tool.StatusColor;
             t.PositionROI = New_ROI(tool.PositionROI);
+            t.ReferenceMatchRow = tool.ReferenceMatchRow;
+            t.ReferenceMatchCol = tool.ReferenceMatchCol;
+            t.ReferenceMatchAngleDeg = tool.ReferenceMatchAngleDeg;
+            t.ReferencePoseConfigured = tool.ReferencePoseConfigured;
+            t.EnableFollowCorrectionForCommand = tool.EnableFollowCorrectionForCommand;
 
             t.DimensionROI = New_ROI(tool.DimensionROI);
             //t.DimensionDetect = tool.DimensionDetect;
@@ -1545,10 +1551,11 @@ namespace BusbarCompressionSystem.ViewModel
         /// 面积计算（支持灰度/颜色阈值），并可在窗口重绘 ROI 与结果区域。
         /// </summary>
         /// <returns>面积，失败返回 -1，无区域返回 0</returns>
-        public int CoculateDimension(HObject image, ToolModel tool, HWindow hwindow, bool redraw = true)
+        public int CoculateDimension(HObject image, ToolModel tool, HWindow hwindow, bool redraw = true, ROI dimensionRoiOverride = null)
         {
             try
             {
+                ROI dimensionRoi = dimensionRoiOverride ?? tool.DimensionROI;
 
                 HTuple Area = new HTuple(), Row = new HTuple(), Column = new HTuple();
 
@@ -1581,7 +1588,7 @@ namespace BusbarCompressionSystem.ViewModel
                 {
 
                     // 1) 生成 ROI 并缩小运算域
-                    HOperatorSet.GenRectangle1(out ROI, tool.DimensionROI.Row1, tool.DimensionROI.Col1, tool.DimensionROI.Row2, tool.DimensionROI.Col2);
+                    HOperatorSet.GenRectangle1(out ROI, dimensionRoi.Row1, dimensionRoi.Col1, dimensionRoi.Row2, dimensionRoi.Col2);
                     HOperatorSet.ReduceDomain(image, ROI, out ReduceImage);
 
                     // 2) 阈值分割：灰度 or RGB 三通道交集
@@ -1712,11 +1719,13 @@ namespace BusbarCompressionSystem.ViewModel
         /// <param name="redraw">true 表示绘制测量图层；false 表示只计算尺寸，不更新窗口显示。</param>
         /// <param name="calibrationMode">校准模式；true 返回原始像素距离用于计算 um/pixel，false 返回毫米值用于判定。</param>
         /// <returns>校准模式返回像素值，正常模式返回毫米值；失败时通过异常向调用方报告。</returns>
-        public double MeasureDimension(HObject image, ToolModel tool, HWindow hwindow, bool redraw = true, bool calibrationMode = false)
+        public double MeasureDimension(HObject image, ToolModel tool, HWindow hwindow, bool redraw = true, bool calibrationMode = false, ROI measureObject1Override = null, ROI measureObject2Override = null)
         {
             try
             {
                 double result = -1;
+                ROI measureRoi1 = measureObject1Override ?? tool.MeasureObject1ROI;
+                ROI measureRoi2 = measureObject2Override ?? tool.MeasureObject2ROI;
 
                 // 验证基本参数（校准模式下跳过DimensionK验证）
                 if (!calibrationMode)
@@ -1730,13 +1739,13 @@ namespace BusbarCompressionSystem.ViewModel
                 switch (tool.MeasureType)
                 {
                     case DimensionMeasureType.直线到直线:
-                        result = MeasureLineToLine(image, tool, hwindow, redraw);
+                        result = MeasureLineToLine(image, tool, hwindow, redraw, measureRoi1, measureRoi2);
                         break;
                     case DimensionMeasureType.直线到圆心:
-                        result = MeasureLineToCircle(image, tool, hwindow, redraw);
+                        result = MeasureLineToCircle(image, tool, hwindow, redraw, measureRoi1, measureRoi2);
                         break;
                     case DimensionMeasureType.圆心到圆心:
-                        result = MeasureCircleToCircle(image, tool, hwindow, redraw);
+                        result = MeasureCircleToCircle(image, tool, hwindow, redraw, measureRoi1, measureRoi2);
                         break;
                 }
 
@@ -1816,16 +1825,19 @@ namespace BusbarCompressionSystem.ViewModel
         /// <param name="redraw">true 表示同步刷新预览画面；false 表示只计算距离，不更新窗口显示。</param>
         /// <returns>两条测量边之间的像素距离；后续流程负责按校准系数换算为毫米。</returns>
         /// <exception cref="Exception">ROI 无效或边缘检测失败时抛出，调用方负责转为操作者可见提示。</exception>
-        private double MeasureLineToLine(HObject image, ToolModel tool, HWindow hwindow, bool redraw)
+        private double MeasureLineToLine(HObject image, ToolModel tool, HWindow hwindow, bool redraw, ROI measureObject1Roi = null, ROI measureObject2Roi = null)
         {
             try
             {
+                ROI roi1 = measureObject1Roi ?? tool.MeasureObject1ROI;
+                ROI roi2 = measureObject2Roi ?? tool.MeasureObject2ROI;
+
                 // 验证ROI有效性（支持矩形、线段和圆形ROI）
-                if (!IsROIValid(tool.MeasureObject1ROI))
+                if (!IsROIValid(roi1))
                 {
                     throw new Exception("测量对象1 ROI无效：ROI区域太小或未正确绘制");
                 }
-                if (!IsROIValid(tool.MeasureObject2ROI))
+                if (!IsROIValid(roi2))
                 {
                     throw new Exception("测量对象2 ROI无效：ROI区域太小或未正确绘制");
                 }
@@ -1833,7 +1845,7 @@ namespace BusbarCompressionSystem.ViewModel
                 // 使用Metrology模型检测第一条直线
                 double line1RowBegin, line1ColBegin, line1RowEnd, line1ColEnd;
                 HTuple edge1Rows, edge1Cols;
-                if (!DetectEdgeWithMetrology(image, tool, tool.MeasureObject1ROI,
+                if (!DetectEdgeWithMetrology(image, tool, roi1,
                     out line1RowBegin, out line1ColBegin, out line1RowEnd, out line1ColEnd,
                     out edge1Rows, out edge1Cols, out _))
                 {
@@ -1843,7 +1855,7 @@ namespace BusbarCompressionSystem.ViewModel
                 // 使用Metrology模型检测第二条直线
                 double line2RowBegin, line2ColBegin, line2RowEnd, line2ColEnd;
                 HTuple edge2Rows, edge2Cols;
-                if (!DetectEdgeWithMetrology(image, tool, tool.MeasureObject2ROI,
+                if (!DetectEdgeWithMetrology(image, tool, roi2,
                     out line2RowBegin, out line2ColBegin, out line2RowEnd, out line2ColEnd,
                     out edge2Rows, out edge2Cols, out _))
                 {
@@ -1867,8 +1879,8 @@ namespace BusbarCompressionSystem.ViewModel
                     // - 拟合线（cyan）来自真实找边结果，代表“算法识别到的边缘”；
                     // - 计算线（yellow, 可选）在 ROI 主方向上按倍数做延长，仅用于“距离如何定义”；
                     // - 这样可以在两线近似平行、ROI 较短或端点不对齐时，让距离更接近“垂直距离”的直觉表达。
-                    calculationLine1 = BuildCalculationLineFromRoi(fittedLine1, tool.MeasureObject1ROI, lineDistanceExtendRatio);
-                    calculationLine2 = BuildCalculationLineFromRoi(fittedLine2, tool.MeasureObject2ROI, lineDistanceExtendRatio);
+                    calculationLine1 = BuildCalculationLineFromRoi(fittedLine1, roi1, lineDistanceExtendRatio);
+                    calculationLine2 = BuildCalculationLineFromRoi(fittedLine2, roi2, lineDistanceExtendRatio);
                     distanceResult = CalculateDistanceBetweenCalculationLines(calculationLine1, calculationLine2);
                 }
                 else
@@ -1953,16 +1965,19 @@ namespace BusbarCompressionSystem.ViewModel
         /// <param name="hwindow">HALCON窗口</param>
         /// <param name="redraw">是否重绘</param>
         /// <returns>测量距离（像素），失败抛出异常</returns>
-        private double MeasureLineToCircle(HObject image, ToolModel tool, HWindow hwindow, bool redraw)
+        private double MeasureLineToCircle(HObject image, ToolModel tool, HWindow hwindow, bool redraw, ROI measureObject1Roi = null, ROI measureObject2Roi = null)
         {
             try
             {
+                ROI roi1 = measureObject1Roi ?? tool.MeasureObject1ROI;
+                ROI roi2 = measureObject2Roi ?? tool.MeasureObject2ROI;
+
                 // 验证ROI有效性（支持矩形、线段和圆形ROI）
-                if (!IsROIValid(tool.MeasureObject1ROI))
+                if (!IsROIValid(roi1))
                 {
                     throw new Exception("测量对象1（直线）ROI无效：ROI区域太小或未正确绘制");
                 }
-                if (!IsROIValid(tool.MeasureObject2ROI))
+                if (!IsROIValid(roi2))
                 {
                     throw new Exception("测量对象2（圆）ROI无效：ROI区域太小或未正确绘制");
                 }
@@ -1970,7 +1985,7 @@ namespace BusbarCompressionSystem.ViewModel
                 // 1. 使用Metrology检测直线
                 double lineRowBegin, lineColBegin, lineRowEnd, lineColEnd;
                 HTuple lineEdgeRows, lineEdgeCols;
-                if (!DetectEdgeWithMetrology(image, tool, tool.MeasureObject1ROI,
+                if (!DetectEdgeWithMetrology(image, tool, roi1,
                     out lineRowBegin, out lineColBegin, out lineRowEnd, out lineColEnd,
                     out lineEdgeRows, out lineEdgeCols, out _))
                 {
@@ -1980,7 +1995,7 @@ namespace BusbarCompressionSystem.ViewModel
                 // 2. 使用Metrology检测圆心
                 double centerRow, centerCol, radiusValue;
                 HTuple circleEdgeRows, circleEdgeCols;
-                if (!DetectCircleWithMetrology(image, tool, tool.MeasureObject2ROI,
+                if (!DetectCircleWithMetrology(image, tool, roi2,
                     out centerRow, out centerCol, out radiusValue,
                     out circleEdgeRows, out circleEdgeCols))
                 {
@@ -2069,16 +2084,19 @@ namespace BusbarCompressionSystem.ViewModel
         /// <summary>
         /// 圆心到圆心距离测量（统一Metrology框架）
         /// </summary>
-        private double MeasureCircleToCircle(HObject image, ToolModel tool, HWindow hwindow, bool redraw)
+        private double MeasureCircleToCircle(HObject image, ToolModel tool, HWindow hwindow, bool redraw, ROI measureObject1Roi = null, ROI measureObject2Roi = null)
         {
             try
             {
+                ROI roi1 = measureObject1Roi ?? tool.MeasureObject1ROI;
+                ROI roi2 = measureObject2Roi ?? tool.MeasureObject2ROI;
+
                 // 验证ROI有效性（支持矩形、线段和圆形ROI）
-                if (!IsROIValid(tool.MeasureObject1ROI))
+                if (!IsROIValid(roi1))
                 {
                     throw new Exception("测量对象1（圆）ROI无效：ROI区域太小或未正确绘制");
                 }
-                if (!IsROIValid(tool.MeasureObject2ROI))
+                if (!IsROIValid(roi2))
                 {
                     throw new Exception("测量对象2（圆）ROI无效：ROI区域太小或未正确绘制");
                 }
@@ -2086,7 +2104,7 @@ namespace BusbarCompressionSystem.ViewModel
                 // 1. 使用Metrology检测第一个圆心
                 double center1Row, center1Col, radius1;
                 HTuple edge1Rows, edge1Cols;
-                if (!DetectCircleWithMetrology(image, tool, tool.MeasureObject1ROI,
+                if (!DetectCircleWithMetrology(image, tool, roi1,
                     out center1Row, out center1Col, out radius1,
                     out edge1Rows, out edge1Cols))
                 {
@@ -2096,7 +2114,7 @@ namespace BusbarCompressionSystem.ViewModel
                 // 2. 使用Metrology检测第二个圆心
                 double center2Row, center2Col, radius2;
                 HTuple edge2Rows, edge2Cols;
-                if (!DetectCircleWithMetrology(image, tool, tool.MeasureObject2ROI,
+                if (!DetectCircleWithMetrology(image, tool, roi2,
                     out center2Row, out center2Col, out radius2,
                     out edge2Rows, out edge2Cols))
                 {

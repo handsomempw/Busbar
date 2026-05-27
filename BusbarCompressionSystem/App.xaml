@@ -30,6 +30,9 @@
             <FaraVision:TestMode2Visibility_Barcode       x:Key="TestMode2Visibility_Barcode"/>
             <FaraVision:TestMode2Visibility_Dimension     x:Key="TestMode2Visibility_Dimension"/>
             <FaraVision:TestMode2Visibility_ShapeMatch    x:Key="TestMode2Visibility_ShapeMatch"/>
+            <FaraVision:TestMode2Visibility_TemplateMatchJudge x:Key="TestMode2Visibility_TemplateMatchJudge"/>
+            <FaraVision:TestMode2Visibility_TemplateMatchOnly x:Key="TestMode2Visibility_TemplateMatchOnly"/>
+            <FaraVision:TestMode2Visibility_TemplateLocatorOnly x:Key="TestMode2Visibility_TemplateLocatorOnly"/>
             <FaraVision:TestMode2Visibility_DimensionMeasure x:Key="TestMode2Visibility_DimensionMeasure"/>
             <FaraVision:TestMode2Visibility_LineDetect         x:Key="TestMode2Visibility_LineDetect"/>
 

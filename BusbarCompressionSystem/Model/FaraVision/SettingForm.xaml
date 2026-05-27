@@ -242,9 +242,12 @@
                             <ColumnDefinition Width="auto"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right" >X偏差范围:</TextBlock>
-                        <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right" >Y偏差范围:</TextBlock>
-                        <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right" >角度偏差范围:</TextBlock>
+                        <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right"
+                                   Visibility="{Binding TestMode,Converter={StaticResource TestMode2Visibility_TemplateMatchJudge}}">X偏差范围:</TextBlock>
+                        <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right"
+                                   Visibility="{Binding TestMode,Converter={StaticResource TestMode2Visibility_TemplateMatchJudge}}">Y偏差范围:</TextBlock>
+                        <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right"
+                                   Visibility="{Binding TestMode,Converter={StaticResource TestMode2Visibility_TemplateMatchJudge}}">角度偏差范围:</TextBlock>
                         <TextBlock Grid.Row="3" Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right">模板匹配分值下限:</TextBlock>
                         <TextBlock Grid.Row="4" Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right"  Visibility="Collapsed">标定像素尺寸(um/pixel):</TextBlock>
                         <TextBlock Grid.Row="5" Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right"  Visibility="Collapsed">X轴取反:</TextBlock>
@@ -277,9 +280,12 @@
                         <TextBlock Grid.Row="11" Grid.Column="0" VerticalAlignment="Center" >模板匹配ROI:</TextBlock>
 
                         <TextBlock Grid.Row="0" Grid.Column="1" VerticalAlignment="Center" Margin="2" Text="{Binding ModelFileName}" Visibility="Collapsed" />
-                        <TextBox Grid.Row="0" Grid.Column="1"   Margin="2,2,100,2" Text="{Binding Allow_X_Delta}"  />
-                        <TextBox Grid.Row="1" Grid.Column="1"   Margin="2,2,100,2" Text="{Binding Allow_Y_Delta}"  />
-                        <TextBox Grid.Row="2" Grid.Column="1"   Margin="2,2,100,2" Text="{Binding AllowAngleDelta}"  />
+                        <TextBox Grid.Row="0" Grid.Column="1"   Margin="2,2,100,2" Text="{Binding Allow_X_Delta}"
+                                 Visibility="{Binding TestMode,Converter={StaticResource TestMode2Visibility_TemplateMatchJudge}}" />
+                        <TextBox Grid.Row="1" Grid.Column="1"   Margin="2,2,100,2" Text="{Binding Allow_Y_Delta}"
+                                 Visibility="{Binding TestMode,Converter={StaticResource TestMode2Visibility_TemplateMatchJudge}}" />
+                        <TextBox Grid.Row="2" Grid.Column="1"   Margin="2,2,100,2" Text="{Binding AllowAngleDelta}"
+                                 Visibility="{Binding TestMode,Converter={StaticResource TestMode2Visibility_TemplateMatchJudge}}" />
                         <TextBlock Grid.Row="0" Grid.Column="1"  HorizontalAlignment="Right"  Margin="2,2,70,2"  Visibility="Collapsed">mm</TextBlock>
                         <TextBlock Grid.Row="1" Grid.Column="1"  HorizontalAlignment="Right"  Margin="2,2,70,2"  Visibility="Collapsed">mm</TextBlock>
 
@@ -289,6 +295,7 @@
                                 Background="PaleVioletRed" Foreground="White"
                                 Name="ApplyAll"
                                 Click="ApplyAll_Click"
+                                Visibility="{Binding TestMode,Converter={StaticResource TestMode2Visibility_TemplateMatchJudge}}"
                                 ToolTip="将当前工具的X偏差、Y偏差、角度偏差、分值下限和比例参数复制到全部工具；不会复制ROI、模型文件和基准点。"
                                 >同步阈值到全部工具</Button>
                         <TextBox Grid.Row="3" Grid.Column="1" VerticalAlignment="Center" Margin="2,2,100,2" Text="{Binding MinScore}"/>
@@ -323,6 +330,12 @@
                             <TextBox Grid.Row="1" Grid.Column="3"   Margin="2" Text="{Binding PositionROI.Col2}" />
 
                         </Grid>
+
+                        <CheckBox Grid.Row="13" Grid.Column="0" Grid.ColumnSpan="2" Margin="10,8,2,2"
+                                  Content="对本触发指令的后续工具启用 ROI 跟随矫正"
+                                  IsChecked="{Binding EnableFollowCorrectionForCommand}"
+                                  Visibility="{Binding TestMode,Converter={StaticResource TestMode2Visibility_TemplateLocatorOnly}}"
+                                  ToolTip="定位成功时，同指令的面积/尺寸工具按参考位姿刚性变换 ROI；定位失败时不阻断检测，按原 ROI 执行。"/>
                     </Grid>
                 </GroupBox>
 

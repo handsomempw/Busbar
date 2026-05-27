@@ -37,7 +37,7 @@
                             ToolTip="重新读取工程目录下的 Tool序号.shm，保存模型后需要执行一次。">4 加载当前模型</Button>
                     <Button Margin="4" Padding="12,6" MinWidth="150" Background="#333333" Foreground="White"
                             p:ButtonHelper.CornerRadius="10" Name="getinitpositionbymodelimage" Click="getinitpositionbymodelimage_Click"
-                            ToolTip="用当前模板图片匹配一次，并把找到的位置写入基准X/Y。">5 用模板图设基准点</Button>
+                            ToolTip="模板匹配模式写入基准X/Y；模板定位模式保存参考位姿，供在线 ROI 跟随矫正。">5 用模板图设基准点</Button>
                     <Button Margin="4" Padding="12,6" MinWidth="150" Background="#555555" Foreground="White"
                             p:ButtonHelper.CornerRadius="10" Name="getinitpositonfromimagefile" Click="getinitpositonfromimagefile_Click"
                             ToolTip="选择一张现场图片匹配，并把该图片中的位置写入基准X/Y。">用现场图设基准点</Button>

@@ -96,6 +96,12 @@ namespace BusbarCompressionSystem.FaraVision
         [XmlIgnore]
         public string RCMD { get; set; } = string.Empty;
 
+        /// <summary>
+        /// 当前 AOI 帧内、同一触发指令下的模板定位矫正运行态。
+        /// </summary>
+        [XmlIgnore]
+        public LocatorCorrectionRuntimeState LocatorCorrection { get; set; } = new LocatorCorrectionRuntimeState();
+
 
         [XmlIgnore]
         public int ToolIndex { set; get; } = -1;
@@ -166,6 +172,10 @@ namespace BusbarCompressionSystem.FaraVision
                     case ToolStatus.OK:
                         {
                             return Brushes.GreenYellow;
+                        }
+                    case ToolStatus.定位未生效:
+                        {
+                            return Brushes.Gold;
                         }
                     case ToolStatus.NG:
                     case ToolStatus.NG2:

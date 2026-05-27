@@ -300,6 +300,79 @@ namespace BusbarCompressionSystem.ViewModel
         }
         #endregion
 
+        #region 定位矫正追溯日志
+        /// <summary>
+        /// 定位与 ROI 矫正统一追溯落盘。
+        /// 输出路径：日志\定位矫正追溯\{yyyyMMdd}.txt
+        /// </summary>
+        internal void WriteLocatorCorrectionTraceLog(
+            string eventKind,
+            ToolModel tool,
+            Productinfo productInfo,
+            string detail,
+            string originalRoiText = "",
+            string effectiveRoiText = "",
+            bool correctionApplied = false,
+            DateTime? traceTime = null)
+        {
+            DateTime time = traceTime ?? DateTime.Now;
+            lock (_locatorCorrectionLogLock)
+            {
+                AppendDailyLogLine(
+                    "定位矫正追溯",
+                    time,
+                    BuildLocatorCorrectionTraceLine(
+                        eventKind,
+                        tool,
+                        productInfo,
+                        detail,
+                        originalRoiText,
+                        effectiveRoiText,
+                        correctionApplied,
+                        time),
+                    "写入定位矫正追溯日志失败");
+            }
+        }
+
+        private string BuildLocatorCorrectionTraceLine(
+            string eventKind,
+            ToolModel tool,
+            Productinfo productInfo,
+            string detail,
+            string originalRoiText,
+            string effectiveRoiText,
+            bool correctionApplied,
+            DateTime traceTime)
+        {
+            string partNo = productInfo?.PartNOID ?? string.Empty;
+            string woCode = productInfo?.WOCODE ?? string.Empty;
+            string sn = productInfo?.SN ?? string.Empty;
+            string command = tool?.Command ?? string.Empty;
+            string toolName = tool?.Name ?? string.Empty;
+            int toolIndex = tool?.Index ?? 0;
+            var state = DataModel.FaraVisionDataModel.Processmodel.LocatorCorrection;
+            double refRow = state?.RefRow ?? 0;
+            double refCol = state?.RefCol ?? 0;
+            double refAngleDeg = (state?.RefAngleRad ?? 0) * 180.0 / Math.PI;
+            double actRow = state?.ActRow ?? 0;
+            double actCol = state?.ActCol ?? 0;
+            double actAngleDeg = (state?.ActAngleRad ?? 0) * 180.0 / Math.PI;
+
+            return $"[{traceTime:yyyy-MM-dd HH:mm:ss.fff}] " +
+                $"事件={eventKind}|Command={command}|{partNo}|{woCode}|{sn}|" +
+                $"工具={toolIndex:00}-{toolName}|模式={tool?.TestMode}|" +
+                $"跟随启用={(state?.FollowEnabled == true ? "是" : "否")}|" +
+                $"定位生效={(state?.TransformActive == true ? "是" : "否")}|" +
+                $"参考pose=({refRow:F1},{refCol:F1},{refAngleDeg:F2}deg)|" +
+                $"实测pose=({actRow:F1},{actCol:F1},{actAngleDeg:F2}deg)|" +
+                $"Score={(tool?.ActualScore ?? state?.MatchScore ?? 0):F3}|" +
+                $"已应用矫正={(correctionApplied ? "是" : "否")}|" +
+                $"原ROI={originalRoiText}|生效ROI={effectiveRoiText}|" +
+                $"辅助状态={GetMeasurementStatusText(tool?.ToolStatus ?? ToolStatus.等待中)}|" +
+                $"说明={detail}";
+        }
+        #endregion
+
         /// <summary>
         /// 将ROI格式化为可落盘的一行文本，便于现场快速比对是否“同一套ROI”。
         /// </summary>
@@ -334,6 +407,8 @@ namespace BusbarCompressionSystem.ViewModel
                     return "NG";
                 case ToolStatus.NG2:
                     return "NG2";
+                case ToolStatus.定位未生效:
+                    return "定位未生效";
                 default:
                     return status.ToString();
             }

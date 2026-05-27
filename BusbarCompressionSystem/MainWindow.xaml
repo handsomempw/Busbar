@@ -348,7 +348,7 @@
                                         <TextBlock Grid.Row="0" Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Center" Text="{Binding FaraVisionDataModel.Processmodel.tool.BarcodeStr}" />
                                     </Grid>
 
-                                    <Grid Grid.Row="2"  Visibility="{Binding FaraVisionDataModel.Processmodel.tool.TestMode,Converter={StaticResource TestMode2Visibility_ShapeMatch}}">
+                                    <Grid Grid.Row="2"  Visibility="{Binding FaraVisionDataModel.Processmodel.tool.TestMode,Converter={StaticResource TestMode2Visibility_TemplateMatchOnly}}">
                                         <Grid.RowDefinitions>
                                             <RowDefinition/>
                                             <RowDefinition/>
@@ -382,6 +382,35 @@
                                         <!--<TextBlock Grid.Row="2" Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Right">mm</TextBlock>-->
                                         <!--<TextBlock Grid.Row="3" Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Right">mm</TextBlock>-->
 
+                                    </Grid>
+                                    <Grid Grid.Row="2" Visibility="{Binding FaraVisionDataModel.Processmodel.tool.TestMode,Converter={StaticResource TestMode2Visibility_TemplateLocatorOnly}}">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition/>
+                                            <RowDefinition/>
+                                            <RowDefinition/>
+                                            <RowDefinition/>
+                                            <RowDefinition/>
+                                        </Grid.RowDefinitions>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="auto"/>
+                                            <ColumnDefinition/>
+                                            <ColumnDefinition Width="auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right">实测Row:</TextBlock>
+                                        <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right">实测Col:</TextBlock>
+                                        <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right">角度:</TextBlock>
+                                        <TextBlock Grid.Row="3" Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right">分值:</TextBlock>
+                                        <TextBlock Grid.Row="4" Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right">状态:</TextBlock>
+
+                                        <TextBlock Grid.Row="0" Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Center" Text="{Binding FaraVisionDataModel.Processmodel.tool.ActualY,StringFormat={}{0:F1}}"/>
+                                        <TextBlock Grid.Row="1" Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Center" Text="{Binding FaraVisionDataModel.Processmodel.tool.ActualX,StringFormat={}{0:F1}}"/>
+                                        <TextBlock Grid.Row="2" Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Center" Text="{Binding FaraVisionDataModel.Processmodel.tool.ActualAngle,StringFormat={}{0:F2}}"/>
+                                        <TextBlock Grid.Row="3" Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Center" Text="{Binding FaraVisionDataModel.Processmodel.tool.ActualScore,StringFormat={}{0:F3}}"/>
+                                        <TextBlock Grid.Row="4" Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Center" Text="{Binding FaraVisionDataModel.Processmodel.tool.ToolStatus}"/>
+
+                                        <TextBlock Grid.Row="0" Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Right">px</TextBlock>
+                                        <TextBlock Grid.Row="1" Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Right">px</TextBlock>
+                                        <TextBlock Grid.Row="2" Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Right">deg</TextBlock>
                                     </Grid>
                                     <Grid Grid.Row="2"  Visibility="{Binding FaraVisionDataModel.Processmodel.tool.TestMode,Converter={StaticResource TestMode2Visibility_Dimension}}">
                                         <Grid.RowDefinitions>

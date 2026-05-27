@@ -135,6 +135,7 @@
       <DependentUpon>Toolcontrol.xaml</DependentUpon>
     </Compile>
     <Compile Include="Model\FaraVision\FaraVisionDataModel.cs" />
+    <Compile Include="Model\FaraVision\LocatorCorrectionRuntimeState.cs" />
     <Compile Include="Model\FaraVision\Convertor.cs" />
     <Compile Include="Model\FaraVision\Hobject2Bitmap.cs" />
     <Compile Include="Model\FaraVision\DynamicPasswordAuthWindow.xaml.cs">
@@ -178,6 +179,7 @@
     </Compile>
     <Compile Include="ViewModel\MainViewModel.cs" />
     <Compile Include="ViewModel\MainViewModel_Camera.cs" />
+    <Compile Include="ViewModel\MainViewModel_LocatorCorrection.cs" />
     <Compile Include="ViewModel\MainViewModel_FaraVision.cs" />
     <Compile Include="ViewModel\MainViewModel_Logging.cs" />
     <Compile Include="ViewModel\MainViewModel_Persistence.cs" />
