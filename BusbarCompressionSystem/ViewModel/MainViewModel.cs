@@ -108,6 +108,7 @@ namespace BusbarCompressionSystem.ViewModel
         /// 返回错误信息字符串，如果处理成功则返回空字符串
         /// 可能的错误信息包括：
         /// - 标签解码失败
+        /// - 工单混批错误（扫码工单与参数下发批号不一致）
         /// - 混批错误（不同规格产品）
         /// - 工单号查询失败
         /// - 物料编码查询失败
@@ -116,13 +117,14 @@ namespace BusbarCompressionSystem.ViewModel
         /// 处理流程：
         /// 1. 解码扫码数据获取产品SN
         /// 2. 根据SN查询MES系统获取工单号和物料编码
-        /// 3. 验证物料编码是否与当前产线规格一致（防止混批）
-        /// 4. 验证数据完整性（工单号和物料编码不能为空）
-        /// 5. 将SN和工单号写入PLC
-        /// 6. 在本地数据库创建生产记录
+        /// 3. 验证数据完整性（工单号和物料编码不能为空）
+        /// 4. 验证扫码工单是否与参数下发批号一致（防止不同工单产品混测）
+        /// 5. 验证物料编码是否与当前产线规格一致（防止不同规格混测）
+        /// 6. 将SN和工单号写入PLC
+        /// 7. 在本地数据库创建生产记录
         /// 业务逻辑：
-        /// 1. 点检SN码（INSPECTION_TV_OK/NG, INSPECTION_AOI_OK/NG）：跳过MES校验，直接创建本地记录
-        /// 2. 普通SN码：调用MES解析获取产品信息，校验规格一致性后创建本地记录
+        /// 1. 点检SN码（INSPECTION_TV_OK/NG, INSPECTION_AOI_OK/NG）：保留点检旁路，直接创建本地记录
+        /// 2. 普通SN码：调用MES解析获取产品信息，校验参数批号和规格一致性后创建本地记录
         /// </remarks>
         public string _ScanSN(string snstr)
         {
@@ -170,6 +172,22 @@ namespace BusbarCompressionSystem.ViewModel
                 string partnoid = MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.get_PartNO_ID(sn);
                 writeLog($"查询PartNOID: {(string.IsNullOrEmpty(partnoid) ? "查询失败" : partnoid)}");
                
+                // 数据完整性检查
+                if (string.IsNullOrEmpty(wocode))
+                {
+                    return "关联批次号读取失败";
+                }
+                if (string.IsNullOrEmpty(partnoid))
+                {
+                    return "关联规格信息读取失败";
+                }
+
+                string workOrderError = ValidateScanWorkOrder(wocode, sn, partnoid);
+                if (!string.IsNullOrEmpty(workOrderError))
+                {
+                    return workOrderError;
+                }
+
                 if (partnoid != DataModel.Processmodel.PartNOID)
                 {
                     // 【日志】混批报错详细信息
@@ -180,16 +198,6 @@ namespace BusbarCompressionSystem.ViewModel
                     writeLog($"  - 工单号: {wocode}", true);
                     writeLog($"========== 扫码处理失败（混批错误）==========", true);
                     return $"混批错误！禁止不同规格产品混合作业\n当前规格: {DataModel.Processmodel.PartNOID}\n扫码规格: {partnoid}";
-                }
-
-                // 数据完整性检查
-                if (string.IsNullOrEmpty(wocode))
-                {
-                    return "关联批次号读取失败";
-                }
-                if (string.IsNullOrEmpty(partnoid))
-                {
-                    return "关联规格信息读取失败";
                 }
                 
                 // 写入PLC和数据库
@@ -222,6 +230,34 @@ namespace BusbarCompressionSystem.ViewModel
             //{
             //    return "拍照位已经有产品编号，请勿重复扫码";
             //}
+        }
+
+        /// <summary>
+        /// 校验普通产品扫码工单与参数下发批号的一致性。
+        /// 该校验位于MES解析之后、PLC产品码写入之前，影响普通生产扫码放行；点检SN在扫码入口提前处理，保持原有点检路径。
+        /// </summary>
+        /// <param name="scanWorkOrder">扫码SN经MES查询得到的工单号，用于判定该产品归属批次。</param>
+        /// <param name="sn">MES解码后的产品SN，用于异常日志追溯。</param>
+        /// <param name="partnoid">扫码产品规格，用于异常日志追溯。</param>
+        /// <returns>校验通过返回空字符串；返回非空文本时扫码失败，调用方停止PLC写入和本地记录创建。</returns>
+        private string ValidateScanWorkOrder(string scanWorkOrder, string sn, string partnoid)
+        {
+            string currentWorkOrder = (DataModel.Processmodel.wocodeinputstr ?? string.Empty).Trim();
+            string actualWorkOrder = (scanWorkOrder ?? string.Empty).Trim();
+
+            if (string.IsNullOrEmpty(currentWorkOrder))
+            {
+                writeLog($"[扫码工单校验失败] 当前参数工单为空，扫码工单={actualWorkOrder}, SN={sn}, 规格={partnoid}；已拦截扫码，未写入PLC产品码，未创建测试记录。", true);
+                return "当前未下发工单参数，请先输入批号并下发参数";
+            }
+
+            if (!string.Equals(currentWorkOrder, actualWorkOrder, StringComparison.OrdinalIgnoreCase))
+            {
+                writeLog($"[扫码工单校验失败] 当前参数工单={currentWorkOrder}, 扫码工单={actualWorkOrder}, SN={sn}, 规格={partnoid}；已拦截扫码，未写入PLC产品码，未创建测试记录。", true);
+                return $"工单混批错误！当前参数工单: {currentWorkOrder}\n扫码工单: {actualWorkOrder}\n产品SN: {sn}";
+            }
+
+            return string.Empty;
         }
 
         /// <summary>
