@@ -59,8 +59,25 @@ namespace BusbarCompressionSystem.Model.FaraVision
         private System.Windows.Shapes.Ellipse _previewCircle;  // 预览圆形控件
         private bool _isFirstCircleClick = true;  // 是否是第一次点击（记录圆心），用于区分MouseUp事件
 
-        public SettingForm()
+        /// <summary>
+        /// 只读查看模式：允许浏览参数与执行测试类操作，禁止写回 ToolModel、ROI 或模板图片。
+        /// 由主界面在未开启动态密码编辑权限时传入；编辑模式保持原有参数配置与审计口径。
+        /// </summary>
+        private readonly bool _isReadOnly;
+
+        private static readonly HashSet<string> ReadOnlyAllowedTestButtonNames = new HashSet<string>(StringComparer.Ordinal)
         {
+            nameof(DimensionApply),
+            nameof(DimensionApply_Pic),
+            nameof(DimensionMeasureApply),
+            nameof(DimensionMeasureApply_Pic),
+            nameof(LineDetectApply),
+            nameof(LineDetectApply_Pic),
+        };
+
+        public SettingForm(bool isReadOnly = false)
+        {
+            _isReadOnly = isReadOnly;
             InitializeComponent();
             vml = this.FindResource("Locator") as ViewModelLocator;
             t = (ToolModel)DataContext;
@@ -85,17 +102,21 @@ namespace BusbarCompressionSystem.Model.FaraVision
         /// - UpdateROIParamsUIVisibility：控制参数面板显隐
         /// - refreshrectangle：刷新WPF Canvas上的ROI框
         /// - ResetDrawingStates：清理绘制状态
+        /// 只读查看模式下跳过会写回 ToolModel 的 ROI 类型同步，仅刷新界面展示与测试所需叠加层。
         /// </summary>
         private void WindowX_Loaded(object sender, RoutedEventArgs e)
         {
             try
             {
-                // 按当前测量类型同步 ROI 类型（Line/Circle），无需用户再次切换下拉框
-                ApplyMeasureTypeToROIType();
-
-                if (t.TestMode == TestModes.直线检测)
+                if (!_isReadOnly)
                 {
-                    t.LineDetectROI.Type = ROIType.Line;
+                    // 按当前测量类型同步 ROI 类型（Line/Circle），无需用户再次切换下拉框
+                    ApplyMeasureTypeToROIType();
+
+                    if (t.TestMode == TestModes.直线检测)
+                    {
+                        t.LineDetectROI.Type = ROIType.Line;
+                    }
                 }
 
                 // 同步参数区显隐
@@ -118,6 +139,145 @@ namespace BusbarCompressionSystem.Model.FaraVision
             {
                 System.Diagnostics.Debug.WriteLine($"窗口初始化失败: {ex.Message}");
             }
+            finally
+            {
+                if (_isReadOnly)
+                {
+                    try
+                    {
+                        ApplyReadOnlyState();
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"只读状态应用失败: {ex.Message}");
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// 将工具配置窗体切换为只读查看态：仅约束右侧工具参数面板内的可写控件，保留各检测模式的模板/照片测试入口。
+        /// 图像预览区与 WindowX 标题栏（关闭、最小化、最大化）不在处理范围内。
+        /// </summary>
+        private void ApplyReadOnlyState()
+        {
+            Title = "工具设置（只读查看）";
+            ApplyReadOnlyToElement(ToolParameterPanel);
+        }
+
+        /// <summary>
+        /// 递归禁用参数面板内可写控件，仅保留 <see cref="ReadOnlyAllowedTestButtonNames"/> 中的测试按钮可用。
+        /// </summary>
+        /// <param name="element">工具参数面板内的视觉树节点；不得传入窗体根节点或 WindowX 模板节点。</param>
+        private void ApplyReadOnlyToElement(DependencyObject element)
+        {
+            if (element == null || ToolParameterPanel == null)
+            {
+                return;
+            }
+
+            int childCount = VisualTreeHelper.GetChildrenCount(element);
+            for (int i = 0; i < childCount; i++)
+            {
+                var child = VisualTreeHelper.GetChild(element, i);
+
+                if (child is Button button)
+                {
+                    if (IsWindowChromeControl(button))
+                    {
+                        continue;
+                    }
+
+                    if (IsVisualDescendantOf(button, ToolParameterPanel) &&
+                        !ReadOnlyAllowedTestButtonNames.Contains(button.Name))
+                    {
+                        button.IsEnabled = false;
+                    }
+                }
+                else if (child is TextBox textBox)
+                {
+                    if (IsVisualDescendantOf(textBox, ToolParameterPanel))
+                    {
+                        textBox.IsReadOnly = true;
+                    }
+                }
+                else if (child is ComboBox comboBox)
+                {
+                    if (IsVisualDescendantOf(comboBox, ToolParameterPanel))
+                    {
+                        comboBox.IsEnabled = false;
+                    }
+                }
+                else if (child is CheckBox checkBox)
+                {
+                    if (IsVisualDescendantOf(checkBox, ToolParameterPanel))
+                    {
+                        checkBox.IsEnabled = false;
+                    }
+                }
+                else if (child is Slider slider)
+                {
+                    if (IsVisualDescendantOf(slider, ToolParameterPanel))
+                    {
+                        slider.IsEnabled = false;
+                    }
+                }
+
+                ApplyReadOnlyToElement(child);
+            }
+        }
+
+        /// <summary>
+        /// 判断控件是否位于 WindowX 标题栏模板内，避免只读处理误伤关闭、最小化等系统按钮。
+        /// </summary>
+        /// <param name="element">待检查的控件或其视觉树祖先链上的节点。</param>
+        /// <returns>true 表示属于标题栏模板，应跳过只读禁用。</returns>
+        private static bool IsWindowChromeControl(DependencyObject element)
+        {
+            while (element != null)
+            {
+                string typeName = element.GetType().FullName ?? string.Empty;
+                if (typeName.IndexOf("Panuon.WPF.UI", StringComparison.Ordinal) >= 0 &&
+                    typeName.IndexOf("Caption", StringComparison.Ordinal) >= 0)
+                {
+                    return true;
+                }
+
+                element = VisualTreeHelper.GetParent(element);
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// 判断目标节点是否位于指定容器节点的视觉树下级。
+        /// </summary>
+        /// <param name="element">待判断的控件节点。</param>
+        /// <param name="ancestor">期望的上级容器节点，通常为工具参数面板根节点。</param>
+        /// <returns>true 表示 element 是 ancestor 的视觉后代。</returns>
+        private static bool IsVisualDescendantOf(DependencyObject element, DependencyObject ancestor)
+        {
+            while (element != null)
+            {
+                if (element == ancestor)
+                {
+                    return true;
+                }
+
+                element = VisualTreeHelper.GetParent(element);
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// 校验当前窗体是否允许执行会写回 ToolModel、ROI 或模板资源的操作。
+        /// 测试类按钮在只读模式下仍可调用，不在此方法拦截范围内。
+        /// </summary>
+        /// <returns>true 表示可继续参数编辑流程；false 表示当前为只读查看，应中止写回。</returns>
+        private bool EnsureEditable()
+        {
+            return !_isReadOnly;
         }
 
         /// <summary>
@@ -140,6 +300,11 @@ namespace BusbarCompressionSystem.Model.FaraVision
         /// </summary>
         private void Button_Click(object sender, RoutedEventArgs e)
         {
+            if (!EnsureEditable())
+            {
+                return;
+            }
+
             try
             {
                 OpenFileDialog ofd = new OpenFileDialog();
@@ -198,6 +363,13 @@ namespace BusbarCompressionSystem.Model.FaraVision
         /// </summary>
         private void rectange_MouseMove(object sender, MouseEventArgs e)
         {
+            if (_isReadOnly &&
+                (_circleDrawingInProgress || _lineDrawingInProgress || _started ||
+                 selectbroi || selectproi || selectdroi || selectmeasureobject1roi || selectmeasureobject2roi || selectlinedetectroi))
+            {
+                return;
+            }
+
             // === 分支1：圆形ROI实时预览 ===
             if (_circleDrawingInProgress)
             {
@@ -275,6 +447,12 @@ namespace BusbarCompressionSystem.Model.FaraVision
         /// </summary>
         private void rectange_MouseDown(object sender, MouseButtonEventArgs e)
         {
+            if (_isReadOnly &&
+                (selectbroi || selectproi || selectdroi || selectmeasureobject1roi || selectmeasureobject2roi || selectlinedetectroi))
+            {
+                return;
+            }
+
             // === 分支1：圆形ROI第一次点击（记录圆心） ===
             if ((selectmeasureobject1roi && t.MeasureObject1ROI.Type == ROIType.Circle) ||
                 (selectmeasureobject2roi && t.MeasureObject2ROI.Type == ROIType.Circle))
@@ -364,6 +542,13 @@ namespace BusbarCompressionSystem.Model.FaraVision
         /// </summary>
         private void rectange_MouseUp(object sender, MouseButtonEventArgs e)
         {
+            if (_isReadOnly &&
+                (selectbroi || selectproi || selectdroi || selectmeasureobject1roi || selectmeasureobject2roi || selectlinedetectroi ||
+                 _circleDrawingInProgress || _lineDrawingInProgress || _started))
+            {
+                return;
+            }
+
             // === 分支1：圆形ROI完成处理 ===
             if (_circleDrawingInProgress && (selectmeasureobject1roi || selectmeasureobject2roi))
             {
@@ -762,6 +947,11 @@ namespace BusbarCompressionSystem.Model.FaraVision
 
         private void SelectPositionROI_Click(object sender, RoutedEventArgs e)
         {
+            if (!EnsureEditable())
+            {
+                return;
+            }
+
             selectproi = !selectproi;
 
             SelectPositionROI.Background = selectproi ? System.Windows.Media.Brushes.Orange : System.Windows.Media.Brushes.Gray;
@@ -769,6 +959,11 @@ namespace BusbarCompressionSystem.Model.FaraVision
 
         private void SelectBarcodeROI_Click(object sender, RoutedEventArgs e)
         {
+            if (!EnsureEditable())
+            {
+                return;
+            }
+
             selectbroi = !selectbroi;
             SelectBarcodeROI.Background = selectbroi ? System.Windows.Media.Brushes.OrangeRed : System.Windows.Media.Brushes.Gray;
 
@@ -776,6 +971,11 @@ namespace BusbarCompressionSystem.Model.FaraVision
 
         private void modelsetting_Click(object sender, RoutedEventArgs e)
         {
+            if (!EnsureEditable())
+            {
+                return;
+            }
+
             try
             {
                 string shmfilename = $"{vml.Main.DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{vml.Main.DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{vml.Main.DataModel.FaraVisionDataModel.Processmodel.Tools[vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool.Index - 1].Index}.shm";
@@ -788,6 +988,11 @@ namespace BusbarCompressionSystem.Model.FaraVision
 
         private void ApplyAll_Click(object sender, RoutedEventArgs e)
         {
+            if (!EnsureEditable())
+            {
+                return;
+            }
+
             if (MessageBoxX.Show("是否确定应用并更新所有配置?", "提示", MessageBoxButton.YesNo, MessageBoxIcon.Question, DefaultButton.NoCancel) == MessageBoxResult.Yes)
             {
                 for (int i = 0; i < vml.Main.DataModel.FaraVisionDataModel.Processmodel.Tools.Count; i++)
@@ -807,6 +1012,11 @@ namespace BusbarCompressionSystem.Model.FaraVision
 
         private void SelectDimensionROI_Click(object sender, RoutedEventArgs e)
         {
+            if (!EnsureEditable())
+            {
+                return;
+            }
+
             selectdroi = !selectdroi;
             SelectDimensionROI.Background = selectdroi ? System.Windows.Media.Brushes.Orange : System.Windows.Media.Brushes.Gray;
         }
@@ -870,6 +1080,11 @@ namespace BusbarCompressionSystem.Model.FaraVision
 
         private void SelectMeasureObject1ROI_Click(object sender, RoutedEventArgs e)
         {
+            if (!EnsureEditable())
+            {
+                return;
+            }
+
             selectmeasureobject1roi = !selectmeasureobject1roi;
             SelectMeasureObject1ROI.Background = selectmeasureobject1roi ? System.Windows.Media.Brushes.Lime : System.Windows.Media.Brushes.Gray;
 
@@ -886,6 +1101,11 @@ namespace BusbarCompressionSystem.Model.FaraVision
 
         private void SelectMeasureObject2ROI_Click(object sender, RoutedEventArgs e)
         {
+            if (!EnsureEditable())
+            {
+                return;
+            }
+
             selectmeasureobject2roi = !selectmeasureobject2roi;
             SelectMeasureObject2ROI.Background = selectmeasureobject2roi ? System.Windows.Media.Brushes.Cyan : System.Windows.Media.Brushes.Gray;
 
@@ -905,6 +1125,11 @@ namespace BusbarCompressionSystem.Model.FaraVision
         /// </summary>
         private void MeasureType_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
+            if (!EnsureEditable())
+            {
+                return;
+            }
+
             if (t == null) return;
 
             // 根据测量类型自动设置ROI类型
@@ -991,6 +1216,11 @@ namespace BusbarCompressionSystem.Model.FaraVision
 
         private void CalibrateDimensionK_Click(object sender, RoutedEventArgs e)
         {
+            if (!EnsureEditable())
+            {
+                return;
+            }
+
             try
             {
                 // 验证图像
@@ -1214,6 +1444,11 @@ namespace BusbarCompressionSystem.Model.FaraVision
 
         private void AutoMetrologyThreshold_Click(object sender, RoutedEventArgs e)
         {
+            if (!EnsureEditable())
+            {
+                return;
+            }
+
             try
             {
                 if (t?.Image == null)
@@ -1395,6 +1630,11 @@ namespace BusbarCompressionSystem.Model.FaraVision
         /// </summary>
         private void MetrologyParameter_Changed(object sender, RoutedEventArgs e)
         {
+            if (!EnsureEditable())
+            {
+                return;
+            }
+
             // 初始化定时器（仅第一次）
             if (_metrologyPreviewTimer == null)
             {
@@ -1588,6 +1828,11 @@ namespace BusbarCompressionSystem.Model.FaraVision
         /// </summary>
         private void TestMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
+            if (!EnsureEditable())
+            {
+                return;
+            }
+
             if (t == null || e.AddedItems == null || e.AddedItems.Count == 0)
             {
                 return;
@@ -1611,6 +1856,11 @@ namespace BusbarCompressionSystem.Model.FaraVision
         /// </summary>
         private void SelectLineDetectROI_Click(object sender, RoutedEventArgs e)
         {
+            if (!EnsureEditable())
+            {
+                return;
+            }
+
             selectlinedetectroi = !selectlinedetectroi;
             SelectLineDetectROI.Background = selectlinedetectroi
                 ? System.Windows.Media.Brushes.Gold

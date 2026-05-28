@@ -366,29 +366,48 @@ namespace BusbarCompressionSystem
                 vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool = vml.Main.DataModel.FaraVisionDataModel.Processmodel.Tools[vml.Main.DataModel.FaraVisionDataModel.Processmodel.selectedindex];
             }
         }
+        /// <summary>
+        /// 双击工具列表打开 AOI 工具配置窗体。
+        /// 未开启编辑权限时以只读模式进入，供现场查看参数和执行模板/照片测试；
+        /// 已开启动态密码编辑权限时需二次确认，并在进入编辑界面前采集审计快照。
+        /// </summary>
+        /// <param name="sender">触发双击的工具列表控件。</param>
+        /// <param name="e">鼠标双击事件参数。</param>
         private void ListBox_MouseDoubleClick(object sender, MouseButtonEventArgs e)
         {
-            if (!vml.Main.DataModel.FaraVisionDataModel.Settingmodel.permission)
+            bool hasEditPermission = vml.Main.DataModel.FaraVisionDataModel.Settingmodel.permission;
+            if (hasEditPermission &&
+                MessageBoxX.Show("是否确定打开编辑工具？", "提示", MessageBoxButton.YesNo) != MessageBoxResult.Yes)
             {
-                NoticeBox.Show("请先打开权限，再进行编辑", "提示", MessageBoxIcon.Warning, true, 5000);
                 return;
             }
-            if (MessageBoxX.Show("是否确定打开编辑工具？", "提示", MessageBoxButton.YesNo) == MessageBoxResult.Yes)
-            {
-                vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool = vml.Main.DataModel.FaraVisionDataModel.Processmodel.Tools[vml.Main.DataModel.FaraVisionDataModel.Processmodel.selectedindex];
-                vml.Main.LoadBitmapSource();
-                //vml.Main.DataModel.Processmodel.tool = @vml.Main.DataModel.Processmodel.Tools[vml.Main.DataModel.Processmodel.selectedindex];
 
+            var tools = vml.Main.DataModel.FaraVisionDataModel.Processmodel.Tools;
+            int selectedIndex = vml.Main.DataModel.FaraVisionDataModel.Processmodel.selectedindex;
+            if (tools == null || tools.Count == 0)
+            {
+                NoticeBox.Show("当前没有可打开的工具", "提示", MessageBoxIcon.Warning, true, 3000);
+                return;
+            }
+
+            if (selectedIndex < 0 || selectedIndex >= tools.Count)
+            {
+                NoticeBox.Show("请先选中一个工具再打开", "提示", MessageBoxIcon.Warning, true, 3000);
+                return;
+            }
+
+            vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool =
+                tools[selectedIndex];
+            vml.Main.LoadBitmapSource();
+
+            if (hasEditPermission)
+            {
                 // 进入编辑界面前保存工具快照，作为“保存工程时参数差异审计”的旧值来源
                 CaptureEditingToolSnapshotForAudit();
-
-                Model.FaraVision.SettingForm settingForm = new Model.FaraVision.SettingForm();
-                //settingForm.Topmost = true;
-                settingForm.ShowDialog();
-                //settingForm.Show();
-
-
             }
+
+            var settingForm = new Model.FaraVision.SettingForm(isReadOnly: !hasEditPermission);
+            settingForm.ShowDialog();
         }
 
         private void ChangePrj_Click(object sender, RoutedEventArgs e)

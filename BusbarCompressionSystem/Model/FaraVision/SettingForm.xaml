@@ -98,7 +98,7 @@
 
         </ScrollViewer>
 
-        <GroupBox Header="工具参数" Grid.Column="1" MaxWidth="400">
+        <GroupBox x:Name="ToolParameterPanel" Header="工具参数" Grid.Column="1" MaxWidth="400">
                 <Grid Grid.Column="1">
                 <Grid.RowDefinitions>
                     <RowDefinition Height=" auto"/>
