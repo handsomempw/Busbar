@@ -250,6 +250,7 @@
     <Compile Include="Properties\AssemblyInfo.cs">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="obj\$(Configuration)\GeneratedVersionInfo.cs" Condition="'$(_IsWpfTempProject)' != 'true'" />
     <Compile Include="Properties\Resources.Designer.cs">
       <AutoGen>True</AutoGen>
       <DesignTime>True</DesignTime>
@@ -323,7 +324,18 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
+  <PropertyGroup>
+    <_IsWpfTempProject>$([System.String]::Copy('$(MSBuildProjectFile)').Contains('_wpftmp'))</_IsWpfTempProject>
+    <_VersionScriptPath>$(MSBuildThisFileDirectory)Build\GenerateBuildInfo.ps1</_VersionScriptPath>
+  </PropertyGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+  <Target Name="GenerateBuildInfo" BeforeTargets="CoreCompile" Condition="'$(_IsWpfTempProject)' != 'true'">
+    <PropertyGroup>
+      <_VersionIntermediateDir>$(MSBuildProjectDirectory)\obj\$(Configuration)</_VersionIntermediateDir>
+    </PropertyGroup>
+    <MakeDir Directories="$(_VersionIntermediateDir)" />
+    <Exec WorkingDirectory="$(MSBuildProjectDirectory)" Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(_VersionScriptPath)&quot; -IntermediateDir &quot;$(_VersionIntermediateDir)&quot; -Configuration &quot;$(Configuration)&quot;" />
+  </Target>
   <Import Project="..\packages\Fody.6.6.4\build\Fody.targets" Condition="Exists('..\packages\Fody.6.6.4\build\Fody.targets')" />
   <Target Name="EnsureNuGetPackageBuildImports" BeforeTargets="PrepareForBuild">
     <PropertyGroup>

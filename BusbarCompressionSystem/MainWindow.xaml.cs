@@ -28,6 +28,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -59,7 +60,34 @@ namespace BusbarCompressionSystem
         public MainWindow()
         {
             InitializeComponent();
+            ApplyWindowVersionTitle();
             vml = this.FindResource("Locator") as ViewModelLocator;
+        }
+
+        /// <summary>
+        /// 在主界面标题中显示当前程序版本，便于现场截图和远程沟通时直接确认正在运行的发布包。
+        /// 该显示只读取程序集版本信息，不影响设备初始化、工程加载和测试流程。
+        /// </summary>
+        private void ApplyWindowVersionTitle()
+        {
+            const string productTitle = "法拉电子-母排压合系统";
+            var assembly = Assembly.GetExecutingAssembly();
+            var informationalVersion = (AssemblyInformationalVersionAttribute)Attribute.GetCustomAttribute(
+                assembly,
+                typeof(AssemblyInformationalVersionAttribute));
+            var versionText = informationalVersion?.InformationalVersion?.Split('+').FirstOrDefault();
+
+            if (string.IsNullOrWhiteSpace(versionText))
+            {
+                var version = assembly.GetName().Version;
+                versionText = version == null
+                    ? string.Empty
+                    : string.Format("{0}.{1:D2}.{2:D2}.{3:D4}", version.Major, version.Minor, version.Build, version.Revision);
+            }
+
+            Title = string.IsNullOrWhiteSpace(versionText)
+                ? productTitle
+                : string.Format("{0} v{1}", productTitle, versionText);
         }
 
         private void WindowX_Loaded(object sender, RoutedEventArgs e)
