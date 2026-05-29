@@ -652,8 +652,11 @@ namespace BusbarCompressionSystem.ViewModel
                                 }
                                 else
                                 {
-                                    // AOI OK点检：正常判断AOI结果
-                                    if (!pi.AppearanceInspection)
+                                    // AOI OK 点检按整轮工具状态判定
+                                    bool allToolsOK = CheckAllAOIToolsOK();
+                                    pi.AppearanceInspection = allToolsOK;
+
+                                    if (!allToolsOK)
                                     {
                                         MSG = "NG4";
                                         resultstr = "AOI测试不合格";

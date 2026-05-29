@@ -78,6 +78,18 @@ namespace BusbarCompressionSystem.ViewModel
         #endregion
 
         /// <summary>
+        /// AOI 整轮外观结果锁。
+        /// 相机回调、机器人 CHECK 与界面记录可能处在不同线程，该锁保证同一 SN 的外观结果按检测轮次顺序折算。
+        /// </summary>
+        private readonly object _aoiInspectionResultLock = new object();
+
+        /// <summary>
+        /// 按 SN 保存当前 AOI 轮次的累计外观结果。
+        /// 同一轮检测内任一参与判定的 AOI 指令 NG 后，最终出站与点检 OK 口径保持 NG；下一次拍照留底建档时重置该 SN 的轮次状态。
+        /// </summary>
+        private readonly Dictionary<string, bool> _aoiInspectionOverallResultBySn = new Dictionary<string, bool>();
+
+        /// <summary>
         /// Initializes a new instance of the MainViewModel class.
         /// </summary>
         public MainViewModel()
@@ -863,6 +875,7 @@ namespace BusbarCompressionSystem.ViewModel
                     Productinfo = DataModel.Processmodel.TakePhotoTestModel.Productinfo,
                     TakePhoto1 = takephoto1
                 };
+                ResetAoiInspectionOverallResult(p.Productinfo?.SN);
                 App.Current.Dispatcher.BeginInvoke(new Action(() =>
                 {
                     DataModel.Recordmodel.ProductInfoRecords.Insert(0, p);
@@ -2179,14 +2192,18 @@ namespace BusbarCompressionSystem.ViewModel
 
 
         /// <summary>
-        /// 根据产品 SN 更新 DataModel.Recordmodel.ProductInfoRecords 中对应记录的 AOI 外观检测结果。
+        /// 根据产品 SN 更新 DataModel.Recordmodel.ProductInfoRecords 中对应记录的 AOI 整轮外观检测结果。
         /// 业务含义：
-        /// - AOI 工具完成判定后调用，将外观 OK/NG 结果及时间写入内存记录；
-        /// - 最终综合判定，会把 AppearanceInspection 作为外观工序的依据。
+        /// - 单条机器人 AOI 指令完成判定后调用，将该指令结果折算到当前 SN 的整轮外观结果；
+        /// - 同一轮内任一参与判定的 AOI 指令 NG 后，AppearanceInspection 保持 NG，供 CHECK2、点检 OK 和 MES 追溯使用。
         /// </summary>
-        /// <param name="SN">产品序列号，用于在集合中定位记录</param>
-        private void updatetakephoto2(string SN, bool result, DateTime dt)
+        /// <param name="SN">产品序列号，用于定位内存记录和当前 AOI 轮次。</param>
+        /// <param name="result">当前机器人 AOI 指令的汇总结果；true 表示该指令下参与判定工具全部 OK。</param>
+        /// <param name="dt">当前指令完成时间，用于界面记录与过程追溯。</param>
+        /// <returns>当前 SN 在本轮 AOI 中的累计外观结果；true 表示已完成的 AOI 指令全部 OK。</returns>
+        private bool updatetakephoto2(string SN, bool result, DateTime dt)
         {
+            bool overallResult = UpdateAoiInspectionOverallResult(SN, result);
             App.Current.Dispatcher.BeginInvoke(new Action(() =>
             {
                 try
@@ -2195,7 +2212,7 @@ namespace BusbarCompressionSystem.ViewModel
                     {
                         if (p.Productinfo.SN == SN)
                         {
-                            p.AppearanceInspection = result;
+                            p.AppearanceInspection = overallResult;
                             p.DateTime = dt;
 
                             // 不对同SN历史记录做“全量同步刷新”，仅更新第一条匹配记录（通常是列表中最新的一条）。
@@ -2207,42 +2224,117 @@ namespace BusbarCompressionSystem.ViewModel
                 catch (Exception ex)
                 {
                     // 同时写入UI日志与数据库错误日志，便于现场快速定位“内存更新失败/对象不存在/线程异常”等问题
-                    writeLog($"[AOI] 更新内存外观结果失败：SN={SN}, 结果={(result ? "OK" : "NG")}, 异常={ex.Message}", true);
+                    writeLog($"[AOI] 更新内存外观结果失败：SN={SN}, 结果={(overallResult ? "OK" : "NG")}, 异常={ex.Message}", true);
                     sqlite.WriteErrorLog("UPDATETAKEPHOTO2_EXCEPTION", $"更新AOI外观数据失败: {ex.Message}", SN);
                 }
             }));
+
+            return overallResult;
         }
 
         /// <summary>
-        /// 检查所有AOI工具是否都为NG状态
-        /// 用于AOI NG点检：只有所有工具都为NG才算点检通过
+        /// 清除指定 SN 的 AOI 整轮结果缓存。
+        /// 拍照留底建档代表该 SN 开始新的检测轮次，重复点检 SN 也从本轮第一条 AOI 指令重新累计。
         /// </summary>
-        /// <returns>true: 所有工具都为NG; false: 存在非NG工具</returns>
+        /// <param name="SN">当前建档的产品或点检 SN；空值直接忽略。</param>
+        private void ResetAoiInspectionOverallResult(string SN)
+        {
+            if (string.IsNullOrWhiteSpace(SN))
+            {
+                return;
+            }
+
+            lock (_aoiInspectionResultLock)
+            {
+                _aoiInspectionOverallResultBySn.Remove(SN);
+            }
+        }
+
+        /// <summary>
+        /// 折算当前 SN 的 AOI 整轮外观结果。
+        /// 首条 AOI 指令采用自身结果，后续指令按“已完成指令全部 OK”累计；任一 NG 会保留到本轮 CHECK2。
+        /// </summary>
+        /// <param name="SN">当前检测轮次对应的产品或点检 SN。</param>
+        /// <param name="commandResult">当前机器人 AOI 指令的汇总结果。</param>
+        /// <returns>当前轮次已完成 AOI 指令的累计外观结果。</returns>
+        private bool UpdateAoiInspectionOverallResult(string SN, bool commandResult)
+        {
+            if (string.IsNullOrWhiteSpace(SN))
+            {
+                return commandResult;
+            }
+
+            lock (_aoiInspectionResultLock)
+            {
+                bool previousResult;
+                if (_aoiInspectionOverallResultBySn.TryGetValue(SN, out previousResult))
+                {
+                    bool overallResult = previousResult && commandResult;
+                    _aoiInspectionOverallResultBySn[SN] = overallResult;
+                    return overallResult;
+                }
+
+                _aoiInspectionOverallResultBySn[SN] = commandResult;
+                return commandResult;
+            }
+        }
+
+        /// <summary>
+        /// 检查参与产品判定的 AOI 工具是否全部为 OK 状态。
+        /// 用于 AOI OK 点检；模板定位等辅助工具保持定位职责，不参与产品外观 OK/NG 口径。
+        /// </summary>
+        /// <returns>true 表示所有参与判定的 AOI 工具均为 OK；false 表示无可判定工具、存在未完成工具或存在非 OK 状态。</returns>
+        private bool CheckAllAOIToolsOK()
+        {
+            return CheckAllAOIJudgingToolsStatus(ToolStatus.OK, "AOI_OK点检");
+        }
+
+        /// <summary>
+        /// 检查参与产品判定的 AOI 工具是否全部为 NG 状态。
+        /// 用于 AOI NG 点检：只有全部判定工具均为 NG，才向 PLC 写入点检通过信号。
+        /// </summary>
+        /// <returns>true 表示所有参与判定的 AOI 工具均为 NG；false 表示无可判定工具、存在未完成工具或存在非 NG 状态。</returns>
         private bool CheckAllAOIToolsNG()
+        {
+            return CheckAllAOIJudgingToolsStatus(ToolStatus.NG, "AOI_NG点检");
+        }
+
+        /// <summary>
+        /// 按指定状态检查参与产品判定的 AOI 工具。
+        /// 点检 OK 与点检 NG 共用该口径，保证 CHECK2 前的工具状态检查与生产外观判定工具范围一致。
+        /// </summary>
+        /// <param name="expectedStatus">点检要求的目标状态；OK 点检要求 OK，NG 点检要求 NG。</param>
+        /// <param name="logTag">日志阶段标识，用于现场按点检类型检索异常工具。</param>
+        /// <returns>true 表示所有参与判定工具均达到目标状态。</returns>
+        private bool CheckAllAOIJudgingToolsStatus(ToolStatus expectedStatus, string logTag)
         {
             try
             {
-                if (DataModel.FaraVisionDataModel.Processmodel.Tools.Count == 0)
+                var judgingTools = DataModel.FaraVisionDataModel.Processmodel.Tools
+                    .Where(IsJudgingTool)
+                    .ToList();
+
+                if (judgingTools.Count == 0)
                 {
-                    writeLog("AOI_NG点检->无工具配置，返回false");
+                    writeLog($"{logTag}->无参与判定的工具配置，返回false");
                     return false;
                 }
 
-                foreach (var tool in DataModel.FaraVisionDataModel.Processmodel.Tools)
+                foreach (var tool in judgingTools)
                 {
-                    if (tool.ToolStatus != ToolStatus.NG)
+                    if (tool.ToolStatus != expectedStatus)
                     {
-                        writeLog($"AOI_NG点检->工具[{tool.Name}]状态为{tool.ToolStatus}，不是NG");
+                        writeLog($"{logTag}->工具[{tool.Name}]状态为{tool.ToolStatus}，期望={expectedStatus}");
                         return false;
                     }
                 }
 
-                writeLog($"AOI_NG点检->所有{DataModel.FaraVisionDataModel.Processmodel.Tools.Count}个工具均为NG");
+                writeLog($"{logTag}->所有{judgingTools.Count}个参与判定工具均为{expectedStatus}");
                 return true;
             }
             catch (Exception ex)
             {
-                writeLog($"AOI_NG点检->检查工具状态异常: {ex.Message}");
+                writeLog($"{logTag}->检查工具状态异常: {ex.Message}");
                 return false;
             }
         }

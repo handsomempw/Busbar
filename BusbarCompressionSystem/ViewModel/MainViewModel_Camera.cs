@@ -900,16 +900,16 @@ namespace BusbarCompressionSystem.ViewModel
 
                             #region 保存拍照记录到本地
                             DateTime dt = DateTime.Now;
-                            updatetakephoto2(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, status == 0, dt);
+                            bool aoiOverallResult = updatetakephoto2(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, status == 0, dt);
                             bool updateAoiDbOk = sqlite.UpdateTakePhoto2(
                                 DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE,
                                 DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID,
                                 DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN,
-                                status == 0);
+                                aoiOverallResult);
                             if (!updateAoiDbOk)
                             {
                                 // 写库失败必须在UI日志可见，否则会出现“UI/DB不一致、CHECK2判定异常”难排查
-                                writeLog($"[AOI] 写入数据库TAKEPHOTO2失败：WOCODE={DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE}, PartNOID={DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID}, SN={DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN}, 结果={(status == 0 ? "OK" : "NG")}", true);
+                                writeLog($"[AOI] 写入数据库TAKEPHOTO2失败：WOCODE={DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE}, PartNOID={DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID}, SN={DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN}, 结果={(aoiOverallResult ? "OK" : "NG")}", true);
                             }
                             #endregion
                         }
