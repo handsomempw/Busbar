@@ -913,8 +913,32 @@ namespace SQLITEDATABASE
                     return false;
                 }
 
+                string targetSql = $"SELECT ID, TAKEPHOTO2 FROM BusbarCompressionData WHERE id=(SELECT max(id) from BusbarCompressionData WHERE sn='{SN}' AND {NonIrTvInfoCondition})";
+                DataTable beforeUpdate = Read(targetSql, _connstr);
+                string targetId = beforeUpdate != null && beforeUpdate.Rows.Count > 0
+                    ? beforeUpdate.Rows[0]["ID"]?.ToString()
+                    : string.Empty;
+                string beforeTakePhoto2 = beforeUpdate != null && beforeUpdate.Rows.Count > 0
+                    ? beforeUpdate.Rows[0]["TAKEPHOTO2"]?.ToString()
+                    : string.Empty;
+
+                if (string.IsNullOrWhiteSpace(targetId))
+                {
+                    WriteErrorLog("[追踪]UpdateTakePhoto2-目标行不存在",
+                        $"待写入TAKEPHOTO2={(TakePhoto2 ? 1 : 0)}({(TakePhoto2 ? "OK" : "NG")})，条件=SN最新非IR行，写入将返回失败",
+                        SN, WOCODE);
+                }
+
                 string sql = $"UPDATE BusbarCompressionData SET TAKEPHOTO2 ={(TakePhoto2 ? 1 : 0)} WHERE id=(SELECT max(id) from BusbarCompressionData WHERE sn='{SN}' AND {NonIrTvInfoCondition})";
                 int c = excute_sql(sql, _connstr);
+                DataTable afterUpdate = Read(targetSql, _connstr);
+                string afterTakePhoto2 = afterUpdate != null && afterUpdate.Rows.Count > 0
+                    ? afterUpdate.Rows[0]["TAKEPHOTO2"]?.ToString()
+                    : string.Empty;
+
+                WriteErrorLog("[追踪]UpdateTakePhoto2-写入依据",
+                    $"targetId={targetId}, 待写入TAKEPHOTO2={(TakePhoto2 ? 1 : 0)}({(TakePhoto2 ? "OK" : "NG")}), 写入前=[{beforeTakePhoto2}], 写入后=[{afterTakePhoto2}], affectedRows={c}, 条件=SN最新非IR行",
+                    SN, WOCODE);
                 return c > 0;
             }
             catch (Exception ex)
@@ -1229,7 +1253,7 @@ namespace SQLITEDATABASE
 
                 if (!string.IsNullOrEmpty(_connstr))
                 {
-                    string sql = $"SELECT SN, TAKEPHOTO1, RES, TVMAXVOLTAGE, TVRESULT, PRESSURE_RESULT, TAKEPHOTO2 FROM BusbarCompressionData  where ID=(SELECT max(ID)  FROM BusbarCompressionData WHERE sn='{SN}' AND {NonIrTvInfoCondition})";
+                    string sql = $"SELECT ID, SN, TAKEPHOTO1, RES, TVMAXVOLTAGE, TVRESULT, PRESSURE_RESULT, TAKEPHOTO2 FROM BusbarCompressionData  where ID=(SELECT max(ID)  FROM BusbarCompressionData WHERE sn='{SN}' AND {NonIrTvInfoCondition})";
                     DataTable dt = Read(sql, _connstr);
                     
                     if (dt == null || dt.Rows.Count <= 0)
@@ -1243,6 +1267,10 @@ namespace SQLITEDATABASE
                     
                     if (dt != null && dt.Rows.Count > 0)
                     {
+                        WriteErrorLog("[追踪]CHECK2-TAKEPHOTO2读取依据",
+                            $"readId={dt.Rows[0]["ID"]?.ToString()}, TAKEPHOTO2原始值=[{dt.Rows[0]["TAKEPHOTO2"]?.ToString()}], 解析值={(TryParseDbBool(dt.Rows[0]["TAKEPHOTO2"]) ? "OK" : "NG")}, 条件=SN最新非IR行",
+                            SN, WOCODE);
+
                         // 1. 先解析拍照留底（必须字段）
                         bool _takephoto1 = false;
                         string s_takephoto1 = dt.Rows[0]["TAKEPHOTO1"]?.ToString();

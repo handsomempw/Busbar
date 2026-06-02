@@ -901,6 +901,7 @@ namespace BusbarCompressionSystem.ViewModel
                             #region 保存拍照记录到本地
                             DateTime dt = DateTime.Now;
                             bool aoiOverallResult = updatetakephoto2(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, status == 0, dt);
+                            WriteAoiJudgementTraceLog(rcmd, c, ok.Count(), NG1.Count(), NG2.Count(), wait.Count(), status, aoiOverallResult);
                             bool updateAoiDbOk = sqlite.UpdateTakePhoto2(
                                 DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE,
                                 DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID,
@@ -1280,6 +1281,60 @@ namespace BusbarCompressionSystem.ViewModel
             }
 
             return $"{imageSaveDir}\\外观检测\\{DateTime.Now:yyyyMMdd}\\NG\\{sn}-{tool.Index:00}-{tool.Name}-NG2-Remeasure-{DateTime.Now:yyyyMMddHHmmssFFF}.jpg";
+        }
+
+        /// <summary>
+        /// 记录 AOI 指令组汇总到 TAKEPHOTO2 之前的判定依据。
+        /// 该日志用于把现场看到的工具状态、内存整轮累计结果与 SQLite 中的 TAKEPHOTO2 写入记录对齐，
+        /// 机器人回包、UI 显示、数据库写入和 CHECK2 的业务判定沿用原有路径。
+        /// </summary>
+        /// <param name="rcmd">当前机器人 AOI 指令组，来自 FaraVision 运行态。</param>
+        /// <param name="judgingCount">当前指令组中参与产品外观判定的工具数量。</param>
+        /// <param name="okCount">参与判定工具中状态为 OK 的数量。</param>
+        /// <param name="ngCount">参与判定工具中状态为 NG 的数量。</param>
+        /// <param name="ng2Count">参与判定工具中状态为 NG2 的数量。</param>
+        /// <param name="waitCount">参与判定工具中仍处于等待或识别中的数量。</param>
+        /// <param name="commandStatus">当前指令组折算结果；0 表示 OK，1 表示 NG，2 表示 NG2。</param>
+        /// <param name="overallResult">当前 SN 的整轮累计 AOI 结果，随后写入 TAKEPHOTO2。</param>
+        private void WriteAoiJudgementTraceLog(string rcmd, int judgingCount, int okCount, int ngCount, int ng2Count, int waitCount, int commandStatus, bool overallResult)
+        {
+            try
+            {
+                string sn = DataModel.Processmodel.TakePhotoTestMode2.Productinfo?.SN ?? string.Empty;
+                string wocode = DataModel.Processmodel.TakePhotoTestMode2.Productinfo?.WOCODE ?? string.Empty;
+                var judgingTools = DataModel.FaraVisionDataModel.Processmodel.Tools
+                    .Where(t => t.Command == rcmd && IsJudgingTool(t))
+                    .Select(t => $"{t.Index}-{t.Name}:{t.ToolStatus}");
+
+                sqlite.WriteErrorLog("[追踪]AOI-TAKEPHOTO2判定依据",
+                    $"RCMD={rcmd}, 参与判定工具={judgingCount}, OK={okCount}, NG={ngCount}, NG2={ng2Count}, 等待={waitCount}, 本指令结果={FormatAoiCommandStatus(commandStatus)}, 整轮累计={(overallResult ? "OK" : "NG")}, 工具明细=[{string.Join(";", judgingTools)}]",
+                    sn, wocode);
+            }
+            catch (Exception ex)
+            {
+                writeLog($"[AOI] 记录TAKEPHOTO2判定依据失败：{ex.Message}", true);
+            }
+        }
+
+        /// <summary>
+        /// 将 AOI 指令组状态码转换为现场日志可读文本。
+        /// 该文本用于追踪日志，保持现有 OK/NG/NG2 判定与机器人通信口径。
+        /// </summary>
+        /// <param name="status">当前 AOI 指令组汇总状态；0=OK，1=NG，2=NG2。</param>
+        /// <returns>用于追踪日志的状态文本。</returns>
+        private static string FormatAoiCommandStatus(int status)
+        {
+            switch (status)
+            {
+                case 0:
+                    return "OK";
+                case 1:
+                    return "NG";
+                case 2:
+                    return "NG2";
+                default:
+                    return $"未知({status})";
+            }
         }
 
         public void ClearTools()
