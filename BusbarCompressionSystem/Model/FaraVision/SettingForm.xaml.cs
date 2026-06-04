@@ -676,10 +676,9 @@ namespace BusbarCompressionSystem.Model.FaraVision
             // === 分支3：矩形ROI拖动完成处理（二维码/位置/面积检测） ===
             if (selectbroi)
             {
-
+                _started = false;
                 if (RectangleBarcode.Width == 0 || RectangleBarcode.Height == 0) { return; }
                 if (double.IsNaN(RectangleBarcode.Width) || double.IsNaN(RectangleBarcode.Height)) { return; }
-                _started = false;
                 t.BarCodeROI.Row1 = (int)RectangleBarcode.Margin.Top;
                 t.BarCodeROI.Col1 = (int)RectangleBarcode.Margin.Left;
                 t.BarCodeROI.Row2 = (int)(RectangleBarcode.Margin.Top + RectangleBarcode.Height);
@@ -689,9 +688,9 @@ namespace BusbarCompressionSystem.Model.FaraVision
             }
             else if (selectproi)
             {
+                _started = false;
                 if (RectanglePosition.Width == 0 || RectanglePosition.Height == 0) { return; }
                 if (double.IsNaN(RectanglePosition.Width) || double.IsNaN(RectanglePosition.Height)) { return; }
-                _started = false;
                 t.PositionROI.Row1 = (int)RectanglePosition.Margin.Top;
                 t.PositionROI.Col1 = (int)RectanglePosition.Margin.Left;
                 t.PositionROI.Row2 = (int)(RectanglePosition.Margin.Top + RectanglePosition.Height);
@@ -701,10 +700,9 @@ namespace BusbarCompressionSystem.Model.FaraVision
             }
             else if (selectdroi)
             {
-
+                _started = false;
                 if (RectangleDimension.Width == 0 || RectangleDimension.Height == 0) { return; }
                 if (double.IsNaN(RectangleDimension.Width) || double.IsNaN(RectangleDimension.Height)) { return; }
-                _started = false;
                 t.DimensionROI.Row1 = (int)RectangleDimension.Margin.Top;
                 t.DimensionROI.Col1 = (int)RectangleDimension.Margin.Left;
                 t.DimensionROI.Row2 = (int)(RectangleDimension.Margin.Top + RectangleDimension.Height);
@@ -969,9 +967,48 @@ namespace BusbarCompressionSystem.Model.FaraVision
 
         }
 
+        /// <summary>
+        /// 打开模型设置前校验模板匹配搜索 ROI 已落盘，口径与 ModelWindow 设基准点一致。
+        /// </summary>
+        /// <returns>true 表示 PositionROI 有效，可进入模型特征圈选；false 时提示先框选搜索范围。</returns>
+        private bool EnsurePositionRoiForModelSetting()
+        {
+            if (t?.PositionROI != null && t.PositionROI.IsValidRectangle())
+            {
+                return true;
+            }
+
+            NoticeBox.Show(
+                "模板匹配ROI未设置，请先在工具设置界面点击“模板匹配ROI-选择”，框选搜索范围后再打开模型设置。",
+                "提示",
+                MessageBoxIcon.Warning,
+                true,
+                6000);
+            return false;
+        }
+
+        /// <summary>
+        /// 模型设置对话框关闭后复位 WPF 画布绘制态与 PositionDetect 圈选态，避免特征圈选标志残留引发 MouseMove 持续重算。
+        /// </summary>
+        private void RestoreStateAfterModelDialog()
+        {
+            if (vml?.PositionDetectViewModel?.DATA != null)
+            {
+                vml.PositionDetectViewModel.DATA.ROImode = false;
+            }
+
+            _started = false;
+            ResetDrawingStates();
+        }
+
         private void modelsetting_Click(object sender, RoutedEventArgs e)
         {
             if (!EnsureEditable())
+            {
+                return;
+            }
+
+            if (!EnsurePositionRoiForModelSetting())
             {
                 return;
             }
@@ -982,7 +1019,14 @@ namespace BusbarCompressionSystem.Model.FaraVision
                 ModelWindow modelWindow = new ModelWindow(t.Image, shmfilename);
                 modelWindow.ShowDialog();
             }
-            catch { }
+            catch (Exception ex)
+            {
+                NoticeBox.Show($"模型设置打开失败: {ex.Message}", "错误", MessageBoxIcon.Error, true, 8000);
+            }
+            finally
+            {
+                RestoreStateAfterModelDialog();
+            }
 
         }
 
@@ -1805,6 +1849,7 @@ namespace BusbarCompressionSystem.Model.FaraVision
             selectlinedetectroi = false;
             
             // 重置绘制进度标志
+            _started = false;
             _lineDrawingInProgress = false;
             _circleDrawingInProgress = false;
             _isFirstCircleClick = true;

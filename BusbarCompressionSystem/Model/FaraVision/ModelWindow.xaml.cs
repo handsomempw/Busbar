@@ -44,7 +44,10 @@ namespace BusbarCompressionSystem.Model.FaraVision
 
         private void WindowX_Closing(object sender, System.ComponentModel.CancelEventArgs e)
         {
-            //settingForm.Show();
+            if (vml?.PositionDetectViewModel?.DATA != null)
+            {
+                vml.PositionDetectViewModel.DATA.ROImode = false;
+            }
         }
 
         private void UpdateModelStatus(string status)
@@ -101,7 +104,7 @@ namespace BusbarCompressionSystem.Model.FaraVision
         private bool EnsurePositionRoiReady()
         {
             var roi = vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool.PositionROI;
-            if (roi == null || roi.Row1 == roi.Row2 || roi.Col1 == roi.Col2)
+            if (roi == null || !roi.IsValidRectangle())
             {
                 string message = "模板匹配ROI未设置，请先在工具设置界面点击“模板匹配ROI-选择”，框选搜索范围后再设基准点。";
                 UpdateModelStatus("请先设置模板匹配ROI");

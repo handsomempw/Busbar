@@ -787,5 +787,16 @@ namespace BusbarCompressionSystem.Model.FaraVision.Tool
         /// </summary>
         [XmlElement("圆半径")]
         public double CircleRadius { set; get; } = 0;
+
+        /// <summary>
+        /// 矩形搜索 ROI（如模板匹配 PositionROI）是否在图像坐标（px）中具备非零宽高。
+        /// 判定口径为 Row 与 Col 起止均不相同；水平/垂直线段 ROI 不适用本方法。
+        /// 模板匹配搜索区、模型设置入口与基准点写入共用此口径。
+        /// </summary>
+        /// <returns>true 表示可作矩形搜索范围；false 表示尚未框选或 Row/Col 退化为线/点。</returns>
+        public bool IsValidRectangle()
+        {
+            return Row1 != Row2 && Col1 != Col2;
+        }
     }
 }
