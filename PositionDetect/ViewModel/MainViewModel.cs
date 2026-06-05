@@ -127,6 +127,13 @@ namespace PositionDetect.ViewModel
         }
         public bool showdetect()
         {
+            if (!DATA.HasTemplateFeatures)
+            {
+                MessageBoxX.Show("请先画矩形或圆形特征，并在图像窗口点鼠标右键完成当前特征。", "提示", MessageBoxButton.OK, MessageBoxIcon.Warning);
+                return false;
+            }
+
+            DATA.modelID = null;
             //HObject image = null;
             HTuple hv_width, hv_height;
             HObject ReduceImage = null;
@@ -161,7 +168,6 @@ namespace PositionDetect.ViewModel
                 HTuple modelID = null;
                 HOperatorSet.CreateShapeModel(ReduceImage, "auto", (new HTuple(-181)).TupleRad()
                         , (new HTuple(181)).TupleRad(), "auto", "auto", "use_polarity", "auto", "auto", out modelID);
-                DATA.modelID = modelID;
                 using (HDevDisposeHelper dh = new HDevDisposeHelper())
                 {
                     hv_Row.Dispose(); hv_Column.Dispose(); hv_Angle.Dispose(); hv_Score.Dispose();
@@ -192,10 +198,12 @@ namespace PositionDetect.ViewModel
                 DATA.HWindow.HalconWindow.SetColor("yellow");
                 DATA.HWindow.HalconWindow.DispObj(ROI);
 
+                DATA.modelID = modelID;
                 return true;
             }
             catch (Exception ex)
             {
+                DATA.modelID = null;
                 return false;
             }
 
@@ -223,6 +231,11 @@ namespace PositionDetect.ViewModel
 
         public bool OutputModel()
         {
+            if (!DATA.HasTemplateFeatures)
+            {
+                MessageBoxX.Show("请先完成模板特征圈选，再预览生成模型。", "提示", MessageBoxButton.OK, MessageBoxIcon.Warning);
+                return false;
+            }
 
             if (DATA.modelID == null)
             {

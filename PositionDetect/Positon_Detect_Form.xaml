@@ -44,11 +44,11 @@
                         <ColumnDefinition/>
                     </Grid.ColumnDefinitions>
                     <Button Grid.Row="0" Grid.Column="0" Margin="5" Padding="10" Grid.ColumnSpan="2" Content="{Binding  DATA.ROIModeStr}"  Click="Button_Click"
-                            ToolTip="开启后在模板图片上圈出用于生成模型的稳定特征；画完后在图像窗口点鼠标右键确认。"/>
+                            ToolTip="开启模板特征圈选。每画一个矩形或圆形特征后，在图像窗口点鼠标右键完成当前特征。"/>
                     <Button Grid.Row="1" Grid.Column="0" Margin="5" Padding="10" Content="画矩形特征" IsEnabled="{Binding DATA.ROImode}" Background="{Binding DATA.RectangleMmode}" Click="Button_Click_1"
-                            ToolTip="用矩形圈出模板特征，拖动完成后点鼠标右键确认选区。"/>
+                            ToolTip="左键拖动矩形区域，区域合适后点鼠标右键完成当前特征。"/>
                     <Button Grid.Row="1" Grid.Column="1" Margin="5" Padding="10" Content="画圆形特征" IsEnabled="{Binding DATA.ROImode}" Background="{Binding DATA.CircleMode}" Click="Button_Click_2"
-                            ToolTip="用圆形圈出模板特征，拖动完成后点鼠标右键确认选区。"/>
+                            ToolTip="左键拖动圆形区域，区域合适后点鼠标右键完成当前特征。"/>
                     <ListBox Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2" Margin="5" Padding="10" ItemsSource="{Binding DATA.Objects}" 
                              SelectedIndex="{Binding DATA.selectedindex}"
                              SelectionChanged="ListBox_SelectionChanged" KeyDown="ListBox_KeyDown"
@@ -63,12 +63,12 @@
             </GroupBox>
 
             <GroupBox Header="生成" >
-                <Button Grid.Row="0" Grid.Column="0" Margin="5" Padding="10" Content="预览生成模型" IsEnabled="{Binding DATA.ROImode}" Click="Button_Click_5"
-                        ToolTip="根据已圈选的特征生成临时模型，并在图片上显示红色匹配轮廓。"/>
+                <Button Grid.Row="0" Grid.Column="0" Margin="5" Padding="10" Content="预览生成模型" IsEnabled="{Binding DATA.CanPreviewModel}" Click="Button_Click_5"
+                        ToolTip="至少完成一个模板特征后可生成临时模型，并在图片上显示红色匹配轮廓。"/>
             </GroupBox>
             <GroupBox Header="导出" >
-                <Button Grid.Row="0" Grid.Column="0" Margin="5" Padding="10" Content="保存模型文件" IsEnabled="{Binding DATA.ROImode}" Click="Button_Click_3"
-                        ToolTip="把当前预览生成的模型保存为 shm 文件，在线检测会加载该文件。"/>
+                <Button Grid.Row="0" Grid.Column="0" Margin="5" Padding="10" Content="保存模型文件" IsEnabled="{Binding DATA.CanSaveModel}" Click="Button_Click_3"
+                        ToolTip="把当前预览成功的模型保存为 shm 文件，在线检测会加载该文件。"/>
             </GroupBox>
         </StackPanel>
 

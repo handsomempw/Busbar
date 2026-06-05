@@ -99,6 +99,10 @@ namespace BusbarCompressionSystem.Model.FaraVision
             {
                 UpdateModelStatus($"已导出 {System.IO.Path.GetFileName(vml.PositionDetectViewModel.DATA.modelfilename)}");
             }
+            else
+            {
+                UpdateModelStatus("保存模型文件失败");
+            }
         }
 
         private bool EnsurePositionRoiReady()

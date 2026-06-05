@@ -25,13 +25,15 @@
                 <WrapPanel DockPanel.Dock="Bottom" HorizontalAlignment="Center">
                     <Button Margin="4" Padding="12,6" MinWidth="120" Background="#666666" Foreground="White"
                             p:ButtonHelper.CornerRadius="10" Name="selectFeature" Click="selectFeature_Click"
-                            ToolTip="开启后在模板图片上圈出用于生成模型的稳定特征；画完后在图像窗口点鼠标右键确认。">1 选择特征</Button>
+                            ToolTip="开启模板特征圈选；每画一个矩形或圆形特征后，在图像窗口点鼠标右键完成当前特征。">1 选择特征</Button>
                     <Button Margin="4" Padding="12,6" MinWidth="130" Background="Orange" Foreground="White"
                             p:ButtonHelper.CornerRadius="10" Name="previewGenerateModel" Click="previewGenerateModel_Click"
-                            ToolTip="根据圈选特征生成临时模型，并在图片上显示红色匹配轮廓。">2 预览生成模型</Button>
+                            IsEnabled="{Binding Source={StaticResource Locator},Path=PositionDetectViewModel.DATA.CanPreviewModel}"
+                            ToolTip="至少完成一个模板特征后，生成临时模型并在图片上显示红色匹配轮廓。">2 预览生成模型</Button>
                     <Button Margin="4" Padding="12,6" MinWidth="130" Background="SeaGreen" Foreground="White"
                             p:ButtonHelper.CornerRadius="10" Name="exportModel" Click="exportModel_Click"
-                            ToolTip="把当前预览生成的模型保存为 Tool序号.shm，在线检测会读取该文件。">3 保存模型文件</Button>
+                            IsEnabled="{Binding Source={StaticResource Locator},Path=PositionDetectViewModel.DATA.CanSaveModel}"
+                            ToolTip="把当前预览成功的模型保存为 Tool序号.shm，在线检测会读取该文件。">3 保存模型文件</Button>
                     <Button Margin="4" Padding="12,6" MinWidth="130" Background="OrangeRed" Foreground="White"
                             p:ButtonHelper.CornerRadius="10" Name="loadshmfromfile" Click="loadshmfromfile_Click"
                             ToolTip="立即读取工程目录下的 Tool序号.shm；软件启动、照片测试和在线检测会自动检查加载。">4 加载当前模型</Button>
