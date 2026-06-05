@@ -174,7 +174,15 @@ namespace BusbarCompressionSystem
 
                 vml.Main.Faravision_SaveSettingModel();
 
-                vml.Main.SavePrjXmls();
+                bool projectSaved = vml.Main.SavePrjXmls();
+                if (!projectSaved)
+                {
+                    if (MessageBoxX.Show("AOI 工具配置保存失败，是否仍关闭软件?", "提示", MessageBoxButton.YesNo, MessageBoxIcon.Warning) != MessageBoxResult.Yes)
+                    {
+                        e.Cancel = true;
+                        return;
+                    }
+                }
 
                 // 工程保存完成后再释放动态密码授权，保留保存审计需要的授权人上下文。
                 DisposeAoiPermissionAuthService();
@@ -657,8 +665,7 @@ namespace BusbarCompressionSystem
             {
                 vml.Main.SaveProcessmodel();
                 vml.Main.SaveSettingModel();
-                vml.Main.SavePrjXmls();
-                return true;
+                return vml.Main.SavePrjXmls();
             }
             catch (Exception ex)
             {

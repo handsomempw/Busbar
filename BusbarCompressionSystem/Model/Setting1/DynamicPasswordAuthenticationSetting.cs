@@ -19,16 +19,17 @@ namespace BusbarCompressionSystem.Model.Setting1
         public bool Enabled { get; set; } = true;
 
         /// <summary>
-        /// 严格模式：开启后将强制使用生产模式（忽略 TestMode 配置）
+        /// 严格模式：开启后将强制使用生产认证通道（忽略 TestMode 配置）。
+        /// 现场发布包保留配置文件时沿用现场值；缺少该节点的新配置按生产模式处理，避免默认进入联调通道。
         /// </summary>
         [XmlElement("严格模式")]
-        public bool StrictMode { get; set; } = false;
+        public bool StrictMode { get; set; } = true;
 
         /// <summary>
-        /// 测试模式：仅用于开发/联调；生产部署建议配合 StrictMode 关闭
+        /// 测试模式：仅用于开发/联调环境；生产现场由 StrictMode 固定走生产认证通道。
         /// </summary>
         [XmlElement("测试模式")]
-        public bool TestMode { get; set; } = true;
+        public bool TestMode { get; set; } = false;
 
         /// <summary>
         /// 应用名称：用于动态密码服务端识别来源系统

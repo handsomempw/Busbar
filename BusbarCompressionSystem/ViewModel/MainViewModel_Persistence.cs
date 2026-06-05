@@ -117,6 +117,32 @@ namespace BusbarCompressionSystem.ViewModel
             }
         }
 
+        /// <summary>
+        /// 兼容旧版现场配置中的动态密码节点缺失场景。
+        /// 现场升级保留 <c>配置\配置数据.xml</c> 时沿用已保存值；缺少动态密码认证节点时按生产认证口径补齐，避免设备权限默认落入开发联调通道。
+        /// </summary>
+        /// <param name="xmlText">从现场主配置文件读取的原始 XML 文本，用于判断旧配置是否声明过动态密码认证节点。</param>
+        private void ApplyDynamicPasswordProductionDefaultFromXml(string xmlText)
+        {
+            if (DataModel?.Settingmodel?.SETTING_DATA == null)
+            {
+                return;
+            }
+
+            if (DataModel.Settingmodel.SETTING_DATA.DynamicPasswordAuth == null)
+            {
+                DataModel.Settingmodel.SETTING_DATA.DynamicPasswordAuth = new DynamicPasswordAuthenticationSetting();
+            }
+
+            if (string.IsNullOrEmpty(xmlText) ||
+                xmlText.IndexOf("严格模式", StringComparison.Ordinal) < 0 ||
+                xmlText.IndexOf("测试模式", StringComparison.Ordinal) < 0)
+            {
+                DataModel.Settingmodel.SETTING_DATA.DynamicPasswordAuth.StrictMode = true;
+                DataModel.Settingmodel.SETTING_DATA.DynamicPasswordAuth.TestMode = false;
+            }
+        }
+
         public void SaveSettingModel()
         {
             string filename = GetConfigPath("配置数据.xml");
@@ -142,10 +168,12 @@ namespace BusbarCompressionSystem.ViewModel
                     }
 
                     ApplyReportFailAlarmDefaultFromXml(xmlText);
+                    ApplyDynamicPasswordProductionDefaultFromXml(xmlText);
                 }
                 else
                 {
                     DataModel.Settingmodel = new SettingModel();
+                    ApplyDynamicPasswordProductionDefaultFromXml(null);
                 }
                 
                 // 加载独立的耐压状态映射配置文件

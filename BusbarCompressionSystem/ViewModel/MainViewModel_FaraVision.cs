@@ -385,7 +385,12 @@ namespace BusbarCompressionSystem.ViewModel
 
 
 
-        public void SavePrjXmls()
+        /// <summary>
+        /// 保存当前 AOI 工程的工具 XML，并在授权会话内按参数差异审计口径记录变更。
+        /// 工具 XML 采用临时文件替换正式文件；任一工具保存失败时保留原正式文件，并把失败结果返回给调用方。
+        /// </summary>
+        /// <returns>全部工具 XML 保存完成返回 <c>true</c>；目录、序列化、文件替换或审计流程抛出异常时返回 <c>false</c>。</returns>
+        public bool SavePrjXmls()
         {
             try
             {
@@ -414,23 +419,18 @@ namespace BusbarCompressionSystem.ViewModel
                     newTool = DataModel.FaraVisionDataModel.Processmodel.Tools[editingIndex];
                 }
 
-                #region 删除旧xml文件
-                foreach (string s in Directory.GetFiles($"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}"))
+                string prjDir = GetCurrentProjectDirectory();
+                if (!Directory.Exists(prjDir))
                 {
-                    if (s.ToUpper().EndsWith(".XML"))
-                    {
-                        try
-                        {
-                            File.Delete(s);
-                        }
-                        catch (Exception ex) { continue; }
-                    }
+                    Directory.CreateDirectory(prjDir);
                 }
-                #endregion
+
                 for (int i = 0; i < DataModel.FaraVisionDataModel.Processmodel.Tools.Count; i++)
                 {
                     SavePrjXml(DataModel.FaraVisionDataModel.Processmodel.Tools[i], i + 1);
                 }
+
+                DeleteExtraPrjXmls(prjDir, DataModel.FaraVisionDataModel.Processmodel.Tools.Count);
 
                 if (shouldReport && toolFileIndex > 0 && newTool != null && oldTool != null)
                 {
@@ -450,8 +450,45 @@ namespace BusbarCompressionSystem.ViewModel
                     DataModel.FaraVisionDataModel.Processmodel.EditingToolSnapshot = CloneToolModelSnapshot(newTool);
                     DataModel.FaraVisionDataModel.Processmodel.EditingToolSnapshotTime = DateTime.Now;
                 }
+                return true;
             }
-            catch (Exception ex) {; }
+            catch (Exception ex)
+            {
+                writeLog($"[AOI工程保存] 工具配置保存失败：{ex.Message}", true);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 获取当前 AOI 工程目录，供工具 XML 保存和旧文件清理共用。
+        /// 目录来自工程配置，直接对应现场 <c>工程文件\工程名称</c> 下的一组 Tool XML/JPG/SHM 文件。
+        /// </summary>
+        /// <returns>当前 AOI 工程的绝对目录路径。</returns>
+        private string GetCurrentProjectDirectory()
+        {
+            return $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}";
+        }
+
+        /// <summary>
+        /// 清理当前工具数量之外的旧 Tool XML。
+        /// 清理动作位于全部工具 XML 成功替换之后；保存失败时不会提前删除旧工具文件，便于现场继续使用上一次完整配置。
+        /// </summary>
+        /// <param name="prjDir">当前 AOI 工程目录。</param>
+        /// <param name="toolCount">当前工程内有效工具数量。</param>
+        private void DeleteExtraPrjXmls(string prjDir, int toolCount)
+        {
+            foreach (string file in Directory.GetFiles(prjDir, "Tool*.xml"))
+            {
+                string name = Path.GetFileNameWithoutExtension(file);
+                string indexText = name != null && name.StartsWith("Tool", StringComparison.OrdinalIgnoreCase)
+                    ? name.Substring(4)
+                    : string.Empty;
+
+                if (int.TryParse(indexText, out int index) && index > toolCount)
+                {
+                    File.Delete(file);
+                }
+            }
         }
 
         private bool CanReportDynamicPasswordAudit(
@@ -871,25 +908,16 @@ namespace BusbarCompressionSystem.ViewModel
             return value.ToString();
         }
 
+        /// <summary>
+        /// 保存单个 AOI 工具 XML。
+        /// 文件先写入同目录临时文件，再替换正式 Tool XML；写入或替换失败时正式文件保留为上一次成功保存版本。
+        /// </summary>
+        /// <param name="td">当前工程内待持久化的工具模型，内容会写入对应的 Tool XML。</param>
+        /// <param name="index">工具文件序号；1 表示 <c>Tool1.xml</c>，与界面工具顺序一致。</param>
         private void SavePrjXml(ToolModel td, int index)
         {
-            string filename = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{index}.xml";
-            string dir = Path.GetDirectoryName(filename);
-            if (!Directory.Exists(dir))
-            {
-                Directory.CreateDirectory(dir);
-            }
-
-            using (var stream = File.Open(filename, FileMode.Create))
-            {
-                try
-                {
-                    var serializer = new XmlSerializer(typeof(ToolModel));
-                    serializer.Serialize(stream, td);
-                    return;
-                }
-                catch {; }
-            }
+            string filename = $"{GetCurrentProjectDirectory()}\\Tool{index}.xml";
+            SaveXmlSafely(filename, td);
         }
 
         public bool LoadBitmapSource()
@@ -1417,8 +1445,15 @@ namespace BusbarCompressionSystem.ViewModel
             //SaveAPPXml();
             SaveProcessmodel();
             SaveSettingModel();
-            SavePrjXmls();
-            NoticeBox.Show($"工程保存完成", "成功", MessageBoxIcon.Success, true, 5000);
+            bool saved = SavePrjXmls();
+            if (saved)
+            {
+                NoticeBox.Show($"工程保存完成", "成功", MessageBoxIcon.Success, true, 5000);
+            }
+            else
+            {
+                NoticeBox.Show($"工程保存失败，请检查日志", "错误", MessageBoxIcon.Error, true, 5000);
+            }
 
         }
 
