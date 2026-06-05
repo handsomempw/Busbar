@@ -33,6 +33,7 @@
             <FaraVision:TestMode2Visibility_TemplateMatchJudge x:Key="TestMode2Visibility_TemplateMatchJudge"/>
             <FaraVision:TestMode2Visibility_TemplateMatchOnly x:Key="TestMode2Visibility_TemplateMatchOnly"/>
             <FaraVision:TestMode2Visibility_TemplateLocatorOnly x:Key="TestMode2Visibility_TemplateLocatorOnly"/>
+            <FaraVision:TestMode2Visibility_JudgingToolOnly x:Key="TestMode2Visibility_JudgingToolOnly"/>
             <FaraVision:TestMode2Visibility_DimensionMeasure x:Key="TestMode2Visibility_DimensionMeasure"/>
             <FaraVision:TestMode2Visibility_LineDetect         x:Key="TestMode2Visibility_LineDetect"/>
 

@@ -477,6 +477,29 @@ namespace BusbarCompressionSystem.Model.FaraVision
     }
 
     /// <summary>
+    /// 产品结果输出区仅对参与 OK/NG/NG2 判定的工具开放。
+    /// 模板定位只提供同指令 ROI 跟随矫正和追溯信息，机器人回包由面积、尺寸、模板匹配等判定工具承担。
+    /// </summary>
+    [ValueConversion(typeof(TestModes), typeof(Visibility))]
+    public class TestMode2Visibility_JudgingToolOnly : IValueConverter
+    {
+        public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            if (value == null)
+            {
+                throw new ArgumentNullException("value can not be null");
+            }
+
+            return (TestModes)value == TestModes.模板定位 ? Visibility.Collapsed : Visibility.Visible;
+        }
+
+        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
     /// 直线检测模式的 Visibility 转换器。
     /// 仅在工具模式为直线检测时显示配置面板与画布叠加层。
     /// </summary>

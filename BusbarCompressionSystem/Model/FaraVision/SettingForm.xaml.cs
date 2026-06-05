@@ -117,6 +117,11 @@ namespace BusbarCompressionSystem.Model.FaraVision
                     {
                         t.LineDetectROI.Type = ROIType.Line;
                     }
+
+                    if (t.TestMode == TestModes.模板定位)
+                    {
+                        t.SendStatus = false;
+                    }
                 }
 
                 // 同步参数区显隐
@@ -1886,6 +1891,11 @@ namespace BusbarCompressionSystem.Model.FaraVision
             if (t.TestMode == TestModes.直线检测)
             {
                 t.LineDetectROI.Type = ROIType.Line;
+            }
+
+            if (t.TestMode == TestModes.模板定位)
+            {
+                t.SendStatus = false;
             }
 
             ApplyMeasureTypeToROIType();

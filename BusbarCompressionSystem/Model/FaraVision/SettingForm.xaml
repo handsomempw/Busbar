@@ -972,8 +972,9 @@
                     </ScrollViewer>
                 </GroupBox>
 
-                <GroupBox Header="结果输出" Grid.Row="6" p:GroupBoxHelper.HeaderBackground="BlueViolet" BorderBrush="BlueViolet" Margin="0,5" 
-                          VerticalAlignment="Top" p:GroupBoxHelper.HeaderForeground="White" >
+                <GroupBox Header="结果输出" Grid.Row="6" p:GroupBoxHelper.HeaderBackground="BlueViolet" BorderBrush="BlueViolet" Margin="0,5"
+                          VerticalAlignment="Top" p:GroupBoxHelper.HeaderForeground="White"
+                          Visibility="{Binding TestMode,Converter={StaticResource TestMode2Visibility_JudgingToolOnly}}">
                     <Grid Margin="2">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="auto"/>
