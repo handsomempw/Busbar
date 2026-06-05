@@ -392,9 +392,39 @@ namespace BusbarCompressionSystem.ViewModel
                 //hwindow.SetPart(0, 0, H - 1, W - 1);
                 hwindow.DispObj(Image);
                 ResetLocatorCorrectionState();
+                string currentRcmd = DataModel.FaraVisionDataModel.Processmodel.RCMD;
+                int judgingToolCount = DataModel.FaraVisionDataModel.Processmodel.Tools.Count(t => t.Command == currentRcmd && IsJudgingTool(t));
+                int lastCurrentCommandToolIndex = DataModel.FaraVisionDataModel.Processmodel.Tools
+                    .Select((t, index) => new { Tool = t, Index = index })
+                    .Where(t => t.Tool.Command == currentRcmd)
+                    .Select(t => t.Index)
+                    .DefaultIfEmpty(-1)
+                    .Max();
+                if (judgingToolCount == 0)
+                {
+                    string rcmd = currentRcmd;
+                    writeLog($"[AOI] 指令{rcmd}未配置参与产品判定的外观工具", true);
+
+                    DateTime dt = DateTime.Now;
+                    bool aoiOverallResult = updatetakephoto2(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, false, dt);
+                    WriteAoiJudgementTraceLog(rcmd, 0, 0, 0, 0, 0, 2, aoiOverallResult);
+                    bool updateAoiDbOk = sqlite.UpdateTakePhoto2(
+                        DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE,
+                        DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID,
+                        DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN,
+                        aoiOverallResult);
+                    if (!updateAoiDbOk)
+                    {
+                        writeLog($"[AOI] 写入数据库TAKEPHOTO2失败：WOCODE={DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE}, PartNOID={DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID}, SN={DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN}, 结果=NG", true);
+                    }
+
+                    SendMsgRobot("NG");
+                    return;
+                }
+
                 for (int i = 0; i < DataModel.FaraVisionDataModel.Processmodel.Tools.Count; i++)
                 {
-                    if (DataModel.FaraVisionDataModel.Processmodel.Tools[i].Command == DataModel.FaraVisionDataModel.Processmodel.RCMD)
+                    if (DataModel.FaraVisionDataModel.Processmodel.Tools[i].Command == currentRcmd)
                     {
                         Stopwatch stopwatch = new Stopwatch();
                         stopwatch.Start();
@@ -850,10 +880,10 @@ namespace BusbarCompressionSystem.ViewModel
                         stopwatch.Restart();
 
                         #region 保存结果到数据库和更新状态
-                        if (i == DataModel.FaraVisionDataModel.Processmodel.Tools.Count - 1)
+                        if (i == lastCurrentCommandToolIndex)
                         {
                             int status = -1;
-                            string rcmd = DataModel.FaraVisionDataModel.Processmodel.RCMD;
+                            string rcmd = currentRcmd;
                             int c = DataModel.FaraVisionDataModel.Processmodel.Tools.Count(t => t.Command == rcmd && IsJudgingTool(t));
 
                             var ok = (from ToolModel in DataModel.FaraVisionDataModel.Processmodel.Tools
@@ -866,7 +896,9 @@ namespace BusbarCompressionSystem.ViewModel
                                        where ToolModel.Command == rcmd && ToolModel.ToolStatus == ToolStatus.NG2 && IsJudgingTool(ToolModel)
                                        select ToolModel);
                             var wait = (from ToolModel in DataModel.FaraVisionDataModel.Processmodel.Tools
-                                        where (ToolModel.ToolStatus == ToolStatus.等待中 || ToolModel.ToolStatus == ToolStatus.识别中)
+                                        where ToolModel.Command == rcmd
+                                              && IsJudgingTool(ToolModel)
+                                              && (ToolModel.ToolStatus == ToolStatus.等待中 || ToolModel.ToolStatus == ToolStatus.识别中)
                                         select ToolModel);
 
                             if (ok.Count() == c)
@@ -1061,14 +1093,15 @@ namespace BusbarCompressionSystem.ViewModel
                         }
                         #endregion
 
-                        if (tool.SendStatus)
+                        if (tool.SendStatus && IsJudgingTool(tool))
                         {
 
                             int status = -1;
 
                             var r = (from ToolModel in DataModel.FaraVisionDataModel.Processmodel.Tools
-                                     where ToolModel.Command == DataModel.FaraVisionDataModel.Processmodel.RCMD && IsJudgingTool(ToolModel)
-                                     select ToolModel);
+                                     where ToolModel.Command == currentRcmd && IsJudgingTool(ToolModel)
+                                     select ToolModel).ToList();
+
                             var wait = (from ToolModel in r
                                         where (ToolModel.ToolStatus == ToolStatus.等待中 || ToolModel.ToolStatus == ToolStatus.识别中)
                                         select ToolModel);
