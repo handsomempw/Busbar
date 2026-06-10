@@ -406,7 +406,7 @@ namespace BusbarCompressionSystem.Model
 
         /// <summary>
         /// AOI NG 点检通过信号地址（M 寄存器，Bool 类型）。
-        /// 当所有 AOI 工具均为 NG 时，上位机向该地址写入通过信号。
+        /// 当全部参与判定的 AOI 工具均为 NG 或 NG2 时，上位机向该地址写入通过信号。
         /// </summary>
         /// <remarks>
         /// 用于 AOI NG 点检场景。

@@ -2290,20 +2290,61 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
-        /// 检查参与产品判定的 AOI 工具是否全部为 NG 状态。
-        /// 用于 AOI NG 点检：只有全部判定工具均为 NG，才向 PLC 写入点检通过信号。
+        /// 检查参与产品判定的 AOI 工具是否均为可认定的检出不良状态（NG 或 NG2）。
+        /// 用于 AOI NG 点检：全部判定工具达到 NG/NG2 时向 PLC 写入点检通过信号。
+        /// NG 表示检出不合格；NG2 表示检不出或无法完成判定，在生产流程中与 NG 同属外观不合格。
+        /// 不改变生产 CHECK2 的 AppearanceInspection 布尔口径与量产放行逻辑。
         /// </summary>
-        /// <returns>true 表示所有参与判定的 AOI 工具均为 NG；false 表示无可判定工具、存在未完成工具或存在非 NG 状态。</returns>
+        /// <returns>true 表示所有参与判定的 AOI 工具均为 NG 或 NG2；false 表示无可判定工具、存在 OK/等待中/识别中等非检出态。</returns>
         private bool CheckAllAOIToolsNG()
         {
-            return CheckAllAOIJudgingToolsStatus(ToolStatus.NG, "AOI_NG点检");
+            const string logTag = "AOI_NG点检";
+            try
+            {
+                var judgingTools = DataModel.FaraVisionDataModel.Processmodel.Tools
+                    .Where(IsJudgingTool)
+                    .ToList();
+
+                if (judgingTools.Count == 0)
+                {
+                    writeLog($"{logTag}->无参与判定的工具配置，返回false");
+                    return false;
+                }
+
+                foreach (var tool in judgingTools)
+                {
+                    if (!IsAoiNgInspectionDetectStatus(tool.ToolStatus))
+                    {
+                        writeLog($"{logTag}->工具[{tool.Name}]状态为{tool.ToolStatus}，期望=NG或NG2");
+                        return false;
+                    }
+                }
+
+                writeLog($"{logTag}->所有{judgingTools.Count}个参与判定工具均为NG/NG2");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                writeLog($"{logTag}->检查工具状态异常: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 判断工具状态是否属于 AOI NG 点检认可的检出不良态。
+        /// </summary>
+        /// <param name="status">工具当前 ToolStatus。</param>
+        /// <returns>true 表示 NG 或 NG2。</returns>
+        private static bool IsAoiNgInspectionDetectStatus(ToolStatus status)
+        {
+            return status == ToolStatus.NG || status == ToolStatus.NG2;
         }
 
         /// <summary>
         /// 按指定状态检查参与产品判定的 AOI 工具。
-        /// 点检 OK 与点检 NG 共用该口径，保证 CHECK2 前的工具状态检查与生产外观判定工具范围一致。
+        /// 供 AOI OK 点检使用；工具范围与生产外观判定一致，模板定位等辅助工具不参与。
         /// </summary>
-        /// <param name="expectedStatus">点检要求的目标状态；OK 点检要求 OK，NG 点检要求 NG。</param>
+        /// <param name="expectedStatus">点检要求的目标状态；OK 点检要求 OK。</param>
         /// <param name="logTag">日志阶段标识，用于现场按点检类型检索异常工具。</param>
         /// <returns>true 表示所有参与判定工具均达到目标状态。</returns>
         private bool CheckAllAOIJudgingToolsStatus(ToolStatus expectedStatus, string logTag)

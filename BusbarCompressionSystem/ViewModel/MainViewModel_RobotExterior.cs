@@ -627,26 +627,23 @@ namespace BusbarCompressionSystem.ViewModel
                             if (isAoiInspectionSN)
                             {
                                 // AOI 点检 SN：只判断 AOI 结果，跳过拍照、耐压、阻值检查
-                                // 特殊逻辑：AOI NG点检需要所有工具都为NG才算通过
+                                // AOI NG点检：全部判定工具须为 NG 或 NG2，才向 PLC 写通过信号
                                 bool isAoiNGInspection = currentSN == DataModel.Settingmodel.SETTING_DATA.InspectionAOINGSN;
 
                                 if (isAoiNGInspection)
                                 {
-                                    // AOI NG点检：检查所有工具是否都为NG
                                     bool allToolsNG = CheckAllAOIToolsNG();
 
                                     if (allToolsNG)
                                     {
                                         MSG = "NG4";
-                                        resultstr = "AOI_NG点检通过(所有工具均为NG)";
-                                        // 向PLC写入点检通过信号
+                                        resultstr = "AOI_NG点检通过(所有工具均为NG/NG2)";
                                         WriteAOI_NG_InspectionSignal(1);
                                     }
                                     else
                                     {
                                         MSG = "NG4";
-                                        resultstr = "AOI_NG点检不通过(存在工具非NG)";
-                                        // 向PLC写入点检失败信号
+                                        resultstr = "AOI_NG点检不通过(存在OK或未完成工具)";
                                         WriteAOI_NG_InspectionSignal(0);
                                     }
                                 }
