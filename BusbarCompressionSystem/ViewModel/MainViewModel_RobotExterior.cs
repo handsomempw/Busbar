@@ -239,8 +239,16 @@ namespace BusbarCompressionSystem.ViewModel
             {
 
                 TCPevent TCPevent = (TCPevent)e;
-                cmd = (string)TCPevent.Msg;
-                writeLog($"机器人->视觉:{cmd}");
+                string rawCmd = (string)TCPevent.Msg ?? string.Empty;
+                cmd = rawCmd.Trim(' ', '\t', '\r', '\n', '\0');
+                if (cmd != rawCmd)
+                {
+                    writeLog($"机器人->视觉:{cmd}");
+                }
+                else
+                {
+                    writeLog($"机器人->视觉:{cmd}");
+                }
                 DataModel.Processmodel.CMD = cmd;
                 DataModel.FaraVisionDataModel.Processmodel.RCMD = cmd;
 
@@ -794,6 +802,10 @@ namespace BusbarCompressionSystem.ViewModel
                         #endregion
                     }
 
+                }
+                else
+                {
+                    writeLog($"[机器人交互] 未知指令 cmd={cmd}，详情查看日志\\机器人通信中的日志。", true);
                 }
 
 
