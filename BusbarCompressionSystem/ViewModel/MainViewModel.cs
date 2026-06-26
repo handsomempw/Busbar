@@ -90,6 +90,17 @@ namespace BusbarCompressionSystem.ViewModel
         private readonly Dictionary<string, bool> _aoiInspectionOverallResultBySn = new Dictionary<string, bool>();
 
         /// <summary>
+        /// 耐压工位流程占用锁。PLC 触发、参数下发、启动测试和结果写回属于同一业务会话，
+        /// 同台 AT9620 在会话结束前拒绝重复入口，避免 Download 与 Start 之间插入额外通信。
+        /// </summary>
+        private readonly object _tvProcessSessionLock = new object();
+
+        /// <summary>
+        /// 按 AT9620 实例记录正在执行的耐压工位流程，用于现场日志确认重复触发被哪个工位会话占用。
+        /// </summary>
+        private readonly Dictionary<AT9620.AT9620, string> _activeTvProcessByMeter = new Dictionary<AT9620.AT9620, string>();
+
+        /// <summary>
         /// Initializes a new instance of the MainViewModel class.
         /// </summary>
         public MainViewModel()
@@ -888,6 +899,106 @@ namespace BusbarCompressionSystem.ViewModel
 
 
         /// <summary>
+        /// PLC 耐压工位入口互斥：同一台 AT9620 已在参数下发、启动测试或结果写回期间忽略重复触发，
+        /// 不写入产品 NG，也不覆盖正在执行会话的 PLC/MES/SQLite 结果。
+        /// </summary>
+        /// <param name="meter">对应工位的 AT9620 实例。</param>
+        /// <param name="stationLabel">工位日志前缀，例如“耐压1”。</param>
+        /// <param name="testType">测试类型标识，例如 ACW 或 DCW。</param>
+        /// <returns>仪器流程空闲且允许进入本流程时返回 true；已有会话时返回 false。</returns>
+        private bool TryBeginTvProcessIfIdle(AT9620.AT9620 meter, string stationLabel, string testType)
+        {
+            if (meter == null)
+            {
+                return false;
+            }
+
+            string activeProcess = string.Empty;
+            bool blockedByProcess = false;
+            bool blockedByInstrument = false;
+            lock (_tvProcessSessionLock)
+            {
+                if (_activeTvProcessByMeter.TryGetValue(meter, out activeProcess))
+                {
+                    blockedByProcess = true;
+                }
+                else if (meter.IsSessionActive)
+                {
+                    blockedByInstrument = true;
+                }
+                else
+                {
+                    _activeTvProcessByMeter[meter] = $"{stationLabel}-{testType}";
+                    return true;
+                }
+            }
+
+            if (blockedByProcess)
+            {
+                writeLog($"[{stationLabel}-{testType}] 仪器流程正在执行，忽略重复触发（当前流程={activeProcess}，仪器IP={meter.IP}，端口={meter.Port}）");
+                return false;
+            }
+
+            if (blockedByInstrument)
+            {
+                writeLog($"[{stationLabel}-{testType}] 仪器正在参数下发或测试，忽略重复触发（仪器IP={meter.IP}，端口={meter.Port}）");
+                return false;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// 释放耐压工位流程占用。参数下发失败、测试异常和正常写回都经由该出口恢复 PLC 重复触发判断。
+        /// </summary>
+        /// <param name="meter">对应工位的 AT9620 实例。</param>
+        private void EndTvProcessSession(AT9620.AT9620 meter)
+        {
+            if (meter == null)
+            {
+                return;
+            }
+
+            lock (_tvProcessSessionLock)
+            {
+                _activeTvProcessByMeter.Remove(meter);
+            }
+        }
+
+        /// <summary>
+        /// 识别 AT9620 会话互斥返回的忙碌结果。该结果只表示同台仪器通信链路已被占用，
+        /// 上位机按 PLC 重复触发处理，不作为产品 NG、工艺参数失败或设备测试失败写回。
+        /// </summary>
+        /// <param name="error">AT9620 Download/Start 返回的错误说明。</param>
+        /// <returns>错误说明属于仪器会话忙碌保护时返回 true。</returns>
+        private bool IsTvMeterSessionBusyError(string error)
+        {
+            return error == AT9620.AT9620.ErrorDownloadBlockedByTest
+                || error == AT9620.AT9620.ErrorDownloadBlockedByDownload
+                || error == AT9620.AT9620.ErrorStartBlockedByDownload
+                || error == AT9620.AT9620.ErrorStartBlockedByTest;
+        }
+
+        /// <summary>
+        /// 统一处理耐压仪忙碌保护结果。重复触发只写现场日志并退出当前入口，
+        /// 正在执行的原会话继续负责后续 PLC、MES 和 SQLite 结果流转。
+        /// </summary>
+        /// <param name="stationLabel">工位日志前缀，例如“耐压1”。</param>
+        /// <param name="testType">测试类型标识，例如 ACW 或 DCW。</param>
+        /// <param name="error">AT9620 Download/Start 返回的错误说明。</param>
+        /// <returns>已按忙碌保护处理时返回 true；其它失败原因返回 false。</returns>
+        private bool SkipTvProcessWhenMeterBusy(string stationLabel, string testType, string error)
+        {
+            if (!IsTvMeterSessionBusyError(error))
+            {
+                return false;
+            }
+
+            writeLog($"[{stationLabel}-{testType}] {error}，忽略本次重复触发");
+            return true;
+        }
+
+        /// <summary>
         /// 执行ACW交流耐压测试（TV1工位）
         /// </summary>
         /// <remarks>
@@ -896,26 +1007,43 @@ namespace BusbarCompressionSystem.ViewModel
         /// </remarks>
         public void TV1Process_ACW()
         {
-            writeLog($"[耐压1-ACW] 开始ACW交流耐压测试");
-            
-            // 触发前统一下发参数，避免设备参数未同步
-            writeLog($"[耐压1-ACW] 开始下发ACW参数");
-            DataModel.Settingmodel.AT9620_1.TVParameter = DataModel.Processmodel.ACWParameter;
-            var downloadResult = DataModel.Settingmodel.AT9620_1.Download();
-            if (!downloadResult.Success)
+            if (!TryBeginTvProcessIfIdle(DataModel.Settingmodel.AT9620_1, "耐压1", "ACW"))
             {
-                writeLog($"[耐压1-ACW] ❌ ACW参数下发失败: {downloadResult.Error}", true);
-                // 参数下发失败视为该工位耐压 NG：通知 PLC 不要启用 IR
-                WriteTvOkSignalForIrEnable(1, false);
-                PLC_write((DataModel.Settingmodel.AddressStart + 7).ToString(), (UInt16)2);
                 return;
             }
-            DataModel.Processmodel.LastTV1TestMode = AT9620.TestMode.ACW;
-            writeLog($"[耐压1-ACW] ACW参数下发成功");
-            Thread.Sleep(500);
-            
-            // 执行测试（复用现有逻辑）
-            TV1Process_Core("ACW");
+
+            try
+            {
+                writeLog($"[耐压1-ACW] 开始ACW交流耐压测试");
+
+                // 触发前统一下发参数，避免设备参数未同步
+                writeLog($"[耐压1-ACW] 开始下发ACW参数");
+                DataModel.Settingmodel.AT9620_1.TVParameter = DataModel.Processmodel.ACWParameter;
+                var downloadResult = DataModel.Settingmodel.AT9620_1.Download();
+                if (!downloadResult.Success)
+                {
+                    if (SkipTvProcessWhenMeterBusy("耐压1", "ACW", downloadResult.Error))
+                    {
+                        return;
+                    }
+
+                    writeLog($"[耐压1-ACW] ❌ ACW参数下发失败: {downloadResult.Error}", true);
+                    // 参数下发失败视为该工位耐压 NG：通知 PLC 不要启用 IR
+                    WriteTvOkSignalForIrEnable(1, false);
+                    PLC_write((DataModel.Settingmodel.AddressStart + 7).ToString(), (UInt16)2);
+                    return;
+                }
+                DataModel.Processmodel.LastTV1TestMode = AT9620.TestMode.ACW;
+                writeLog($"[耐压1-ACW] ACW参数下发成功");
+                Thread.Sleep(500);
+
+                // 执行测试（复用现有逻辑）
+                TV1Process_Core("ACW");
+            }
+            finally
+            {
+                EndTvProcessSession(DataModel.Settingmodel.AT9620_1);
+            }
         }
 
         /// <summary>
@@ -927,26 +1055,43 @@ namespace BusbarCompressionSystem.ViewModel
         /// </remarks>
         public void TV1Process_DCW()
         {
-            writeLog($"[耐压1-DCW] 开始DCW直流耐压测试");
-            
-            // 触发前统一下发参数，避免设备参数未同步
-            writeLog($"[耐压1-DCW] 开始下发DCW参数");
-            DataModel.Settingmodel.AT9620_1.TVParameter = DataModel.Processmodel.DCWParameter;
-            var downloadResult = DataModel.Settingmodel.AT9620_1.Download();
-            if (!downloadResult.Success)
+            if (!TryBeginTvProcessIfIdle(DataModel.Settingmodel.AT9620_1, "耐压1", "DCW"))
             {
-                writeLog($"[耐压1-DCW] ❌ DCW参数下发失败: {downloadResult.Error}", true);
-                // 参数下发失败视为该工位耐压 NG：通知 PLC 不要启用 IR
-                WriteTvOkSignalForIrEnable(1, false);
-                PLC_write((DataModel.Settingmodel.AddressStart + 7).ToString(), (UInt16)2);
                 return;
             }
-            DataModel.Processmodel.LastTV1TestMode = AT9620.TestMode.DCW;
-            writeLog($"[耐压1-DCW] DCW参数下发成功");
-            Thread.Sleep(500);
 
-            // 执行测试（复用现有逻辑）
-            TV1Process_Core("DCW");
+            try
+            {
+                writeLog($"[耐压1-DCW] 开始DCW直流耐压测试");
+
+                // 触发前统一下发参数，避免设备参数未同步
+                writeLog($"[耐压1-DCW] 开始下发DCW参数");
+                DataModel.Settingmodel.AT9620_1.TVParameter = DataModel.Processmodel.DCWParameter;
+                var downloadResult = DataModel.Settingmodel.AT9620_1.Download();
+                if (!downloadResult.Success)
+                {
+                    if (SkipTvProcessWhenMeterBusy("耐压1", "DCW", downloadResult.Error))
+                    {
+                        return;
+                    }
+
+                    writeLog($"[耐压1-DCW] ❌ DCW参数下发失败: {downloadResult.Error}", true);
+                    // 参数下发失败视为该工位耐压 NG：通知 PLC 不要启用 IR
+                    WriteTvOkSignalForIrEnable(1, false);
+                    PLC_write((DataModel.Settingmodel.AddressStart + 7).ToString(), (UInt16)2);
+                    return;
+                }
+                DataModel.Processmodel.LastTV1TestMode = AT9620.TestMode.DCW;
+                writeLog($"[耐压1-DCW] DCW参数下发成功");
+                Thread.Sleep(500);
+
+                // 执行测试（复用现有逻辑）
+                TV1Process_Core("DCW");
+            }
+            finally
+            {
+                EndTvProcessSession(DataModel.Settingmodel.AT9620_1);
+            }
         }
 
         /// <summary>
@@ -987,6 +1132,11 @@ namespace BusbarCompressionSystem.ViewModel
             DataModel.Processmodel.TVTestTestModel1.Time = 0;
 
             var r = RunTvMeterStartWithDiagnostics(DataModel.Settingmodel.AT9620_1, DataModel.Processmodel.TVTestTestModel1.Productinfo?.SN, testType);
+            if (!r.Success && SkipTvProcessWhenMeterBusy("耐压1", testType, r.Error))
+            {
+                return;
+            }
+
             // 记录耐压失败原因到界面日志，便于首件异常定位
             if (!r.Success && !string.IsNullOrWhiteSpace(r.Error))
             {
@@ -1165,6 +1315,11 @@ namespace BusbarCompressionSystem.ViewModel
 
 
             var r = RunTvMeterStartWithDiagnostics(DataModel.Settingmodel.AT9620_1, DataModel.Processmodel.TVTestTestModel1.Productinfo?.SN, DataModel.Processmodel.CurrentTV1TestModeDisplay);
+            if (!r.Success && SkipTvProcessWhenMeterBusy("耐压1", DataModel.Processmodel.CurrentTV1TestModeDisplay, r.Error))
+            {
+                return;
+            }
+
             var localizedTvInfo1 = GetLocalizedTvStatus(DataModel.Processmodel.TVTestTestModel1.TVInfo);
             DataModel.Processmodel.TVTestTestModel1.TVInfo = localizedTvInfo1;
 
@@ -1223,26 +1378,43 @@ namespace BusbarCompressionSystem.ViewModel
         /// </remarks>
         public void TV2Process_ACW()
         {
-            writeLog($"[耐压2-ACW] 开始ACW交流耐压测试");
-            
-            // 触发前统一下发参数，避免设备参数未同步
-            writeLog($"[耐压2-ACW] 开始下发ACW参数");
-            DataModel.Settingmodel.AT9620_2.TVParameter = DataModel.Processmodel.ACWParameter;
-            var downloadResult = DataModel.Settingmodel.AT9620_2.Download();
-            if (!downloadResult.Success)
+            if (!TryBeginTvProcessIfIdle(DataModel.Settingmodel.AT9620_2, "耐压2", "ACW"))
             {
-                writeLog($"[耐压2-ACW] ❌ ACW参数下发失败: {downloadResult.Error}", true);
-                // 参数下发失败视为该工位耐压 NG：通知 PLC 不要启用 IR
-                WriteTvOkSignalForIrEnable(2, false);
-                PLC_write((DataModel.Settingmodel.AddressStart + 9).ToString(), (UInt16)2);
                 return;
             }
-            DataModel.Processmodel.LastTV2TestMode = AT9620.TestMode.ACW;
-            writeLog($"[耐压2-ACW] ACW参数下发成功");
-            Thread.Sleep(500);
 
-            // 执行测试（复用现有逻辑）
-            TV2Process_Core("ACW");
+            try
+            {
+                writeLog($"[耐压2-ACW] 开始ACW交流耐压测试");
+
+                // 触发前统一下发参数，避免设备参数未同步
+                writeLog($"[耐压2-ACW] 开始下发ACW参数");
+                DataModel.Settingmodel.AT9620_2.TVParameter = DataModel.Processmodel.ACWParameter;
+                var downloadResult = DataModel.Settingmodel.AT9620_2.Download();
+                if (!downloadResult.Success)
+                {
+                    if (SkipTvProcessWhenMeterBusy("耐压2", "ACW", downloadResult.Error))
+                    {
+                        return;
+                    }
+
+                    writeLog($"[耐压2-ACW] ❌ ACW参数下发失败: {downloadResult.Error}", true);
+                    // 参数下发失败视为该工位耐压 NG：通知 PLC 不要启用 IR
+                    WriteTvOkSignalForIrEnable(2, false);
+                    PLC_write((DataModel.Settingmodel.AddressStart + 9).ToString(), (UInt16)2);
+                    return;
+                }
+                DataModel.Processmodel.LastTV2TestMode = AT9620.TestMode.ACW;
+                writeLog($"[耐压2-ACW] ACW参数下发成功");
+                Thread.Sleep(500);
+
+                // 执行测试（复用现有逻辑）
+                TV2Process_Core("ACW");
+            }
+            finally
+            {
+                EndTvProcessSession(DataModel.Settingmodel.AT9620_2);
+            }
         }
 
         /// <summary>
@@ -1254,26 +1426,43 @@ namespace BusbarCompressionSystem.ViewModel
         /// </remarks>
         public void TV2Process_DCW()
         {
-            writeLog($"[耐压2-DCW] 开始DCW直流耐压测试");
-            
-            // 触发前统一下发参数，避免设备参数未同步
-            writeLog($"[耐压2-DCW] 开始下发DCW参数");
-            DataModel.Settingmodel.AT9620_2.TVParameter = DataModel.Processmodel.DCWParameter;
-            var downloadResult = DataModel.Settingmodel.AT9620_2.Download();
-            if (!downloadResult.Success)
+            if (!TryBeginTvProcessIfIdle(DataModel.Settingmodel.AT9620_2, "耐压2", "DCW"))
             {
-                writeLog($"[耐压2-DCW] ❌ DCW参数下发失败: {downloadResult.Error}", true);
-                // 参数下发失败视为该工位耐压 NG：通知 PLC 不要启用 IR
-                WriteTvOkSignalForIrEnable(2, false);
-                PLC_write((DataModel.Settingmodel.AddressStart + 9).ToString(), (UInt16)2);
                 return;
             }
-            DataModel.Processmodel.LastTV2TestMode = AT9620.TestMode.DCW;
-            writeLog($"[耐压2-DCW] DCW参数下发成功");
-            Thread.Sleep(500);
 
-            // 执行测试（复用现有逻辑）
-            TV2Process_Core("DCW");
+            try
+            {
+                writeLog($"[耐压2-DCW] 开始DCW直流耐压测试");
+
+                // 触发前统一下发参数，避免设备参数未同步
+                writeLog($"[耐压2-DCW] 开始下发DCW参数");
+                DataModel.Settingmodel.AT9620_2.TVParameter = DataModel.Processmodel.DCWParameter;
+                var downloadResult = DataModel.Settingmodel.AT9620_2.Download();
+                if (!downloadResult.Success)
+                {
+                    if (SkipTvProcessWhenMeterBusy("耐压2", "DCW", downloadResult.Error))
+                    {
+                        return;
+                    }
+
+                    writeLog($"[耐压2-DCW] ❌ DCW参数下发失败: {downloadResult.Error}", true);
+                    // 参数下发失败视为该工位耐压 NG：通知 PLC 不要启用 IR
+                    WriteTvOkSignalForIrEnable(2, false);
+                    PLC_write((DataModel.Settingmodel.AddressStart + 9).ToString(), (UInt16)2);
+                    return;
+                }
+                DataModel.Processmodel.LastTV2TestMode = AT9620.TestMode.DCW;
+                writeLog($"[耐压2-DCW] DCW参数下发成功");
+                Thread.Sleep(500);
+
+                // 执行测试（复用现有逻辑）
+                TV2Process_Core("DCW");
+            }
+            finally
+            {
+                EndTvProcessSession(DataModel.Settingmodel.AT9620_2);
+            }
         }
 
         /// <summary>
@@ -1314,6 +1503,11 @@ namespace BusbarCompressionSystem.ViewModel
             DataModel.Processmodel.TVTestTestModel2.Time = 0;
 
             var r = RunTvMeterStartWithDiagnostics(DataModel.Settingmodel.AT9620_2, DataModel.Processmodel.TVTestTestModel2.Productinfo?.SN, testType);
+            if (!r.Success && SkipTvProcessWhenMeterBusy("耐压2", testType, r.Error))
+            {
+                return;
+            }
+
             // 记录耐压失败原因到界面日志，便于首件异常定位
             if (!r.Success && !string.IsNullOrWhiteSpace(r.Error))
             {
@@ -1429,6 +1623,11 @@ namespace BusbarCompressionSystem.ViewModel
             DataModel.Processmodel.TVTestTestModel2.TVMaxVoltage = 0;
             DataModel.Processmodel.TVTestTestModel2.TVMaxCurrent = 0;
             var r = RunTvMeterStartWithDiagnostics(DataModel.Settingmodel.AT9620_2, DataModel.Processmodel.TVTestTestModel2.Productinfo?.SN, DataModel.Processmodel.CurrentTV2TestModeDisplay);
+            if (!r.Success && SkipTvProcessWhenMeterBusy("耐压2", DataModel.Processmodel.CurrentTV2TestModeDisplay, r.Error))
+            {
+                return;
+            }
+
             var localizedTvInfo2 = GetLocalizedTvStatus(DataModel.Processmodel.TVTestTestModel2.TVInfo);
             DataModel.Processmodel.TVTestTestModel2.TVInfo = localizedTvInfo2;
 
@@ -1477,28 +1676,46 @@ namespace BusbarCompressionSystem.ViewModel
             PLC_write((DataModel.Settingmodel.AddressStart + 9).ToString(), 1);
 
         }
+
         /// <summary>
         /// 执行ACW交流耐压测试（TV3工位）。
         /// D1010=1时调用本入口；D1011仅作为本站流程握手，产品质量结论由SQLite记录和CHECK综合判定。
         /// </summary>
         public void TV3Process_ACW()
         {
-            writeLog($"[耐压3-ACW] 开始ACW交流耐压测试");
-
-            writeLog($"[耐压3-ACW] 开始下发ACW参数");
-            DataModel.Settingmodel.AT9620_3.TVParameter = DataModel.Processmodel.ACWParameter;
-            var downloadResult = DataModel.Settingmodel.AT9620_3.Download();
-            if (!downloadResult.Success)
+            if (!TryBeginTvProcessIfIdle(DataModel.Settingmodel.AT9620_3, "耐压3", "ACW"))
             {
-                writeLog($"[耐压3-ACW] ❌ ACW参数下发失败: {downloadResult.Error}", true);
-                PLC_write((DataModel.Settingmodel.AddressStart + 11).ToString(), (UInt16)2);
                 return;
             }
-            DataModel.Processmodel.LastTV3TestMode = AT9620.TestMode.ACW;
-            writeLog($"[耐压3-ACW] ACW参数下发成功");
-            Thread.Sleep(500);
 
-            TV3Process_Core("ACW");
+            try
+            {
+                writeLog($"[耐压3-ACW] 开始ACW交流耐压测试");
+
+                writeLog($"[耐压3-ACW] 开始下发ACW参数");
+                DataModel.Settingmodel.AT9620_3.TVParameter = DataModel.Processmodel.ACWParameter;
+                var downloadResult = DataModel.Settingmodel.AT9620_3.Download();
+                if (!downloadResult.Success)
+                {
+                    if (SkipTvProcessWhenMeterBusy("耐压3", "ACW", downloadResult.Error))
+                    {
+                        return;
+                    }
+
+                    writeLog($"[耐压3-ACW] ❌ ACW参数下发失败: {downloadResult.Error}", true);
+                    PLC_write((DataModel.Settingmodel.AddressStart + 11).ToString(), (UInt16)2);
+                    return;
+                }
+                DataModel.Processmodel.LastTV3TestMode = AT9620.TestMode.ACW;
+                writeLog($"[耐压3-ACW] ACW参数下发成功");
+                Thread.Sleep(500);
+
+                TV3Process_Core("ACW");
+            }
+            finally
+            {
+                EndTvProcessSession(DataModel.Settingmodel.AT9620_3);
+            }
         }
 
         /// <summary>
@@ -1507,22 +1724,39 @@ namespace BusbarCompressionSystem.ViewModel
         /// </summary>
         public void TV3Process_DCW()
         {
-            writeLog($"[耐压3-DCW] 开始DCW直流耐压测试");
-
-            writeLog($"[耐压3-DCW] 开始下发DCW参数");
-            DataModel.Settingmodel.AT9620_3.TVParameter = DataModel.Processmodel.DCWParameter;
-            var downloadResult = DataModel.Settingmodel.AT9620_3.Download();
-            if (!downloadResult.Success)
+            if (!TryBeginTvProcessIfIdle(DataModel.Settingmodel.AT9620_3, "耐压3", "DCW"))
             {
-                writeLog($"[耐压3-DCW] ❌ DCW参数下发失败: {downloadResult.Error}", true);
-                PLC_write((DataModel.Settingmodel.AddressStart + 11).ToString(), (UInt16)2);
                 return;
             }
-            DataModel.Processmodel.LastTV3TestMode = AT9620.TestMode.DCW;
-            writeLog($"[耐压3-DCW] DCW参数下发成功");
-            Thread.Sleep(500);
 
-            TV3Process_Core("DCW");
+            try
+            {
+                writeLog($"[耐压3-DCW] 开始DCW直流耐压测试");
+
+                writeLog($"[耐压3-DCW] 开始下发DCW参数");
+                DataModel.Settingmodel.AT9620_3.TVParameter = DataModel.Processmodel.DCWParameter;
+                var downloadResult = DataModel.Settingmodel.AT9620_3.Download();
+                if (!downloadResult.Success)
+                {
+                    if (SkipTvProcessWhenMeterBusy("耐压3", "DCW", downloadResult.Error))
+                    {
+                        return;
+                    }
+
+                    writeLog($"[耐压3-DCW] ❌ DCW参数下发失败: {downloadResult.Error}", true);
+                    PLC_write((DataModel.Settingmodel.AddressStart + 11).ToString(), (UInt16)2);
+                    return;
+                }
+                DataModel.Processmodel.LastTV3TestMode = AT9620.TestMode.DCW;
+                writeLog($"[耐压3-DCW] DCW参数下发成功");
+                Thread.Sleep(500);
+
+                TV3Process_Core("DCW");
+            }
+            finally
+            {
+                EndTvProcessSession(DataModel.Settingmodel.AT9620_3);
+            }
         }
 
         /// <summary>
@@ -1561,6 +1795,11 @@ namespace BusbarCompressionSystem.ViewModel
             DataModel.Processmodel.TVTestTestModel3.Time = 0;
 
             var r = RunTvMeterStartWithDiagnostics(DataModel.Settingmodel.AT9620_3, DataModel.Processmodel.TVTestTestModel3.Productinfo?.SN, testType);
+            if (!r.Success && SkipTvProcessWhenMeterBusy("耐压3", testType, r.Error))
+            {
+                return;
+            }
+
             if (!r.Success && !string.IsNullOrWhiteSpace(r.Error))
             {
                 writeLog($"[耐压3-{testType}] 失败原因: {r.Error}", true);

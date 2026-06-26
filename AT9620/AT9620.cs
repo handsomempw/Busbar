@@ -83,6 +83,167 @@ namespace AT9620
         [XmlIgnore]
         public string LastFetchRaw { get; private set; } = string.Empty;
 
+        /// <summary>测试进行中拒绝参数下发时返回给上层的固定说明。</summary>
+        public const string ErrorDownloadBlockedByTest = "仪器正在测试，已拒绝参数下发";
+
+        /// <summary>参数下发进行中拒绝启动测试时返回给上层的固定说明。</summary>
+        public const string ErrorStartBlockedByDownload = "参数正在下发，已拒绝启动测试";
+
+        /// <summary>测试进行中拒绝重复启动时返回给上层的固定说明。</summary>
+        public const string ErrorStartBlockedByTest = "仪器正在测试，已拒绝重复启动";
+
+        /// <summary>参数下发进行中拒绝重复下发时返回给上层的固定说明。</summary>
+        public const string ErrorDownloadBlockedByDownload = "参数正在下发，已拒绝重复下发";
+
+        private enum InstrumentSessionState
+        {
+            Idle,
+            Downloading,
+            Testing
+        }
+
+        private readonly object _sessionLock = new object();
+        private InstrumentSessionState _sessionState = InstrumentSessionState.Idle;
+
+        /// <summary>
+        /// 本机仪器是否处于参数下发或测试会话中；供 PLC 入口判断是否忽略重复触发。
+        /// </summary>
+        [XmlIgnore]
+        public bool IsSessionActive
+        {
+            get
+            {
+                lock (_sessionLock)
+                {
+                    return _sessionState != InstrumentSessionState.Idle;
+                }
+            }
+        }
+
+        private static string GetOperationName(InstrumentSessionState state)
+        {
+            switch (state)
+            {
+                case InstrumentSessionState.Downloading:
+                    return "Download";
+                case InstrumentSessionState.Testing:
+                    return "Start";
+                default:
+                    return "Idle";
+            }
+        }
+
+        /// <summary>
+        /// 尝试占用当前耐压仪会话。参数下发和启动测试共用同一个 TCP 通道，
+        /// 忙碌请求立即返回固定错误，上层据此按 PLC 重复触发处理，现场通信保持单一指令链。
+        /// </summary>
+        /// <param name="requestedState">请求进入的会话类型，来自参数下发或启动测试入口。</param>
+        /// <param name="requestedOperation">写入诊断日志的操作名称。</param>
+        /// <param name="error">会话被占用时返回给上层的固定说明；允许进入时为空。</param>
+        /// <returns>成功占用通信会话时返回 true；同台仪器已有会话时返回 false。</returns>
+        private bool TryBeginSession(InstrumentSessionState requestedState, string requestedOperation, out string error)
+        {
+            string activeOperation;
+            lock (_sessionLock)
+            {
+                if (_sessionState == InstrumentSessionState.Idle)
+                {
+                    _sessionState = requestedState;
+                    error = string.Empty;
+                    return true;
+                }
+
+                error = GetSessionBlockedReason(requestedState, _sessionState);
+                activeOperation = GetOperationName(_sessionState);
+            }
+
+            LogSessionBlocked(requestedOperation, error, activeOperation);
+            return false;
+        }
+
+        /// <summary>
+        /// 将会话占用状态转换为上层可识别的固定忙碌说明，便于 UI 日志、PLC 入口和诊断文件使用同一口径。
+        /// </summary>
+        /// <param name="requestedState">本次请求进入的参数下发或测试会话。</param>
+        /// <param name="activeState">当前已经占用同台仪器的会话。</param>
+        /// <returns>用于 Result.Error 的固定中文说明。</returns>
+        private static string GetSessionBlockedReason(InstrumentSessionState requestedState, InstrumentSessionState activeState)
+        {
+            if (requestedState == InstrumentSessionState.Downloading && activeState == InstrumentSessionState.Testing)
+            {
+                return ErrorDownloadBlockedByTest;
+            }
+
+            if (requestedState == InstrumentSessionState.Downloading && activeState == InstrumentSessionState.Downloading)
+            {
+                return ErrorDownloadBlockedByDownload;
+            }
+
+            if (requestedState == InstrumentSessionState.Testing && activeState == InstrumentSessionState.Downloading)
+            {
+                return ErrorStartBlockedByDownload;
+            }
+
+            if (requestedState == InstrumentSessionState.Testing && activeState == InstrumentSessionState.Testing)
+            {
+                return ErrorStartBlockedByTest;
+            }
+
+            return "仪器通信会话忙碌，已拒绝本次请求";
+        }
+
+        /// <summary>
+        /// 记录同台耐压仪会话占用拦截信息，供现场日志确认重复触发来源、当前会话和目标仪器地址。
+        /// </summary>
+        /// <param name="requestedOperation">被拦截的上层请求，例如 Download 或 Start。</param>
+        /// <param name="reason">返回给业务流程的固定忙碌说明。</param>
+        /// <param name="activeOperation">当前占用该仪器通信链路的操作名称。</param>
+        private void LogSessionBlocked(string requestedOperation, string reason, string activeOperation)
+        {
+            string line =
+                $"【会话拦截】请求操作={requestedOperation}，拦截原因={reason}，当前操作={activeOperation}，仪器IP={IP}，端口={Port}";
+            WriteLog(line);
+            string stamped = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}\t{line}";
+            DiagnosticLog?.Invoke(stamped);
+            CommunicationLog?.Invoke(stamped);
+        }
+
+        /// <summary>
+        /// 释放当前耐压仪会话占用。仅释放调用方持有的会话类型，保留异常路径下的状态一致性。
+        /// </summary>
+        /// <param name="expectedState">调用方进入会话时登记的状态。</param>
+        private void EndSession(InstrumentSessionState expectedState)
+        {
+            lock (_sessionLock)
+            {
+                if (_sessionState == expectedState)
+                {
+                    _sessionState = InstrumentSessionState.Idle;
+                }
+            }
+        }
+
+        /// <summary>
+        /// 关闭当前 TCP 连接并更新连接标志。该方法供 Start/Download 结束路径复用，保证异常结束后通信通道回到可重连状态。
+        /// </summary>
+        /// <returns>连接已经处于断开状态时返回 true。</returns>
+        private bool DisconnectCore()
+        {
+            try
+            {
+                if (isconnected)
+                {
+                    tcp?.Close();
+                    isconnected = false;
+                }
+            }
+            catch
+            {
+            }
+
+            return !isconnected;
+        }
+
         private void Diag(string message)
         {
             DiagnosticLog?.Invoke($"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}\t{message}");
@@ -126,7 +287,7 @@ namespace AT9620
                 }
                 isconnected = tcp.Connected;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 isconnected = false;
             }
@@ -134,46 +295,79 @@ namespace AT9620
             return isconnected;
         }
 
+        /// <summary>
+        /// 手动断开空闲状态下的耐压仪 TCP 连接。正在参数下发或测试的会话由各自结束路径关闭连接。
+        /// </summary>
+        /// <returns>空闲连接断开成功时返回 true；会话占用中返回 false。</returns>
         public bool disconnect()
         {
-            try
+            lock (_sessionLock)
             {
-                if (isconnected)
+                if (_sessionState != InstrumentSessionState.Idle)
                 {
-                    tcp?.Close();
-                    isconnected = false;
+                    return false;
                 }
             }
-            catch
-            {
 
-            }
-
-            return !isconnected;
+            return DisconnectCore();
         }
 
+        /// <summary>
+        /// 启动当前 AT9620 测试并读取结果。入口负责独占测试会话，参数、Fetch 轮询、结果解析沿用既有测试流程。
+        /// </summary>
+        /// <returns>测试执行结果；会话忙碌或连接失败时返回失败说明。</returns>
         public Result Start()
         {
-            var c = connect(IP, Port);
-            if (!c)
+            string error;
+            if (!TryBeginSession(InstrumentSessionState.Testing, "Start", out error))
             {
-                return new Result() { Error = "连接失败" };
+                return new Result { Error = error };
             }
-            var r = _Start();
-            disconnect();
-            return r;
+
+            try
+            {
+                var c = connect(IP, Port);
+                if (!c)
+                {
+                    return new Result { Error = "连接失败" };
+                }
+
+                return _Start();
+            }
+            finally
+            {
+                DisconnectCore();
+                EndSession(InstrumentSessionState.Testing);
+            }
         }
 
+        /// <summary>
+        /// 下发当前 AT9620 工艺参数并回读校验。入口负责独占参数下发会话，工艺命令和比对口径沿用既有流程。
+        /// </summary>
+        /// <returns>参数下发和回读比对结果；会话忙碌或连接失败时返回失败说明。</returns>
         public Result Download()
         {
-            var c = connect(IP, Port);
-            if (!c)
+            string error;
+            if (!TryBeginSession(InstrumentSessionState.Downloading, "Download", out error))
             {
-                return new Result() { Error = "连接失败" };
+                return new Result { Error = error };
             }
-            var r = _Download();
-            disconnect();
-            return r;
+
+            try
+            {
+                var c = connect(IP, Port);
+                if (!c)
+                {
+                    return new Result { Error = "连接失败" };
+                }
+
+                return _Download();
+            }
+            finally
+            {
+                DisconnectCore();
+                EndSession(InstrumentSessionState.Downloading);
+            }
         }
         public Result _Download()
         {
