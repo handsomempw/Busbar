@@ -425,6 +425,36 @@ namespace BusbarCompressionSystem.Model
         public int ReportFailBlockCoilAddress { get; set; } = 3045;
 
         /// <summary>
+        /// 联动扫码触发线圈（M 寄存器，PLC -> 上位机）。
+        /// PLC 在上一设备写入已转换 SN 后置位该线圈，上位机据此读取联动 SN 并进入扫码放行链路。
+        /// </summary>
+        /// <remarks>
+        /// M3046 只承载请求触发；产品码内容由 <see cref="LinkedScanSnAddress"/> 提供。
+        /// </remarks>
+        [XmlElement("联动扫码触发地址")]
+        public int LinkedScanTrigAddress { get; set; } = 3046;
+
+        /// <summary>
+        /// 联动扫码业务完成线圈（M 寄存器，上位机 -> PLC）。
+        /// 上位机读取 D725、完成 MES 工单/规格校验、写入旧产品码区并创建本地记录后才置位。
+        /// </summary>
+        /// <remarks>
+        /// 该信号只表示完整业务成功；空码、校验失败、PLC 产品码写入失败或数据库建档失败均保持未完成，由 PLC 超时或重试流程处理。
+        /// </remarks>
+        [XmlElement("联动扫码完成地址")]
+        public int LinkedScanDoneAddress { get; set; } = 3047;
+
+        /// <summary>
+        /// 联动扫码 SN 地址（D 寄存器，字符串类型，PLC -> 上位机）。
+        /// D725 存放上一设备已经完成 MT 转换后的产品 SN，上位机直接按 SN 查询 MES 并复用旧扫码后的放行链路。
+        /// </summary>
+        /// <remarks>
+        /// 正常产品 SN 当前长度小于 10 位；读取函数按项目既有字符串长度读取，仍保留充足余量。
+        /// </remarks>
+        [XmlElement("联动扫码SN地址")]
+        public int LinkedScanSnAddress { get; set; } = 725;
+
+        /// <summary>
         /// 下料位扫码触发地址。
         /// PLC 置位后，上位机读取下料位条码。
         /// </summary>

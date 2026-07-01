@@ -307,6 +307,73 @@ namespace BusbarCompressionSystem.ViewModel
             DataModel.Processmodel.TakePhotoTestModel.error = s;
 
         }
+
+        /// <summary>
+        /// 处理上一设备经 PLC 传入的已转换 SN。
+        /// 该入口只替代扫码器取码和 MT 转 SN，后续仍执行 MES 工单/规格校验、旧产品码区写入和本地记录创建，保证后续 CHECK 流程读取到同一格式的 "SN;WOCODE"。
+        /// </summary>
+        /// <param name="resolvedSn">D725 提供的已转换产品 SN，按现场约定为最终 SN。</param>
+        /// <returns>空字符串表示联动扫码业务完整成功；非空文本表示已中止且 M3047 保持未完成。</returns>
+        private string ProcessLinkedScanResolvedSn(string resolvedSn)
+        {
+            string sn = (resolvedSn ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(sn))
+            {
+                return "联动扫码读取到空SN，请确认上一设备已写入D725后再触发M3046";
+            }
+
+            writeLog($"[联动扫码] 读取上一设备已转换SN: {sn}");
+
+            string wocode = MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.get_WO_CODE(sn);
+            writeLog($"[联动扫码] 查询WOCODE: {(string.IsNullOrEmpty(wocode) ? "查询失败" : wocode)}");
+            if (string.IsNullOrEmpty(wocode))
+            {
+                return "关联批次号读取失败";
+            }
+
+            string partnoid = MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.get_PartNO_ID(sn);
+            writeLog($"[联动扫码] 查询PartNOID: {(string.IsNullOrEmpty(partnoid) ? "查询失败" : partnoid)}");
+            if (string.IsNullOrEmpty(partnoid))
+            {
+                return "关联规格信息读取失败";
+            }
+
+            string workOrderError = ValidateScanWorkOrder(wocode, sn, partnoid);
+            if (!string.IsNullOrEmpty(workOrderError))
+            {
+                return workOrderError;
+            }
+
+            if (partnoid != DataModel.Processmodel.PartNOID)
+            {
+                writeLog("[联动扫码] 检测到混批，已拦截上一设备SN进入本工位", true);
+                writeLog($"  - 产线当前规格: {DataModel.Processmodel.PartNOID}", true);
+                writeLog($"  - 联动SN规格: {partnoid}", true);
+                writeLog($"  - 产品SN: {sn}", true);
+                writeLog($"  - 工单号: {wocode}", true);
+                return $"混批错误！禁止不同规格产品混合作业\n当前规格: {DataModel.Processmodel.PartNOID}\n联动SN规格: {partnoid}";
+            }
+
+            string productCode = $"{sn};{wocode}";
+            bool plcWriteOk = PLC_Writestring(DataModel.Settingmodel.AddressSN.ToString(), productCode);
+            writeLog($"[联动扫码] 写入PLC地址 {DataModel.Settingmodel.AddressSN}: {(plcWriteOk ? "成功" : "失败")} | {productCode}");
+            if (!plcWriteOk)
+            {
+                writePlcError($"[PLC写入异常]联动扫码-写入AddressSN失败 | AddressSN={DataModel.Settingmodel.AddressSN}, 内容长度={(productCode?.Length ?? 0)}, SN={sn}, WO={wocode}");
+                return "联动扫码写入PLC产品码失败";
+            }
+
+            writeLog($"[联动扫码] 创建数据库记录: wocode={wocode}, partnoid={partnoid}, SN={sn}, 工位={DataModel.Settingmodel.SETTING_DATA.StationCode}, 设备={DataModel.Settingmodel.SETTING_DATA.MachineID}");
+            bool dbResult = sqlite.CREATENEWLINE(wocode, partnoid, sn, DataModel.Settingmodel.SETTING_DATA.StationCode, DataModel.Settingmodel.SETTING_DATA.MachineID, DateTime.Now);
+            if (!dbResult)
+            {
+                writeLog($"[联动扫码] 数据库记录创建失败！wocode={wocode}, SN={sn}", true);
+                return "联动扫码数据库记录创建失败";
+            }
+
+            writeLog("[联动扫码] 扫码业务处理成功");
+            return string.Empty;
+        }
         #endregion
         #region 耐压测试
 
@@ -676,6 +743,61 @@ namespace BusbarCompressionSystem.ViewModel
                 catch { }
             }
         }
+
+        /// <summary>
+        /// 联动扫码流程入口。
+        /// PLC 先将上一设备已转换 SN 写入 D725，再置位 M3046；上位机读取后复用本工位扫码放行链路，完整成功后向 M3047 写入完成信号。
+        /// </summary>
+        public void LinkedScannerProcess()
+        {
+            if (Interlocked.Exchange(ref _linkedScanProcessing, 1) == 1)
+            {
+                writeLog("[联动扫码] 上一笔联动扫码仍在处理中，忽略本次重复触发。", true);
+                return;
+            }
+
+            try
+            {
+                PLC_WriteCoil(DataModel.Settingmodel.LinkedScanDoneAddress, false, "联动扫码完成信号");
+
+                string linkedSn = (PLC_Readstring(DataModel.Settingmodel.LinkedScanSnAddress) ?? string.Empty)
+                    .Replace("\0", string.Empty)
+                    .Trim();
+
+                if (string.IsNullOrWhiteSpace(linkedSn))
+                {
+                    writeLog($"[联动扫码] D{DataModel.Settingmodel.LinkedScanSnAddress}为空，已中止本次联动扫码，等待PLC超时或重试。", true);
+                    return;
+                }
+
+                string result = ProcessLinkedScanResolvedSn(linkedSn);
+                if (!string.IsNullOrEmpty(result))
+                {
+                    writeLog($"[联动扫码] {result}", true);
+                    return;
+                }
+
+                bool doneOk = PLC_WriteCoil(DataModel.Settingmodel.LinkedScanDoneAddress, true, "联动扫码完成信号");
+                if (doneOk)
+                {
+                    writeLog($"[联动扫码] 已写入M{DataModel.Settingmodel.LinkedScanDoneAddress}=1，通知PLC扫码业务完成");
+                }
+                else
+                {
+                    writePlcError($"[PLC写入异常]联动扫码-写入完成信号失败 | M{DataModel.Settingmodel.LinkedScanDoneAddress}=1, D{DataModel.Settingmodel.LinkedScanSnAddress}={linkedSn}");
+                }
+            }
+            catch (Exception ex)
+            {
+                writeLog($"[联动扫码] 处理异常: {ex.Message}", true);
+                writePlcError($"[PLC数据异常]联动扫码处理异常 | D{DataModel.Settingmodel.LinkedScanSnAddress}, M{DataModel.Settingmodel.LinkedScanTrigAddress}, 异常={ex.Message}");
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _linkedScanProcessing, 0);
+            }
+        }
+
         public void SecondScannerProcess()
         {
             if (DataModel.Settingmodel.SecondScannerMode == "HF800")

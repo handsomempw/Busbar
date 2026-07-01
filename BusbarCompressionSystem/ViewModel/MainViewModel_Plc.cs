@@ -20,6 +20,9 @@ namespace BusbarCompressionSystem.ViewModel
         private int? _lastIrStartSkipReasonLoggedForTrig = null;
         private bool? _lastTv3IrBothAvailable = null;
 
+        // 联动扫码线程保护：同一 M3046 高电平周期只允许一个业务处理线程运行
+        private int _linkedScanProcessing = 0;
+
         /// <summary>
         /// AOI-only模式判定：当TV1、TV2、TV3与IR电测路径均不可用时，视为仅走AOI流程。
         /// </summary>
@@ -78,6 +81,7 @@ namespace BusbarCompressionSystem.ViewModel
                         #region 读取数据
                         var readresult = modbusTcp.ReadUInt16(DataModel.Settingmodel.AddressStart.ToString(), 20);
                         var secondScanResult = modbusTcp.ReadUInt16(DataModel.Settingmodel.SecondScanTrigAddress.ToString(), 1);
+                        var linkedScanResult = modbusTcp.ReadCoil(DataModel.Settingmodel.LinkedScanTrigAddress.ToString(), 1);
 
                         if (readresult.IsSuccess)
                         {
@@ -90,6 +94,7 @@ namespace BusbarCompressionSystem.ViewModel
                             int IRTrig = readresult.Content[14];
 
                             int SecondScanTrig = secondScanResult.IsSuccess ? secondScanResult.Content[0] : 0;
+                            int LinkedScanTrig = linkedScanResult.IsSuccess && linkedScanResult.Content[0] ? 1 : 0;
 
                             #region 扫码触发
                             try
@@ -117,6 +122,23 @@ namespace BusbarCompressionSystem.ViewModel
                                 }
                             }
                             catch {; }
+                            #endregion
+
+                            #region 联动扫码触发
+                            try
+                            {
+                                if (LinkedScanTrig == 1 & DataModel.Processmodel.LinkedScan_Trig_IO.IOstatus == 0)
+                                {
+                                    new Thread(() =>
+                                    {
+                                        LinkedScannerProcess();
+                                    }).Start();
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                writeLog($"[联动扫码] M{DataModel.Settingmodel.LinkedScanTrigAddress}触发处理异常: {ex.Message}", true);
+                            }
                             #endregion
 
                             #region 拍照触发
@@ -356,6 +378,7 @@ namespace BusbarCompressionSystem.ViewModel
                             #region 数据复制刷新
                             DataModel.Processmodel.Scan_Trig_IO.IOstatus = ScanTrig;
                             DataModel.Processmodel.SecondScan_Trig_IO.IOstatus = SecondScanTrig;
+                            DataModel.Processmodel.LinkedScan_Trig_IO.IOstatus = linkedScanResult.IsSuccess ? LinkedScanTrig : -1;
                             DataModel.Processmodel.TakePhoto1_Trig_IO.IOstatus = TakePhoto1Trig;
                             DataModel.Processmodel.TV1_Trig_IO.IOstatus = TV1Trig;
                             DataModel.Processmodel.TV2_Trig_IO.IOstatus = TV2Trig;
@@ -376,6 +399,7 @@ namespace BusbarCompressionSystem.ViewModel
                         #region 通讯失败数据置为-1
                         DataModel.Processmodel.Scan_Trig_IO.IOstatus = -1;
                         DataModel.Processmodel.SecondScan_Trig_IO.IOstatus = -1;
+                        DataModel.Processmodel.LinkedScan_Trig_IO.IOstatus = -1;
                         DataModel.Processmodel.TakePhoto1_Trig_IO.IOstatus = -1;
                         DataModel.Processmodel.TV1_Trig_IO.IOstatus = -1;
                         DataModel.Processmodel.TV2_Trig_IO.IOstatus = -1;
@@ -529,6 +553,58 @@ namespace BusbarCompressionSystem.ViewModel
                 Thread.Sleep(100);
             }
 
+            return false;
+        }
+
+        /// <summary>
+        /// 向 PLC 写入 M 线圈信号。
+        /// 用于业务完成、联锁和互锁类 Bool 反馈，区别于 D 寄存器结果写入，调用方需按现场协议决定置 1 或清 0 的时机。
+        /// </summary>
+        /// <param name="address">PLC M 线圈地址，如 3047。</param>
+        /// <param name="value">写入线圈的目标状态；true 表示置位，false 表示复位。</param>
+        /// <param name="context">业务上下文名称，用于日志定位设备交互位置。</param>
+        /// <returns>true 表示 PLC 已确认写入；false 表示连接、写入或程序异常。</returns>
+        private bool PLC_WriteCoil(int address, bool value, string context)
+        {
+            int maxRetry = 3;
+            string lastError = string.Empty;
+            for (int i = 0; i < maxRetry; i++)
+            {
+                ModbusTcpNet modbusTcp = new ModbusTcpNet();
+                try
+                {
+                    modbusTcp.ConnectTimeOut = 1000;
+                    modbusTcp.ReceiveTimeOut = 1000;
+                    modbusTcp.IpAddress = DataModel.Settingmodel.PLC_IP;
+                    modbusTcp.Port = DataModel.Settingmodel.PLC_Port;
+                    modbusTcp.DataFormat = HslCommunication.Core.DataFormat.CDAB;
+
+                    var connectresult = modbusTcp.ConnectServer();
+                    if (connectresult.IsSuccess)
+                    {
+                        var writeResult = modbusTcp.WriteCoil(address.ToString(), value);
+                        modbusTcp.ConnectClose();
+                        if (writeResult.IsSuccess)
+                        {
+                            return true;
+                        }
+
+                        lastError = writeResult.Message ?? "WriteCoil返回失败";
+                    }
+                    else
+                    {
+                        lastError = connectresult.Message ?? "PLC连接失败";
+                    }
+                }
+                catch (Exception ex)
+                {
+                    lastError = ex.Message;
+                }
+
+                Thread.Sleep(40);
+            }
+
+            writePlcError($"[PLC通讯]{context}-写入M{address}={(value ? 1 : 0)}失败 | 重试={maxRetry}, 错误={lastError}");
             return false;
         }
 

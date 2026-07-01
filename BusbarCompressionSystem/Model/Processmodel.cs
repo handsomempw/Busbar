@@ -184,6 +184,14 @@ namespace BusbarCompressionSystem.Model
         [XmlElement("第二扫码触发")]
         public IO SecondScan_Trig_IO { get; set; } = new IO();
 
+        /// <summary>
+        /// 联动扫码触发状态（M3046，PLC -> 上位机）。
+        /// 用于上一设备已提供转换后 SN 的联调场景，状态只影响联动取码入口，手动扫码和扫码器自动扫码保持原有触发路径。
+        /// </summary>
+        [XmlIgnore]
+        [XmlElement("联动扫码触发")]
+        public IO LinkedScan_Trig_IO { get; set; } = new IO();
+
         [XmlIgnore]
         [XmlElement("拍照触发")]
         public IO TakePhoto1_Trig_IO { get; set; } = new IO();
