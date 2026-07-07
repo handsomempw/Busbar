@@ -2008,6 +2008,23 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
+        /// 生成 IR 绝缘电阻测试写入 TVInfo 的结果标识。
+        /// AT6835FL 本轮稳定结果只给出 GD/NG 判定；SQLite、UI 和 F7 追溯统一使用 [IR] GD / [IR] NG，
+        /// 详细通信异常由设备日志和流程异常日志承担，避免 TVInfo 出现空白或长异常文本影响现场筛选。
+        /// </summary>
+        /// <param name="result">AT6835FL Start() 返回的本轮测试结果，Judgment 来自仪器结果行第三段判定字段。</param>
+        /// <returns>用于本地库、界面行和失败追溯入口的 IR 结果文本。</returns>
+        private static string BuildIrTvInfo(global::AT6835FL.Result result)
+        {
+            if (result != null && result.Success)
+            {
+                return "[IR] GD";
+            }
+
+            return "[IR] NG";
+        }
+
+        /// <summary>
         /// IR绝缘电阻测试流程（独立电测工位）。
         /// 业务链路：
         /// 1. PLC触发后读取当前产品编码与接触电阻；
@@ -2066,8 +2083,8 @@ namespace BusbarCompressionSystem.ViewModel
                 var r = DataModel.Settingmodel.AT6835FL_1.Start();
                 irSuccess = r.Success;
 
-                // 4) 构造区分信息：写入 TVInfo 用于多测判定
-                string irInfo = $"[IR] {(r.Success ? r.Judgment : r.Error)}";
+                // 4) 构造区分信息：写入 TVInfo 用于多测判定和现场筛选
+                string irInfo = BuildIrTvInfo(r);
 
                 // 5) SQLite：插入IR独立电测行，区别靠 TVInfo 前缀
                 bool dbOk = sqlite.InsertIR_Test(
