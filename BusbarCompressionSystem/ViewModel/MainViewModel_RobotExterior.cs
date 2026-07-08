@@ -83,6 +83,11 @@ namespace BusbarCompressionSystem.ViewModel
         /// </summary>
         public void InitRobotServer()
         {
+            if (IsDualYElectricalTestDeployment())
+            {
+                writeLog("[双Y电测] 部署模式跳过机器人TCP监听");
+                return;
+            }
 
             DataModel.Settingmodel.TcpServerRobot = new TCPServerH();
 
@@ -249,6 +254,12 @@ namespace BusbarCompressionSystem.ViewModel
                 {
                     writeLog($"机器人->视觉:{cmd}");
                 }
+                if (IsDualYElectricalTestDeployment() || IsDualYElectricalTestModeActive())
+                {
+                    writeLog($"[双Y电测] 忽略机器人TCP消息: {cmd}", true);
+                    return;
+                }
+
                 DataModel.Processmodel.CMD = cmd;
                 DataModel.FaraVisionDataModel.Processmodel.RCMD = cmd;
 

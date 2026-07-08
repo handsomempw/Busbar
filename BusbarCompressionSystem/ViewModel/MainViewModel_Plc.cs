@@ -82,6 +82,10 @@ namespace BusbarCompressionSystem.ViewModel
                         var readresult = modbusTcp.ReadUInt16(DataModel.Settingmodel.AddressStart.ToString(), 20);
                         var secondScanResult = modbusTcp.ReadUInt16(DataModel.Settingmodel.SecondScanTrigAddress.ToString(), 1);
                         var linkedScanResult = modbusTcp.ReadCoil(DataModel.Settingmodel.LinkedScanTrigAddress.ToString(), 1);
+                        var dualYModeResult = modbusTcp.ReadCoil(DataModel.Settingmodel.DualYElectricalTestModeCoilAddress.ToString(), 1);
+                        var dualYStation2ScanResult = modbusTcp.ReadUInt16(DataModel.Settingmodel.DualYStation2ScanTrigAddress.ToString(), 1);
+                        var dualYStation1FlowEndResult = modbusTcp.ReadUInt16(DataModel.Settingmodel.DualYStation1FlowEndAddress.ToString(), 1);
+                        var dualYStation2FlowEndResult = modbusTcp.ReadUInt16(DataModel.Settingmodel.DualYStation2FlowEndAddress.ToString(), 1);
 
                         if (readresult.IsSuccess)
                         {
@@ -95,6 +99,13 @@ namespace BusbarCompressionSystem.ViewModel
 
                             int SecondScanTrig = secondScanResult.IsSuccess ? secondScanResult.Content[0] : 0;
                             int LinkedScanTrig = linkedScanResult.IsSuccess && linkedScanResult.Content[0] ? 1 : 0;
+                            bool DualYModeActive = dualYModeResult.IsSuccess && dualYModeResult.Content[0];
+                            int DualYStation2ScanTrig = dualYStation2ScanResult.IsSuccess ? dualYStation2ScanResult.Content[0] : 0;
+                            int DualYStation1FlowEndTrig = dualYStation1FlowEndResult.IsSuccess ? dualYStation1FlowEndResult.Content[0] : 0;
+                            int DualYStation2FlowEndTrig = dualYStation2FlowEndResult.IsSuccess ? dualYStation2FlowEndResult.Content[0] : 0;
+
+                            RefreshDualYModeFromPlc(DualYModeActive);
+                            bool StandardFlowActive = !DualYModeActive;
 
                             #region 扫码触发
                             try
@@ -113,7 +124,11 @@ namespace BusbarCompressionSystem.ViewModel
                             #region 第二扫码触发
                             try
                             {
-                                if (SecondScanTrig == 1 & DataModel.Processmodel.SecondScan_Trig_IO.IOstatus == 0)
+                                if (DualYModeActive && SecondScanTrig == 1 && DataModel.Processmodel.SecondScan_Trig_IO.IOstatus == 0)
+                                {
+                                    writeLog($"[双Y电测] 忽略下料扫码触发 D{DataModel.Settingmodel.SecondScanTrigAddress}=1");
+                                }
+                                else if (SecondScanTrig == 1 & DataModel.Processmodel.SecondScan_Trig_IO.IOstatus == 0)
                                 {
                                     new Thread(() =>
                                     {
@@ -124,10 +139,62 @@ namespace BusbarCompressionSystem.ViewModel
                             catch {; }
                             #endregion
 
+                            #region 双Y 2工位扫码触发
+                            try
+                            {
+                                if (DualYModeActive &&
+                                    DualYStation2ScanTrig == 1 &&
+                                    DataModel.Processmodel.DualYStation2Scan_Trig_IO.IOstatus == 0)
+                                {
+                                    new Thread(() =>
+                                    {
+                                        DualYStation2ScannerProcess();
+                                    }).Start();
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                writeLog($"[双Y-2工位扫码] D{DataModel.Settingmodel.DualYStation2ScanTrigAddress}触发处理异常: {ex.Message}", true);
+                            }
+                            #endregion
+
+                            #region 双Y流程结束触发
+                            try
+                            {
+                                if (DualYModeActive &&
+                                    DualYStation1FlowEndTrig == 1 &&
+                                    DataModel.Processmodel.DualYStation1FlowEnd_Trig_IO.IOstatus == 0)
+                                {
+                                    new Thread(() =>
+                                    {
+                                        DualYFlowEndProcess(1);
+                                    }).Start();
+                                }
+
+                                if (DualYModeActive &&
+                                    DualYStation2FlowEndTrig == 1 &&
+                                    DataModel.Processmodel.DualYStation2FlowEnd_Trig_IO.IOstatus == 0)
+                                {
+                                    new Thread(() =>
+                                    {
+                                        DualYFlowEndProcess(2);
+                                    }).Start();
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                writeLog($"[双Y归档] 流程结束触发处理异常: {ex.Message}", true);
+                            }
+                            #endregion
+
                             #region 联动扫码触发
                             try
                             {
-                                if (LinkedScanTrig == 1 & DataModel.Processmodel.LinkedScan_Trig_IO.IOstatus == 0)
+                                if (DualYModeActive && LinkedScanTrig == 1 && DataModel.Processmodel.LinkedScan_Trig_IO.IOstatus == 0)
+                                {
+                                    writeLog($"[双Y电测] 忽略联动扫码触发 M{DataModel.Settingmodel.LinkedScanTrigAddress}=1");
+                                }
+                                else if (LinkedScanTrig == 1 & DataModel.Processmodel.LinkedScan_Trig_IO.IOstatus == 0)
                                 {
                                     new Thread(() =>
                                     {
@@ -144,7 +211,11 @@ namespace BusbarCompressionSystem.ViewModel
                             #region 拍照触发
                             try
                             {
-                                if (TakePhoto1Trig == 1 & DataModel.Processmodel.TakePhoto1_Trig_IO.IOstatus == 0)
+                                if (DualYModeActive && TakePhoto1Trig == 1 && DataModel.Processmodel.TakePhoto1_Trig_IO.IOstatus == 0)
+                                {
+                                    writeLog($"[双Y电测] 忽略拍照留底触发 D{DataModel.Settingmodel.AddressStart + 2}=1");
+                                }
+                                else if (TakePhoto1Trig == 1 & DataModel.Processmodel.TakePhoto1_Trig_IO.IOstatus == 0)
                                 {
                                     new Thread(() =>
                                     {
@@ -214,21 +285,40 @@ namespace BusbarCompressionSystem.ViewModel
                             #region IR绝缘电阻测试触发（需 M3033 有效）
                             try
                             {
-                                // 仅在触发值变化时记录一次诊断日志，帮助定位“PLC已写1但上位机没动作”
-                                if (_lastIrTrigLogged == null || _lastIrTrigLogged.Value != IRTrig)
+                                if (StandardFlowActive)
                                 {
-                                    _lastIrTrigLogged = IRTrig;
-                                    _lastIrStartSkipReasonLoggedForTrig = null; // 新的触发值到来，允许记录一次“未触发原因”
-                                    writeLog($"[IR触发] D{DataModel.Settingmodel.IRTrigAddress}={IRTrig}, 上次IOstatus={DataModel.Processmodel.IR_Trig_IO.IOstatus}, IRAvailable(M{DataModel.Settingmodel.IRMeterAvailableAddress})={DataModel.Processmodel.TVAvailable.IRAvailable} Raw={DataModel.Processmodel.TVAvailable.IRAvailableRawCoil}");
-                                }
-
-                                if (DataModel.Processmodel.TVAvailable.IRAvailable)
-                                {
-                                    // 1=启动：仅当上一次状态为0（低电平）时触发，避免重复启动
-                                    if (IRTrig == 1 & DataModel.Processmodel.IR_Trig_IO.IOstatus == 0)
+                                    // 仅在触发值变化时记录一次诊断日志，帮助定位“PLC已写1但上位机没动作”
+                                    if (_lastIrTrigLogged == null || _lastIrTrigLogged.Value != IRTrig)
                                     {
-                                        writeLog("[IR触发] ✅ 条件满足，启动IRProcess线程");
-                                        new Thread(() => { IRProcess(); }).Start();
+                                        _lastIrTrigLogged = IRTrig;
+                                        _lastIrStartSkipReasonLoggedForTrig = null; // 新的触发值到来，允许记录一次“未触发原因”
+                                        writeLog($"[IR触发] D{DataModel.Settingmodel.IRTrigAddress}={IRTrig}, 上次IOstatus={DataModel.Processmodel.IR_Trig_IO.IOstatus}, IRAvailable(M{DataModel.Settingmodel.IRMeterAvailableAddress})={DataModel.Processmodel.TVAvailable.IRAvailable} Raw={DataModel.Processmodel.TVAvailable.IRAvailableRawCoil}");
+                                    }
+
+                                    if (DataModel.Processmodel.TVAvailable.IRAvailable)
+                                    {
+                                        // 1=启动：仅当上一次状态为0（低电平）时触发，避免重复启动
+                                        if (IRTrig == 1 & DataModel.Processmodel.IR_Trig_IO.IOstatus == 0)
+                                        {
+                                            writeLog("[IR触发] ✅ 条件满足，启动IRProcess线程");
+                                            new Thread(() => { IRProcess(); }).Start();
+                                        }
+                                        else if (IRTrig == 1)
+                                        {
+                                            // 避免刷屏：仅在“本次触发值=1”的周期内记录一次原因
+                                            if (_lastIrStartSkipReasonLoggedForTrig == null)
+                                            {
+                                                _lastIrStartSkipReasonLoggedForTrig = 1;
+                                                writeLog($"[IR触发] ⏭ 已收到启动(=1)但未触发线程：原因=IOstatus非0（当前IOstatus={DataModel.Processmodel.IR_Trig_IO.IOstatus}，需要PLC产生0->1沿）");
+                                            }
+                                        }
+
+                                        // 2=停止：置位 stop，设备内部 STAT:DISC 放电退出
+                                        if (IRTrig == 2 & DataModel.Processmodel.IR_Trig_IO.IOstatus != IRTrig)
+                                        {
+                                            writeLog("[IR触发] 收到停止(=2)，置位AT6835FL.stop=true");
+                                            DataModel.Settingmodel.AT6835FL_1.stop = true;
+                                        }
                                     }
                                     else if (IRTrig == 1)
                                     {
@@ -236,25 +326,17 @@ namespace BusbarCompressionSystem.ViewModel
                                         if (_lastIrStartSkipReasonLoggedForTrig == null)
                                         {
                                             _lastIrStartSkipReasonLoggedForTrig = 1;
-                                            writeLog($"[IR触发] ⏭ 已收到启动(=1)但未触发线程：原因=IOstatus非0（当前IOstatus={DataModel.Processmodel.IR_Trig_IO.IOstatus}，需要PLC产生0->1沿）");
+                                            writeLog($"[IR触发] ⛔ PLC请求启动(=1)但IRAvailable=false，已忽略启动。请检查M{DataModel.Settingmodel.IRMeterAvailableAddress}信号约定（1=可用）及PLC状态。");
                                         }
                                     }
-
-                                    // 2=停止：置位 stop，设备内部 STAT:DISC 放电退出
-                                    if (IRTrig == 2 & DataModel.Processmodel.IR_Trig_IO.IOstatus != IRTrig)
-                                    {
-                                        writeLog("[IR触发] 收到停止(=2)，置位AT6835FL.stop=true");
-                                        DataModel.Settingmodel.AT6835FL_1.stop = true;
-                                    }
                                 }
-                                else if (IRTrig == 1)
+                                else if (IRTrig == 1 && DataModel.Processmodel.IR_Trig_IO.IOstatus == 0)
                                 {
-                                    // 避免刷屏：仅在“本次触发值=1”的周期内记录一次原因
-                                    if (_lastIrStartSkipReasonLoggedForTrig == null)
-                                    {
-                                        _lastIrStartSkipReasonLoggedForTrig = 1;
-                                        writeLog($"[IR触发] ⛔ PLC请求启动(=1)但IRAvailable=false，已忽略启动。请检查M{DataModel.Settingmodel.IRMeterAvailableAddress}信号约定（1=可用）及PLC状态。");
-                                    }
+                                    writeLog($"[双Y电测] 忽略IR启动触发 D{DataModel.Settingmodel.IRTrigAddress}=1");
+                                }
+                                else if (IRTrig == 2 && DataModel.Processmodel.IR_Trig_IO.IOstatus != IRTrig)
+                                {
+                                    DataModel.Settingmodel.AT6835FL_1.stop = true;
                                 }
                             }
                             catch { ; }
@@ -266,7 +348,11 @@ namespace BusbarCompressionSystem.ViewModel
                                 // TV3Trig=1: ACW交流耐压测试
                                 // TV3Trig=2: DCW直流耐压测试
                                 // TV3Trig=3: 停止测试
-                                if (DataModel.Processmodel.TVAvailable.TV3Available)
+                                if (DualYModeActive && (TV3Trig == 1 || TV3Trig == 2) && DataModel.Processmodel.TV3_Trig_IO.IOstatus != TV3Trig)
+                                {
+                                    writeLog($"[双Y电测] 忽略耐压3触发 D{DataModel.Settingmodel.AddressStart + 10}={TV3Trig}");
+                                }
+                                else if (DataModel.Processmodel.TVAvailable.TV3Available)
                                 {
                                     if (TV3Trig == 1 & DataModel.Processmodel.TV3_Trig_IO.IOstatus == 0)
                                     {
@@ -379,6 +465,9 @@ namespace BusbarCompressionSystem.ViewModel
                             DataModel.Processmodel.Scan_Trig_IO.IOstatus = ScanTrig;
                             DataModel.Processmodel.SecondScan_Trig_IO.IOstatus = SecondScanTrig;
                             DataModel.Processmodel.LinkedScan_Trig_IO.IOstatus = linkedScanResult.IsSuccess ? LinkedScanTrig : -1;
+                            DataModel.Processmodel.DualYStation2Scan_Trig_IO.IOstatus = dualYStation2ScanResult.IsSuccess ? DualYStation2ScanTrig : -1;
+                            DataModel.Processmodel.DualYStation1FlowEnd_Trig_IO.IOstatus = dualYStation1FlowEndResult.IsSuccess ? DualYStation1FlowEndTrig : -1;
+                            DataModel.Processmodel.DualYStation2FlowEnd_Trig_IO.IOstatus = dualYStation2FlowEndResult.IsSuccess ? DualYStation2FlowEndTrig : -1;
                             DataModel.Processmodel.TakePhoto1_Trig_IO.IOstatus = TakePhoto1Trig;
                             DataModel.Processmodel.TV1_Trig_IO.IOstatus = TV1Trig;
                             DataModel.Processmodel.TV2_Trig_IO.IOstatus = TV2Trig;
@@ -400,6 +489,9 @@ namespace BusbarCompressionSystem.ViewModel
                         DataModel.Processmodel.Scan_Trig_IO.IOstatus = -1;
                         DataModel.Processmodel.SecondScan_Trig_IO.IOstatus = -1;
                         DataModel.Processmodel.LinkedScan_Trig_IO.IOstatus = -1;
+                        DataModel.Processmodel.DualYStation2Scan_Trig_IO.IOstatus = -1;
+                        DataModel.Processmodel.DualYStation1FlowEnd_Trig_IO.IOstatus = -1;
+                        DataModel.Processmodel.DualYStation2FlowEnd_Trig_IO.IOstatus = -1;
                         DataModel.Processmodel.TakePhoto1_Trig_IO.IOstatus = -1;
                         DataModel.Processmodel.TV1_Trig_IO.IOstatus = -1;
                         DataModel.Processmodel.TV2_Trig_IO.IOstatus = -1;

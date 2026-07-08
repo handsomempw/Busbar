@@ -99,6 +99,7 @@ namespace BusbarCompressionSystem
             vml.Main.LoadRecordModel();
             vml.Main.LoadProcessmodel();
             ApplyProductInfoRecordsSort();
+            bool dualYElectricalTestDeployment = vml.Main.IsDualYElectricalTestDeployment();
 
             vml.Main.Faravision_LoadSettingModel();
             vml.Main.Load_Prj();
@@ -110,13 +111,23 @@ namespace BusbarCompressionSystem
             vml.Main.InitAT6835FL();
             vml.Main.PLC_shankhand();
             vml.Main.PLC_Start();
-            vml.Main.InitCamera();
             InitHwindow();
-            vml.Main.InitRobotServer();
+            if (!dualYElectricalTestDeployment)
+            {
+                vml.Main.InitCamera();
+                vml.Main.InitRobotServer();
+            }
+            else
+            {
+                vml.Main.writeLog("[双Y电测] 部署模式跳过相机初始化和机器人TCP监听");
+            }
 
             vml.Main.InitHwindow(Hwindow4.HalconWindow);
 
-            InitFaraVisionCamera();
+            if (!dualYElectricalTestDeployment)
+            {
+                InitFaraVisionCamera();
+            }
         }
 
         private void ApplyProductInfoRecordsSort()

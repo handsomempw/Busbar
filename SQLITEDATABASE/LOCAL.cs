@@ -27,6 +27,28 @@ namespace SQLITEDATABASE
         public static Action<string> UiLog { get; set; }
 
         /// <summary>
+        /// 电测过程数据快照。
+        /// 双Y流程结束归档从本地 SQLite 读取 ACW/DCW 行后上传 MES，避免界面异步刷新影响最终过程数据。
+        /// </summary>
+        public sealed class ElectricalTestProcessRow
+        {
+            public long Id { get; set; }
+            public string TestMode { get; set; }
+            public bool TakePhoto1 { get; set; }
+            public float Res { get; set; }
+            public float TVMaxVoltage { get; set; }
+            public float TVMaxCurrent { get; set; }
+            public string TVMeterID { get; set; }
+            public string TVInfo { get; set; }
+            public bool TVResult { get; set; }
+            public UInt16 PressureMax { get; set; }
+            public UInt16 PressureAverage { get; set; }
+            public UInt16 PressureMin { get; set; }
+            public bool PressureResult { get; set; }
+            public bool TakePhoto2 { get; set; }
+        }
+
+        /// <summary>
         /// SQLite模块专用错误日志
         /// 独立文件存储，便于问题定位和统计分析
         /// 输出路径：
@@ -370,6 +392,35 @@ namespace SQLITEDATABASE
             return (value ?? string.Empty).Replace("'", "''");
         }
 
+        private static float ParseDbFloat(object value)
+        {
+            float result;
+            string raw = value?.ToString();
+            if (float.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out result) ||
+                float.TryParse(raw, NumberStyles.Float, CultureInfo.CurrentCulture, out result))
+            {
+                return result;
+            }
+
+            return 0;
+        }
+
+        private static UInt16 ParseDbUInt16(object value)
+        {
+            float number = ParseDbFloat(value);
+            if (number <= 0)
+            {
+                return 0;
+            }
+
+            if (number >= UInt16.MaxValue)
+            {
+                return UInt16.MaxValue;
+            }
+
+            return Convert.ToUInt16(number);
+        }
+
         /// <summary>
         /// 查询本地过程表中符合条件的最新记录 ID。
         /// 用于电测写库和 CHECK 诊断链路确认“本轮写入行”和“本轮判定行”是否一致；只返回 ID，不改变任何业务数据。
@@ -418,6 +469,49 @@ namespace SQLITEDATABASE
             }
             return false;
         }
+
+        /// <summary>
+        /// 双Y流程结束压力快照写入。
+        /// D1020/D1021 触发后，PLC 提供本工位最终压力快照；该快照同步到同 SN 的 ACW/DCW 电测行，保证两条 MES 过程数据使用同一轮流程结束压力。
+        /// </summary>
+        /// <param name="WOCODE">当前产品工单号，用于定位本地工单数据库。</param>
+        /// <param name="PARTNOID">当前产品规格编码，用于保持数据库接口一致。</param>
+        /// <param name="SN">当前工位从 D825/D850 读取到的产品 SN。</param>
+        /// <param name="AveragePressure">PLC 压力平均值，单位沿用现场 PLC 标定。</param>
+        /// <param name="MaxPressure">PLC 压力最大值，单位沿用现场 PLC 标定。</param>
+        /// <param name="MinPressure">PLC 压力最小值，单位沿用现场 PLC 标定。</param>
+        /// <param name="PressureResult">按当前参数上下限得到的压力判定。</param>
+        /// <returns>至少一条电测行或兼容占位行写入成功时返回 true。</returns>
+        public static bool UpdatePressureForElectricalRows(string WOCODE, string PARTNOID, string SN, float AveragePressure, float MaxPressure, float MinPressure, bool PressureResult)
+        {
+            try
+            {
+                string _connstr = CheckDataBase(WOCODE, PARTNOID, SN);
+                if (string.IsNullOrEmpty(_connstr))
+                {
+                    WriteErrorLog("[追踪]UpdatePressureForElectricalRows-连接串为空", "CheckDataBase返回空", SN, WOCODE);
+                    return false;
+                }
+
+                string escapedSn = EscapeSqlLiteral(SN);
+                string updateSet = $"PRESSURE_RESULT={(PressureResult ? 1 : 0)},PRESSURE_MAX={FormatSqlNumber(MaxPressure)},PRESSURE_AVERAGE={FormatSqlNumber(AveragePressure)},PRESSURE_MIN={FormatSqlNumber(MinPressure)}";
+                string sql = $"UPDATE BusbarCompressionData SET {updateSet} WHERE sn='{escapedSn}' AND (TVInfo LIKE '[ACW]%' OR TVInfo LIKE '[DCW]%')";
+                int c = excute_sql(sql, _connstr);
+                if (c > 0)
+                {
+                    WriteErrorLog("[追踪]UpdatePressureForElectricalRows-写入电测行", $"affectedRows={c}, PressureResult={(PressureResult ? 1 : 0)}", SN, WOCODE);
+                    return true;
+                }
+
+                return UpdatePressure(WOCODE, PARTNOID, SN, AveragePressure, MaxPressure, MinPressure, PressureResult);
+            }
+            catch (Exception ex)
+            {
+                WriteErrorLog("[数据库异常]UpdatePressureForElectricalRows失败", $"异常: {ex.Message}", SN, WOCODE);
+            }
+            return false;
+        }
+
         /// <summary>
         /// 更新产品的 ACW/DCW 耐压测试数据。
         /// 本地表历史上使用 TVMAXVOLTAGE/TVMAXCURRENT 保存耐压值，IR 后续也复用这些物理列保存绝缘电阻和漏电流；
@@ -671,6 +765,79 @@ namespace SQLITEDATABASE
         {
             return InsertElectricalTestRecord(WOCODE, PARTNOID, SN, STATIONCODE, EQUIPMENTID,
                 RES, MaxVoltage, TVResult, MaxCurrent, TVInfo, TVMeterID, "InsertIR_Test");
+        }
+
+        /// <summary>
+        /// 读取双Y归档需要上传到 MES 的 ACW/DCW 电测行。
+        /// 同一 SN 因重测产生多条同模式记录时，取最新一条；ACW 与 DCW 分别保留，供流程结束阶段各上传一条过程数据。
+        /// </summary>
+        /// <param name="WOCODE">当前产品工单号，用于定位本地工单数据库。</param>
+        /// <param name="PARTNOID">当前产品规格编码，用于保持数据库接口一致。</param>
+        /// <param name="SN">当前产品序列号。</param>
+        /// <returns>按数据库 ID 升序排列的 ACW/DCW 过程数据快照。</returns>
+        public static List<ElectricalTestProcessRow> GetElectricalTestProcessRows(string WOCODE, string PARTNOID, string SN)
+        {
+            var result = new List<ElectricalTestProcessRow>();
+            try
+            {
+                string _connstr = CheckDataBase(WOCODE, PARTNOID, SN);
+                if (string.IsNullOrEmpty(_connstr))
+                {
+                    WriteErrorLog("[追踪]GetElectricalTestProcessRows-连接串为空", "CheckDataBase返回空", SN, WOCODE);
+                    return result;
+                }
+
+                string escapedSn = EscapeSqlLiteral(SN);
+                string sql = $"SELECT ID, TAKEPHOTO1, RES, TVMAXVOLTAGE, TVMAXCURRENT, TVMeterID, TVInfo, TVRESULT, PRESSURE_MAX, PRESSURE_AVERAGE, PRESSURE_MIN, PRESSURE_RESULT, TAKEPHOTO2 FROM BusbarCompressionData WHERE sn='{escapedSn}' AND (TVInfo LIKE '[ACW]%' OR TVInfo LIKE '[DCW]%') ORDER BY ID DESC";
+                DataTable dt = Read(sql, _connstr);
+                if (dt == null || dt.Rows.Count == 0)
+                {
+                    WriteErrorLog("[追踪]GetElectricalTestProcessRows-无电测行", "未查询到ACW/DCW过程数据", SN, WOCODE);
+                    return result;
+                }
+
+                var latestByMode = new Dictionary<string, ElectricalTestProcessRow>(StringComparer.OrdinalIgnoreCase);
+                foreach (DataRow row in dt.Rows)
+                {
+                    string tvInfo = row["TVInfo"]?.ToString() ?? string.Empty;
+                    string mode = tvInfo.StartsWith("[DCW]", StringComparison.OrdinalIgnoreCase) ? "DCW" : "ACW";
+                    if (latestByMode.ContainsKey(mode))
+                    {
+                        continue;
+                    }
+
+                    long id;
+                    long.TryParse(row["ID"]?.ToString(), out id);
+                    latestByMode[mode] = new ElectricalTestProcessRow
+                    {
+                        Id = id,
+                        TestMode = mode,
+                        TakePhoto1 = TryParseDbBool(row["TAKEPHOTO1"]),
+                        Res = ParseDbFloat(row["RES"]),
+                        TVMaxVoltage = ParseDbFloat(row["TVMAXVOLTAGE"]),
+                        TVMaxCurrent = ParseDbFloat(row["TVMAXCURRENT"]),
+                        TVMeterID = row["TVMeterID"]?.ToString() ?? string.Empty,
+                        TVInfo = tvInfo,
+                        TVResult = TryParseDbBool(row["TVRESULT"]),
+                        PressureMax = ParseDbUInt16(row["PRESSURE_MAX"]),
+                        PressureAverage = ParseDbUInt16(row["PRESSURE_AVERAGE"]),
+                        PressureMin = ParseDbUInt16(row["PRESSURE_MIN"]),
+                        PressureResult = TryParseDbBool(row["PRESSURE_RESULT"]),
+                        TakePhoto2 = TryParseDbBool(row["TAKEPHOTO2"])
+                    };
+                }
+
+                result = latestByMode.Values.OrderBy(r => r.Id).ToList();
+                WriteErrorLog("[追踪]GetElectricalTestProcessRows-读取完成",
+                    $"rows={result.Count}, modes={string.Join(",", result.Select(r => r.TestMode).ToArray())}",
+                    SN, WOCODE);
+            }
+            catch (Exception ex)
+            {
+                WriteErrorLog("[数据库异常]GetElectricalTestProcessRows失败", $"异常: {ex.Message}", SN, WOCODE);
+            }
+
+            return result;
         }
 
         /// <summary>
@@ -1016,7 +1183,7 @@ namespace SQLITEDATABASE
         /// 注意：所有系统异常都会被映射为业务不良返回，通过独立日志详细记录实际原因
         /// </summary>
         /// <returns>错误代码：0=合格，1=拍照不良，2=耐压不良，3=阻值或压力不良</returns>
-        public static int Check1(string WOCODE, string PARTNOID, string SN, float resMax = 50, bool aoiOnlyMode = false)
+        public static int Check1(string WOCODE, string PARTNOID, string SN, float resMax = 50, bool aoiOnlyMode = false, bool tvOnlyMode = false)
         {
             try
             {
@@ -1028,7 +1195,7 @@ namespace SQLITEDATABASE
                     WriteErrorLog("[数据库异常]CHECK1-连接失败",
                         "数据库连接字符串获取失败，数据库文件不存在或创建失败，返回值=1(伪装为拍照不良)",
                         SN, WOCODE);
-                    return 1;
+                    return tvOnlyMode ? 2 : 1;
                 }
 
                 if (!string.IsNullOrEmpty(_connstr))
@@ -1042,7 +1209,7 @@ namespace SQLITEDATABASE
                         WriteErrorLog("[数据缺失]CHECK1-记录不存在",
                             $"产品数据不存在，可能未扫码进站或数据库记录丢失，SQL=[{sql}]，返回值=1",
                             SN, WOCODE);
-                        return 1;
+                        return tvOnlyMode ? 2 : 1;
                     }
                     
                     if (dt != null && dt.Rows.Count > 0)
@@ -1054,34 +1221,37 @@ namespace SQLITEDATABASE
                             $"数据库文件={dbPath}, readId={dt.Rows[0]["ID"]?.ToString()}, SN={recordId}, TAKEPHOTO1原始值=[{dt.Rows[0]["TAKEPHOTO1"]?.ToString()}], RES=[{dt.Rows[0]["RES"]?.ToString()}], TVRESULT=[{dt.Rows[0]["TVRESULT"]?.ToString()}]",
                             SN, WOCODE);
                         
-                        // 1. 先解析拍照留底（必须字段）
-                        bool _takephoto1 = false;
-                        string s_takephoto1 = dt.Rows[0]["TAKEPHOTO1"]?.ToString();
-                        
-                        // 增加空值检查，区分"数据缺失"和"解析失败"
-                        if (string.IsNullOrWhiteSpace(s_takephoto1))
+                        if (!tvOnlyMode)
                         {
-                             WriteErrorLog("[数据缺失]CHECK1-字段为空-TAKEPHOTO1",
-                                $"TAKEPHOTO1字段为空，可能是UpdateTakePhoto1执行失败，返回值=1",
-                                SN, WOCODE);
-                            return 1;
-                        }
+                            // 1. 先解析拍照留底（必须字段）
+                            bool _takephoto1 = false;
+                            string s_takephoto1 = dt.Rows[0]["TAKEPHOTO1"]?.ToString();
 
-                        _takephoto1 = TryParseDbBool(dt.Rows[0]["TAKEPHOTO1"]);
+                            // 增加空值检查，区分"数据缺失"和"解析失败"
+                            if (string.IsNullOrWhiteSpace(s_takephoto1))
+                            {
+                                 WriteErrorLog("[数据缺失]CHECK1-字段为空-TAKEPHOTO1",
+                                    $"TAKEPHOTO1字段为空，可能是UpdateTakePhoto1执行失败，返回值=1",
+                                    SN, WOCODE);
+                                return 1;
+                            }
 
-                        if (!_takephoto1)
-                        {
-                            WriteErrorLog("[业务判定]CHECK1-拍照留底不良",
-                                $"TAKEPHOTO1字段值为false，拍照留底失败，返回值=1，数据库文件={dbPath}，查询SQL={sql}",
-                                SN, WOCODE);
-                            return 1;
-                        }
+                            _takephoto1 = TryParseDbBool(dt.Rows[0]["TAKEPHOTO1"]);
 
-                        // AOI-only模式：仅检查拍照留底，不检查任何电测相关字段（TV/RES/压力）
-                        // 说明：该模式下不伪造耐压/电测记录，电测字段允许为空或默认值。
-                        if (aoiOnlyMode)
-                        {
-                            return 0;
+                            if (!_takephoto1)
+                            {
+                                WriteErrorLog("[业务判定]CHECK1-拍照留底不良",
+                                    $"TAKEPHOTO1字段值为false，拍照留底失败，返回值=1，数据库文件={dbPath}，查询SQL={sql}",
+                                    SN, WOCODE);
+                                return 1;
+                            }
+
+                            // AOI-only模式：仅检查拍照留底，不检查任何电测相关字段（TV/RES/压力）
+                            // 说明：该模式下不伪造耐压/电测记录，电测字段允许为空或默认值。
+                            if (aoiOnlyMode)
+                            {
+                                return 0;
+                            }
                         }
 
                         // 2. 解析阻值（必须字段）
@@ -1162,32 +1332,37 @@ namespace SQLITEDATABASE
 
                         if (string.IsNullOrWhiteSpace(s_pressureResult))
                         {
-                            WriteErrorLog("[数据缺失]CHECK1-字段为空-PRESSURE_RESULT",
-                               "PRESSURE_RESULT字段为空，可能是UpdatePressure执行失败，返回值=3",
-                               SN, WOCODE);
-                            return 3;
+                            if (!tvOnlyMode)
+                            {
+                                WriteErrorLog("[数据缺失]CHECK1-字段为空-PRESSURE_RESULT",
+                                   "PRESSURE_RESULT字段为空，可能是UpdatePressure执行失败，返回值=3",
+                                   SN, WOCODE);
+                                return 3;
+                            }
                         }
+                        else
+                        {
+                            // 兼容1/0和True/False两种存储格式
+                            if (s_pressureResult == "1")
+                            {
+                                _pressureResult = true;
+                            }
+                            else if (s_pressureResult == "0")
+                            {
+                                _pressureResult = false;
+                            }
+                            else if (!bool.TryParse(s_pressureResult, out _pressureResult))
+                            {
+                                WriteErrorLog("[数据异常]CHECK1-字段解析错误-PRESSURE_RESULT",
+                                   $"PRESSURE_RESULT字段解析失败，原始值=[{s_pressureResult}]，返回值=3",
+                                   SN, WOCODE);
+                                return 3;
+                            }
 
-                        // 兼容1/0和True/False两种存储格式
-                        if (s_pressureResult == "1")
-                        {
-                            _pressureResult = true;
-                        }
-                        else if (s_pressureResult == "0")
-                        {
-                            _pressureResult = false;
-                        }
-                        else if (!bool.TryParse(s_pressureResult, out _pressureResult))
-                        {
-                            WriteErrorLog("[数据异常]CHECK1-字段解析错误-PRESSURE_RESULT",
-                               $"PRESSURE_RESULT字段解析失败，原始值=[{s_pressureResult}]，返回值=3",
-                               SN, WOCODE);
-                            return 3;
-                        }
-
-                        if (!_pressureResult)
-                        {
-                            return 3;
+                            if (!_pressureResult)
+                            {
+                                return 3;
+                            }
                         }
 
                         // 7. 检查是否为双测模式
@@ -1218,8 +1393,75 @@ namespace SQLITEDATABASE
                     SN, WOCODE);
             }
 
-            return 1;
+            return tvOnlyMode ? 2 : 1;
         }
+
+        /// <summary>
+        /// 双Y仅电测归档校验：跳过拍照/AOI，保留阻值、耐压与 ACW/DCW 双测综合判定。
+        /// </summary>
+        public static int CheckElectricalOnly(string WOCODE, string PARTNOID, string SN, float resMax = 50)
+        {
+            return Check1(WOCODE, PARTNOID, SN, resMax, aoiOnlyMode: false, tvOnlyMode: true);
+        }
+
+        /// <summary>
+        /// 双Y仅电测归档校验。
+        /// 该口径跳过拍照和 AOI 字段，按当前测试模式校验期望 ACW/DCW 行，避免单测产品被双测要求误判。
+        /// </summary>
+        /// <param name="WOCODE">当前产品工单号，用于定位本地工单数据库。</param>
+        /// <param name="PARTNOID">当前产品规格编码。</param>
+        /// <param name="SN">当前产品序列号。</param>
+        /// <param name="resMax">阻值合格上限，单位沿用工艺参数配置。</param>
+        /// <param name="requireAcw">true 表示本轮流程必须存在有效 ACW 过程行。</param>
+        /// <param name="requireDcw">true 表示本轮流程必须存在有效 DCW 过程行。</param>
+        /// <returns>错误代码：0=合格，2=期望耐压数据缺失或不良，3=阻值或压力不良。</returns>
+        public static int CheckElectricalOnlyDualTest(string WOCODE, string PARTNOID, string SN, float resMax = 50, bool requireAcw = true, bool requireDcw = true)
+        {
+            if (!requireAcw && !requireDcw)
+            {
+                requireAcw = true;
+            }
+
+            List<ElectricalTestProcessRow> rows = GetElectricalTestProcessRows(WOCODE, PARTNOID, SN);
+            List<ElectricalTestProcessRow> expectedRows = rows
+                .Where(r => (requireAcw && string.Equals(r.TestMode, "ACW", StringComparison.OrdinalIgnoreCase))
+                    || (requireDcw && string.Equals(r.TestMode, "DCW", StringComparison.OrdinalIgnoreCase)))
+                .ToList();
+
+            bool acwOk = !requireAcw || expectedRows.Any(r => string.Equals(r.TestMode, "ACW", StringComparison.OrdinalIgnoreCase)
+                && r.TVResult && r.TVMaxVoltage > 0 && r.TVMaxVoltage != -1);
+            bool dcwOk = !requireDcw || expectedRows.Any(r => string.Equals(r.TestMode, "DCW", StringComparison.OrdinalIgnoreCase)
+                && r.TVResult && r.TVMaxVoltage > 0 && r.TVMaxVoltage != -1);
+
+            if (!acwOk || !dcwOk)
+            {
+                WriteErrorLog("[多测模式]双Y电测综合判断",
+                    $"期望ACW={requireAcw}, ACW={(acwOk ? "OK" : "NG")}, 期望DCW={requireDcw}, DCW={(dcwOk ? "OK" : "NG")}, rows={rows.Count}",
+                    SN, WOCODE);
+                return 2;
+            }
+
+            ElectricalTestProcessRow resNgRow = expectedRows.FirstOrDefault(r => r.Res > resMax);
+            if (resNgRow != null)
+            {
+                WriteErrorLog("[多测模式]双Y阻值判断",
+                    $"模式={resNgRow.TestMode}, RES={FormatSqlNumber(resNgRow.Res)} > resMax={FormatSqlNumber(resMax)}",
+                    SN, WOCODE);
+                return 3;
+            }
+
+            ElectricalTestProcessRow pressureNgRow = expectedRows.FirstOrDefault(r => !r.PressureResult);
+            if (pressureNgRow != null)
+            {
+                WriteErrorLog("[多测模式]双Y压力判断",
+                    $"模式={pressureNgRow.TestMode}, PRESSURE_RESULT=NG",
+                    SN, WOCODE);
+                return 3;
+            }
+
+            return 0;
+        }
+
         /// <summary>
         /// 第二次综合校验：检查产品是否通过了所有工序的测试项目（包括外观检测）。
         /// CHECK2 的基础字段来自同 SN 最新非 IR 记录，IR 行仍通过多测综合结果参与最终判定，

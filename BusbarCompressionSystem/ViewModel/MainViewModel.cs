@@ -151,6 +151,43 @@ namespace BusbarCompressionSystem.ViewModel
         /// </remarks>
         public string _ScanSN(string snstr)
         {
+            if (IsDualYElectricalTestModeActive())
+            {
+                return ProcessScanSnToPlc(snstr, DataModel.Settingmodel.AddressSN, 1, true, true, "双Y-工位1扫码");
+            }
+
+            return ProcessScanSnToPlc(snstr, DataModel.Settingmodel.AddressSN, 1, false, false, "扫码");
+        }
+
+        /// <summary>
+        /// 双Y进站扫码业务入口。
+        /// 2工位扫码与下料扫码器链路隔离，沿用标准扫码的 MES 解析、混批校验和本地建账规则，并按工位写入对应 PLC 产品码地址。
+        /// </summary>
+        /// <param name="snstr">扫码器读取到的原始条码。</param>
+        /// <param name="dualYStationIndex">双Y工位号；1 写入 D800，2 写入 D950。</param>
+        /// <returns>业务失败原因；空字符串表示扫码、PLC写码和本地建账已完成。</returns>
+        internal string ScanDualYStationSn(string snstr, int dualYStationIndex)
+        {
+            int plcSnAddress = dualYStationIndex == 2
+                ? DataModel.Settingmodel.DualYStation2ScanSnAddress
+                : DataModel.Settingmodel.AddressSN;
+
+            return ProcessScanSnToPlc(snstr, plcSnAddress, dualYStationIndex, true, true, $"双Y-工位{dualYStationIndex}扫码");
+        }
+
+        /// <summary>
+        /// 扫码进站共用业务链。
+        /// 该方法负责 MES 解码、工单与规格校验、本地 SQLite 建账、PLC 产品码写入；双Y模式在同一链路上按工位选择 D800/D950，并补齐界面过程行。
+        /// </summary>
+        /// <param name="snstr">扫码器读取到的原始条码。</param>
+        /// <param name="plcSnAddress">扫码成功后写入 PLC 的 D 寄存器地址，内容格式为 SN;WOCODE。</param>
+        /// <param name="stationIndex">调用方所属工位，用于日志和双Y界面行归属。</param>
+        /// <param name="createDualYProductRecord">双Y仅电测模式扫码成功后创建界面占位行，承担原拍照留底建行角色。</param>
+        /// <param name="plcWriteRequired">PLC 写码作为扫码放行条件时传 true，适用于 D950 等双Y进站链路。</param>
+        /// <param name="contextTag">日志中的流程名称。</param>
+        /// <returns>业务失败原因；空字符串表示扫码业务已完成。</returns>
+        private string ProcessScanSnToPlc(string snstr, int plcSnAddress, int stationIndex, bool createDualYProductRecord, bool plcWriteRequired, string contextTag)
+        {
             // 点检SN码特殊处理：跳过MES校验，直接返回成功
             // 扩展为四个点检 SN：耐压点检 OK/NG + AOI 点检 OK/NG
             if (snstr == DataModel.Settingmodel.SETTING_DATA.InspectionTVOKSN ||
@@ -158,22 +195,39 @@ namespace BusbarCompressionSystem.ViewModel
                 snstr == DataModel.Settingmodel.SETTING_DATA.InspectionAOIOKSN ||
                 snstr == DataModel.Settingmodel.SETTING_DATA.InspectionAOINGSN)
             {
-                writeLog($"点检扫码原始数据: {snstr}");
+                writeLog($"[{contextTag}] 点检扫码原始数据: {snstr}");
                 string wocode = MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.get_WO_CODE(snstr);
                 string partnoid = MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.get_PartNO_ID(snstr);
 
-                bool plcWriteOk = PLC_Writestring(DataModel.Settingmodel.AddressSN.ToString(), $"{snstr};{wocode}");
-                writeLog($"写入PLC地址 {DataModel.Settingmodel.AddressSN}: {(plcWriteOk ? "成功" : "失败")} | {snstr};{wocode}");
+                bool plcWriteOk = PLC_Writestring(plcSnAddress.ToString(), $"{snstr};{wocode}");
+                writeLog($"[{contextTag}] 写入PLC地址 D{plcSnAddress}: {(plcWriteOk ? "成功" : "失败")} | {snstr};{wocode}");
                 if (!plcWriteOk)
                 {
                     // 【日志归置】PLC 写入异常属于设备/通讯类错误，按约定归到“日志\\错误”，避免污染“数据库异常”
-                    writePlcError($"[PLC写入异常]ScanSN-写入AddressSN失败 | AddressSN={DataModel.Settingmodel.AddressSN}, 内容长度={(($"{snstr};{wocode}")?.Length ?? 0)}, SN={snstr}, WO={wocode}");
+                    writePlcError($"[PLC写入异常]{contextTag}-写入产品码失败 | D{plcSnAddress}, 内容长度={(($"{snstr};{wocode}")?.Length ?? 0)}, SN={snstr}, WO={wocode}");
+                    if (plcWriteRequired)
+                    {
+                        return "PLC产品码写入失败";
+                    }
                 }
 
-                sqlite.CREATENEWLINE(wocode, partnoid, snstr, DataModel.Settingmodel.SETTING_DATA.StationCode, DataModel.Settingmodel.SETTING_DATA.MachineID, DateTime.Now);
-                writeLog($"创建数据库记录: wocode={wocode}, partnoid={partnoid}, SN={snstr}, 工位={DataModel.Settingmodel.SETTING_DATA.StationCode}, 设备={DataModel.Settingmodel.SETTING_DATA.MachineID}");
+                bool dbResult = sqlite.CREATENEWLINE(wocode, partnoid, snstr, DataModel.Settingmodel.SETTING_DATA.StationCode, DataModel.Settingmodel.SETTING_DATA.MachineID, DateTime.Now);
+                writeLog($"[{contextTag}] 创建数据库记录: wocode={wocode}, partnoid={partnoid}, SN={snstr}, 工位={DataModel.Settingmodel.SETTING_DATA.StationCode}, 设备={DataModel.Settingmodel.SETTING_DATA.MachineID}");
+                if (!dbResult)
+                {
+                    writeLog($"[{contextTag}] 数据库记录创建失败，wocode={wocode}, SN={snstr}", true);
+                    if (createDualYProductRecord)
+                    {
+                        return "数据库记录创建失败";
+                    }
+                }
 
-                writeLog($"✓ 点检扫码处理成功！");
+                if (createDualYProductRecord)
+                {
+                    EnsureProductInfoRecord(snstr, wocode, partnoid, stationIndex);
+                }
+
+                writeLog($"[{contextTag}] 点检扫码处理成功");
                 return string.Empty;
             }
 
@@ -181,19 +235,19 @@ namespace BusbarCompressionSystem.ViewModel
             //{
             
             // 记录扫码原始数据
-            writeLog($"扫码原始数据: {snstr}");
+            writeLog($"[{contextTag}] 扫码原始数据: {snstr}");
             
             // 解码SN
             string sn = MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.DecodeSN(snstr);
-            writeLog($"解码后的SN: {(string.IsNullOrEmpty(sn) ? "解码失败" : sn)}");
+            writeLog($"[{contextTag}] 解码后的SN: {(string.IsNullOrEmpty(sn) ? "解码失败" : sn)}");
             
             if (!string.IsNullOrEmpty(sn))
             {
                 string wocode = MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.get_WO_CODE(sn);
-                writeLog($"查询WOCODE: {(string.IsNullOrEmpty(wocode) ? "查询失败" : wocode)}");
+                writeLog($"[{contextTag}] 查询WOCODE: {(string.IsNullOrEmpty(wocode) ? "查询失败" : wocode)}");
                 
                 string partnoid = MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.get_PartNO_ID(sn);
-                writeLog($"查询PartNOID: {(string.IsNullOrEmpty(partnoid) ? "查询失败" : partnoid)}");
+                writeLog($"[{contextTag}] 查询PartNOID: {(string.IsNullOrEmpty(partnoid) ? "查询失败" : partnoid)}");
                
                 // 数据完整性检查
                 if (string.IsNullOrEmpty(wocode))
@@ -214,7 +268,7 @@ namespace BusbarCompressionSystem.ViewModel
                 if (partnoid != DataModel.Processmodel.PartNOID)
                 {
                     // 【日志】混批报错详细信息
-                    writeLog($"❌ 检测到混批! 不允许不同规格产品混合作业", true);
+                    writeLog($"[{contextTag}] 检测到混批，禁止不同规格产品混合作业", true);
                     writeLog($"  - 产线当前规格: {DataModel.Processmodel.PartNOID}", true);
                     writeLog($"  - 扫码产品规格: {partnoid}", true);
                     writeLog($"  - 产品SN: {sn}", true);
@@ -224,23 +278,36 @@ namespace BusbarCompressionSystem.ViewModel
                 }
                 
                 // 写入PLC和数据库
-                bool plcWriteOk = PLC_Writestring(DataModel.Settingmodel.AddressSN.ToString(), $"{sn};{wocode}");
-                writeLog($"写入PLC地址 {DataModel.Settingmodel.AddressSN}: {(plcWriteOk ? "成功" : "失败")} | {sn};{wocode}");
+                bool plcWriteOk = PLC_Writestring(plcSnAddress.ToString(), $"{sn};{wocode}");
+                writeLog($"[{contextTag}] 写入PLC地址 D{plcSnAddress}: {(plcWriteOk ? "成功" : "失败")} | {sn};{wocode}");
                 if (!plcWriteOk)
                 {
                     // 【日志归置】PLC 写入异常属于设备/通讯类错误，按约定归到“日志\\错误”，避免污染“数据库异常”
-                    writePlcError($"[PLC写入异常]ScanSN-写入AddressSN失败 | AddressSN={DataModel.Settingmodel.AddressSN}, 内容长度={(($"{sn};{wocode}")?.Length ?? 0)}, SN={sn}, WO={wocode}");
+                    writePlcError($"[PLC写入异常]{contextTag}-写入产品码失败 | D{plcSnAddress}, 内容长度={(($"{sn};{wocode}")?.Length ?? 0)}, SN={sn}, WO={wocode}");
+                    if (plcWriteRequired)
+                    {
+                        return "PLC产品码写入失败";
+                    }
                 }
                 
-                writeLog($"创建数据库记录: wocode={wocode}, partnoid={partnoid}, SN={sn}, 工位={DataModel.Settingmodel.SETTING_DATA.StationCode}, 设备={DataModel.Settingmodel.SETTING_DATA.MachineID}");
+                writeLog($"[{contextTag}] 创建数据库记录: wocode={wocode}, partnoid={partnoid}, SN={sn}, 工位={DataModel.Settingmodel.SETTING_DATA.StationCode}, 设备={DataModel.Settingmodel.SETTING_DATA.MachineID}");
                 bool dbResult = sqlite.CREATENEWLINE(wocode, partnoid, sn, DataModel.Settingmodel.SETTING_DATA.StationCode, DataModel.Settingmodel.SETTING_DATA.MachineID, DateTime.Now);
                 
                 if (!dbResult)
                 {
-                    writeLog($"⚠ 数据库记录创建失败！wocode={wocode}, SN={sn}", true);
+                    writeLog($"[{contextTag}] 数据库记录创建失败，wocode={wocode}, SN={sn}", true);
+                    if (createDualYProductRecord)
+                    {
+                        return "数据库记录创建失败";
+                    }
+                }
+
+                if (createDualYProductRecord)
+                {
+                    EnsureProductInfoRecord(sn, wocode, partnoid, stationIndex);
                 }
                 
-                writeLog($"✓ 扫码处理成功！");
+                writeLog($"[{contextTag}] 扫码处理成功");
                 return string.Empty;
 
             }

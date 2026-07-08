@@ -173,6 +173,20 @@ namespace BusbarCompressionSystem.Model
         public Honeywell.HF800 SecondHF800 { set; get; } = new Honeywell.HF800();
 
         /// <summary>
+        /// 双Y 2工位进站扫码器（通用串口扫码器）。
+        /// 该配置服务于 D1120 触发、D950 写码的进站扫码链路，独立于下料扫码器，便于同一套软件兼容标准产线与双Y电测设备。
+        /// </summary>
+        [XmlElement("双Y2工位扫码器")]
+        public Scanner.ScannerModel DualYStation2ScannerModel { set; get; } = new Scanner.ScannerModel();
+
+        /// <summary>
+        /// 双Y 2工位进站扫码器（霍尼韦尔 HF800 型号）。
+        /// 该设备只参与双Y电测模式的 2工位进站扫码，扫码成功后写入 D950 并向 D1121 返回结果。
+        /// </summary>
+        [XmlElement("双Y2工位霍尼韦尔扫码器")]
+        public Honeywell.HF800 DualYStation2HF800 { set; get; } = new Honeywell.HF800();
+
+        /// <summary>
         /// 上料扫码器模式（"HF800" 或 "Scanner"）
         /// 配置文件节点沿用属性名 ScannerMode，与下料扫码器模式并列。
         /// </summary>
@@ -183,6 +197,13 @@ namespace BusbarCompressionSystem.Model
         /// </summary>
         [XmlElement("下料扫码器模式")]
         public string SecondScannerMode { set; get; } = "HF800";
+
+        /// <summary>
+        /// 双Y 2工位进站扫码器模式（"HF800" 或 "Scanner"）。
+        /// 默认沿用 HF800，现场切换扫码器型号时仅影响 D1120/D950 这条双Y进站链路。
+        /// </summary>
+        [XmlElement("双Y2工位扫码器模式")]
+        public string DualYStation2ScannerMode { set; get; } = "HF800";
 
         #endregion
 
@@ -474,6 +495,42 @@ namespace BusbarCompressionSystem.Model
         /// </summary>
         [XmlElement("下料位SN地址")]
         public int SecondScanSNAddress { set; get; } = 1150;
+
+        /// <summary>
+        /// 双Y电测模式线圈（M 寄存器）。1=双Y仅电测流程，0=原机器人/CHECK 全流程。
+        /// </summary>
+        [XmlElement("双Y电测模式地址")]
+        public int DualYElectricalTestModeCoilAddress { get; set; } = 3050;
+
+        /// <summary>
+        /// 双Y 2工位扫码 SN 写入地址（D 寄存器，字符串，格式 SN;工单号）。
+        /// </summary>
+        [XmlElement("双Y工位2扫码SN地址")]
+        public int DualYStation2ScanSnAddress { get; set; } = 950;
+
+        /// <summary>
+        /// 双Y 2工位扫码触发（D 寄存器，PLC→PC，1=触发）。
+        /// </summary>
+        [XmlElement("双Y工位2扫码触发地址")]
+        public int DualYStation2ScanTrigAddress { get; set; } = 1120;
+
+        /// <summary>
+        /// 双Y 2工位扫码结果（D 寄存器，PC→PLC，1=OK，2=NG）。
+        /// </summary>
+        [XmlElement("双Y工位2扫码返回地址")]
+        public int DualYStation2ScanResultAddress { get; set; } = 1121;
+
+        /// <summary>
+        /// 双Y 1工位流程结束（D 寄存器，PLC→PC，0/1，1=请求归档报工）。
+        /// </summary>
+        [XmlElement("双Y工位1流程结束地址")]
+        public int DualYStation1FlowEndAddress { get; set; } = 1020;
+
+        /// <summary>
+        /// 双Y 2工位流程结束（D 寄存器，PLC→PC，0/1，1=请求归档报工）。
+        /// </summary>
+        [XmlElement("双Y工位2流程结束地址")]
+        public int DualYStation2FlowEndAddress { get; set; } = 1021;
 
         /// <summary>
         /// 测试模式信号地址（D 寄存器，uint16 类型）。

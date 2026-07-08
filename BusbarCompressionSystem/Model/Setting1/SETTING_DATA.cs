@@ -71,6 +71,12 @@ namespace BusbarCompressionSystem.Model.Setting1
         [XmlElement("报工失败报警使能")]
         public bool ReportFailAlarmEnabled { get; set; } = true;
 
+        /// <summary>
+        /// 双Y电测部署标志：为 true 时启动阶段跳过机器人/AOI 相机初始化；运行时仍以 PLC M3050 作为模式判定。
+        /// </summary>
+        [XmlElement("双Y电测部署")]
+        public bool DualYElectricalTestDeployment { get; set; } = false;
+
         [XmlElement("仪器类型1")]
         public TVMeterType TVMeterType1 { set; get; } = TVMeterType.AT9620;
 

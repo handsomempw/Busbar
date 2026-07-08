@@ -224,6 +224,30 @@ namespace BusbarCompressionSystem.Model
         [XmlElement("阻值3触发")]
         public IO Res3_Trig_IO { get; set; } = new IO();
 
+        /// <summary>
+        /// 双Y 2工位进站扫码触发（D1120）。
+        /// </summary>
+        [XmlIgnore]
+        public IO DualYStation2Scan_Trig_IO { get; set; } = new IO();
+
+        /// <summary>
+        /// 双Y 1工位流程结束触发（D1020）。
+        /// </summary>
+        [XmlIgnore]
+        public IO DualYStation1FlowEnd_Trig_IO { get; set; } = new IO();
+
+        /// <summary>
+        /// 双Y 2工位流程结束触发（D1021）。
+        /// </summary>
+        [XmlIgnore]
+        public IO DualYStation2FlowEnd_Trig_IO { get; set; } = new IO();
+
+        /// <summary>
+        /// PLC M3050 双Y电测模式：true 时走仅电测分支，false 时走原 CHECK/机器人分支。
+        /// </summary>
+        [XmlIgnore]
+        public bool DualYElectricalTestModeActive { get; set; } = false;
+
         #endregion
 
 

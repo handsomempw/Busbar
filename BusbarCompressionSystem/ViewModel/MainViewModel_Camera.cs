@@ -77,6 +77,12 @@ namespace BusbarCompressionSystem.ViewModel
         #region 相机初始化
         public void InitCamera()
         {
+            if (IsDualYElectricalTestDeployment())
+            {
+                writeLog("[双Y电测] 部署模式跳过相机硬件初始化");
+                return;
+            }
+
             DataModel.Settingmodel.camedata1.init1($"{Environment.CurrentDirectory}\\配置\\相机配置1.xml");
             DataModel.Settingmodel.camedata2.init1($"{Environment.CurrentDirectory}\\配置\\相机配置2.xml");
             DataModel.Settingmodel.camedata3.init1($"{Environment.CurrentDirectory}\\配置\\相机配置3.xml");
