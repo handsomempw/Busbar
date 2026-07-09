@@ -841,6 +841,93 @@ namespace SQLITEDATABASE
         }
 
         /// <summary>
+        /// 读取标准产线 CHECK 阶段需要上传到 MES 的电测过程行。
+        /// ACW、DCW 和 IR 在 SQLite 中以 TVInfo 前缀区分；CHECK1 依据该快照上传每一种已完成的电测模式，
+        /// CHECK2 可从同一快照选择一条最终/AOI 汇总行，避免 UI 列表刷新顺序影响 MES 过程数据。
+        /// </summary>
+        /// <param name="WOCODE">当前产品工单号，用于定位本地工单数据库。</param>
+        /// <param name="PARTNOID">当前产品规格编码，用于保持数据库接口一致。</param>
+        /// <param name="SN">当前产品序列号，用于读取同一产品最新的各模式电测行。</param>
+        /// <returns>按数据库 ID 升序排列的 ACW/DCW/IR 最新过程数据快照；同一模式多次测试时只保留最新一条。</returns>
+        public static List<ElectricalTestProcessRow> GetStandardElectricalTestProcessRows(string WOCODE, string PARTNOID, string SN)
+        {
+            var result = new List<ElectricalTestProcessRow>();
+            try
+            {
+                string _connstr = CheckDataBase(WOCODE, PARTNOID, SN);
+                if (string.IsNullOrEmpty(_connstr))
+                {
+                    WriteErrorLog("[追踪]GetStandardElectricalTestProcessRows-连接串为空", "CheckDataBase返回空", SN, WOCODE);
+                    return result;
+                }
+
+                string escapedSn = EscapeSqlLiteral(SN);
+                string sql = $"SELECT ID, TAKEPHOTO1, RES, TVMAXVOLTAGE, TVMAXCURRENT, TVMeterID, TVInfo, TVRESULT, PRESSURE_MAX, PRESSURE_AVERAGE, PRESSURE_MIN, PRESSURE_RESULT, TAKEPHOTO2 FROM BusbarCompressionData WHERE sn='{escapedSn}' AND (TVInfo LIKE '[ACW]%' OR TVInfo LIKE '[DCW]%' OR TVInfo LIKE '[IR]%') ORDER BY ID DESC";
+                DataTable dt = Read(sql, _connstr);
+                if (dt == null || dt.Rows.Count == 0)
+                {
+                    WriteErrorLog("[追踪]GetStandardElectricalTestProcessRows-无电测行", "未查询到ACW/DCW/IR过程数据", SN, WOCODE);
+                    return result;
+                }
+
+                var latestByMode = new Dictionary<string, ElectricalTestProcessRow>(StringComparer.OrdinalIgnoreCase);
+                foreach (DataRow row in dt.Rows)
+                {
+                    string tvInfo = row["TVInfo"]?.ToString() ?? string.Empty;
+                    string mode;
+                    if (tvInfo.StartsWith("[IR]", StringComparison.OrdinalIgnoreCase))
+                    {
+                        mode = "IR";
+                    }
+                    else if (tvInfo.StartsWith("[DCW]", StringComparison.OrdinalIgnoreCase))
+                    {
+                        mode = "DCW";
+                    }
+                    else
+                    {
+                        mode = "ACW";
+                    }
+
+                    if (latestByMode.ContainsKey(mode))
+                    {
+                        continue;
+                    }
+
+                    long id;
+                    long.TryParse(row["ID"]?.ToString(), out id);
+                    latestByMode[mode] = new ElectricalTestProcessRow
+                    {
+                        Id = id,
+                        TestMode = mode,
+                        TakePhoto1 = TryParseDbBool(row["TAKEPHOTO1"]),
+                        Res = ParseDbFloat(row["RES"]),
+                        TVMaxVoltage = ParseDbFloat(row["TVMAXVOLTAGE"]),
+                        TVMaxCurrent = ParseDbFloat(row["TVMAXCURRENT"]),
+                        TVMeterID = row["TVMeterID"]?.ToString() ?? string.Empty,
+                        TVInfo = tvInfo,
+                        TVResult = TryParseDbBool(row["TVRESULT"]),
+                        PressureMax = ParseDbUInt16(row["PRESSURE_MAX"]),
+                        PressureAverage = ParseDbUInt16(row["PRESSURE_AVERAGE"]),
+                        PressureMin = ParseDbUInt16(row["PRESSURE_MIN"]),
+                        PressureResult = TryParseDbBool(row["PRESSURE_RESULT"]),
+                        TakePhoto2 = TryParseDbBool(row["TAKEPHOTO2"])
+                    };
+                }
+
+                result = latestByMode.Values.OrderBy(r => r.Id).ToList();
+                WriteErrorLog("[追踪]GetStandardElectricalTestProcessRows-读取完成",
+                    $"rows={result.Count}, modes={string.Join(",", result.Select(r => r.TestMode).ToArray())}",
+                    SN, WOCODE);
+            }
+            catch (Exception ex)
+            {
+                WriteErrorLog("[数据库异常]GetStandardElectricalTestProcessRows失败", $"异常: {ex.Message}", SN, WOCODE);
+            }
+
+            return result;
+        }
+
+        /// <summary>
         /// 检查产品是否为双测模式（同一SN有两条记录，分别带[ACW]和[DCW]前缀）
         /// </summary>
         /// <param name="WOCODE">工单号</param>

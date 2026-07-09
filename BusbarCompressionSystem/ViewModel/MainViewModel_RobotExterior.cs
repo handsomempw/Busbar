@@ -212,6 +212,198 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
+        /// 标准产线 CHECK 阶段的 MES 过程数据上传入口。
+        /// CHECK1 按当前测试模式上传本轮应存在的 ACW/DCW/IR 过程行，用于补齐前段电测追溯；
+        /// CHECK2 从同一模式口径中上传一条最终/AOI 快照行，用于保留第二工站最终判定，避免同一轮合格产品在 MES 过程表中重复生成多条最终行。
+        /// </summary>
+        /// <param name="stageTag">当前 CHECK 阶段标识，用于日志区分 CHECK1 与 CHECK2。</param>
+        /// <param name="stationCode">MES 过程数据工站号；CHECK1 使用一工站，CHECK2 使用二工站。</param>
+        /// <param name="machineId">当前设备编号，用于 MES 过程数据设备维度追溯。</param>
+        /// <param name="partnoid">当前产品规格编码，来自扫码建账或 MES 解析结果。</param>
+        /// <param name="wocode">当前产品工单号，用于定位本地 SQLite 工单库并写入 MES。</param>
+        /// <param name="sn">当前产品序列号，用于读取同一产品的 ACW/DCW/IR 过程数据。</param>
+        /// <param name="resultstr">当前 CHECK 综合判定结果，作为 MES 过程数据的最终业务结果文本。</param>
+        /// <param name="uploadAllModes">true 表示按本轮测试模式上传全部期望电测过程；false 表示仅上传一条最终/AOI 快照。</param>
+        /// <returns>全部目标过程行写入 MES 成功时返回 true；任一目标行失败时返回 false，并写入现场日志。</returns>
+        private bool SaveStandardElectricalProcessDataToMes(string stageTag, string stationCode, string machineId,
+            string partnoid, string wocode, string sn, string resultstr, bool uploadAllModes)
+        {
+            List<sqlite.ElectricalTestProcessRow> rows = sqlite.GetStandardElectricalTestProcessRows(wocode, partnoid, sn);
+            if (rows.Count == 0)
+            {
+                writeLog($"[{stageTag}] MES过程数据上传失败，SN={sn}, WO={wocode}, 原因=本地未找到ACW/DCW/IR电测过程行", true);
+                return false;
+            }
+
+            bool includeIr = uploadAllModes && ShouldExpectStandardIrUpload(rows);
+            List<string> expectedModes = GetStandardExpectedElectricalModes(includeIr);
+            List<sqlite.ElectricalTestProcessRow> expectedRows = SelectStandardRowsByExpectedModes(rows, expectedModes, stageTag, sn, wocode);
+            bool allOk = expectedRows.Count == expectedModes.Count;
+
+            List<sqlite.ElectricalTestProcessRow> uploadRows;
+            if (uploadAllModes)
+            {
+                uploadRows = expectedRows;
+            }
+            else
+            {
+                var finalRow = SelectStandardFinalSnapshotRow(expectedRows);
+                uploadRows = finalRow == null
+                    ? new List<sqlite.ElectricalTestProcessRow>()
+                    : new List<sqlite.ElectricalTestProcessRow> { finalRow };
+            }
+
+            if (uploadRows.Count == 0)
+            {
+                writeLog($"[{stageTag}] MES过程数据上传失败，SN={sn}, WO={wocode}, 原因=本轮测试模式未找到可上传电测行，期望模式={string.Join(",", expectedModes.ToArray())}", true);
+                return false;
+            }
+
+            foreach (var row in uploadRows)
+            {
+                var persistedTvInfo = GetLocalizedTvStatus(row.TVInfo);
+                bool saveOk = MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.SaveBusBarData(
+                    stationCode, machineId, partnoid, wocode, sn,
+                    row.TakePhoto1, row.Res, row.TVMaxVoltage, row.TVMaxCurrent, row.TVMeterID, persistedTvInfo, row.TVResult,
+                    row.PressureMax, row.PressureAverage, row.PressureMin, row.PressureResult, row.TakePhoto2, resultstr);
+
+                writeLog($"[{stageTag}] MES过程数据上传{(saveOk ? "成功" : "失败")}，SN={sn}, WO={wocode}, 模式={row.TestMode}, TVInfo={persistedTvInfo}, 结果={resultstr}", !saveOk);
+                allOk = allOk && saveOk;
+            }
+
+            return allOk;
+        }
+
+        /// <summary>
+        /// 判断标准 CHECK1 是否应把 IR 作为本轮 MES 过程数据上传对象。
+        /// IR 仪器可用表示现场流程具备 IR 测试条件；SQLite 已存在 IR 行表示本轮产品已经产生绝缘电阻结果，两者任一成立都需要保留 IR 过程追溯。
+        /// </summary>
+        /// <param name="rows">同一产品从 SQLite 读取到的 ACW/DCW/IR 最新过程快照。</param>
+        /// <returns>true 表示 CHECK1 期望上传 IR 过程行；false 表示本轮只按 ACW/DCW 测试模式上传。</returns>
+        private bool ShouldExpectStandardIrUpload(List<sqlite.ElectricalTestProcessRow> rows)
+        {
+            bool irMeterAvailable = DataModel != null
+                && DataModel.Processmodel != null
+                && DataModel.Processmodel.TVAvailable != null
+                && DataModel.Processmodel.TVAvailable.IRAvailable;
+
+            bool hasIrRow = rows != null && rows.Any(row => string.Equals(row.TestMode, "IR", StringComparison.OrdinalIgnoreCase));
+            return irMeterAvailable || hasIrRow;
+        }
+
+        /// <summary>
+        /// 根据当前测试模式生成标准产线 CHECK 阶段的期望电测模式清单。
+        /// 该清单决定 MES 过程数据读取边界：单测只取对应 ACW 或 DCW，双测取 ACW 与 DCW，IR 按现场可用状态或已产生的 IR 行追加。
+        /// </summary>
+        /// <param name="includeIr">true 表示本轮 CHECK1 需要包含 IR 过程追溯；false 表示仅生成 ACW/DCW 期望模式。</param>
+        /// <returns>按工艺顺序排列的期望电测模式，值为 ACW、DCW、IR。</returns>
+        private List<string> GetStandardExpectedElectricalModes(bool includeIr)
+        {
+            var expectedModes = new List<string>();
+            switch (DataModel.Settingmodel.CurrentTestMode)
+            {
+                case AT9620.ElectricalTestMode.ACWOnly:
+                    expectedModes.Add("ACW");
+                    break;
+                case AT9620.ElectricalTestMode.DCWOnly:
+                    expectedModes.Add("DCW");
+                    break;
+                case AT9620.ElectricalTestMode.ACWThenDCW:
+                    expectedModes.Add("ACW");
+                    expectedModes.Add("DCW");
+                    break;
+                case AT9620.ElectricalTestMode.DCWThenACW:
+                    expectedModes.Add("DCW");
+                    expectedModes.Add("ACW");
+                    break;
+                default:
+                    expectedModes.Add("ACW");
+                    writeLog($"[MES过程数据] 测试模式未识别，按只测交流口径上传，当前模式={DataModel.Settingmodel.CurrentTestMode}", true);
+                    break;
+            }
+
+            if (includeIr)
+            {
+                expectedModes.Add("IR");
+            }
+
+            return expectedModes;
+        }
+
+        /// <summary>
+        /// 从 SQLite 电测快照中按期望模式各选择最新一条过程行。
+        /// 当前测试模式的第一个非 IR 行作为本轮电测起点；只有 ID 不早于该起点的行允许进入 MES 上传，避免同一 SN 上一轮未清掉的模式行混入本轮。
+        /// </summary>
+        /// <param name="rows">同一产品从 SQLite 读取到的 ACW/DCW/IR 最新过程快照。</param>
+        /// <param name="expectedModes">本轮测试模式要求上传的 ACW/DCW/IR 模式清单。</param>
+        /// <param name="stageTag">当前 CHECK 阶段标识，用于现场日志定位。</param>
+        /// <param name="sn">当前产品序列号，用于日志追溯。</param>
+        /// <param name="wocode">当前产品工单号，用于日志追溯。</param>
+        /// <returns>按期望模式顺序排列的 MES 上传候选行；缺失模式不会生成占位行。</returns>
+        private List<sqlite.ElectricalTestProcessRow> SelectStandardRowsByExpectedModes(
+            List<sqlite.ElectricalTestProcessRow> rows, List<string> expectedModes, string stageTag, string sn, string wocode)
+        {
+            var selectedRows = new List<sqlite.ElectricalTestProcessRow>();
+            var missingModes = new List<string>();
+            string firstNonIrMode = expectedModes.FirstOrDefault(mode => !string.Equals(mode, "IR", StringComparison.OrdinalIgnoreCase));
+            var roundStartRow = rows
+                .Where(item => string.Equals(item.TestMode, firstNonIrMode, StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(item => item.Id)
+                .FirstOrDefault();
+
+            if (roundStartRow == null)
+            {
+                writeLog($"[{stageTag}] MES过程数据上传失败，SN={sn}, WO={wocode}, 原因=无法定位本轮电测起点，期望首模式={firstNonIrMode}", true);
+                return selectedRows;
+            }
+
+            foreach (string mode in expectedModes)
+            {
+                var row = rows
+                    .Where(item => string.Equals(item.TestMode, mode, StringComparison.OrdinalIgnoreCase))
+                    .Where(item => item.Id >= roundStartRow.Id)
+                    .OrderByDescending(item => item.Id)
+                    .FirstOrDefault();
+
+                if (row == null)
+                {
+                    missingModes.Add(mode);
+                    continue;
+                }
+
+                selectedRows.Add(row);
+            }
+
+            if (missingModes.Count > 0)
+            {
+                writeLog($"[{stageTag}] MES过程数据缺少期望电测行，SN={sn}, WO={wocode}, 当前测试模式={DataModel.Settingmodel.CurrentTestModeDisplay}, 缺少模式={string.Join(",", missingModes.ToArray())}", true);
+            }
+
+            return selectedRows;
+        }
+
+        /// <summary>
+        /// 选择 CHECK2 写入 MES 的最终/AOI 快照行。
+        /// CHECK2 的 AOI 判定写回当前测试模式期望的最新非 IR 电测行；IR 作为 CHECK1 过程追溯，不承载第二工站最终/AOI 快照。
+        /// </summary>
+        /// <param name="rows">同一产品按当前测试模式筛选后的 ACW/DCW 过程快照。</param>
+        /// <returns>用于 CHECK2 单条 MES 过程数据上传的快照行；没有可用行时返回 null。</returns>
+        private static sqlite.ElectricalTestProcessRow SelectStandardFinalSnapshotRow(List<sqlite.ElectricalTestProcessRow> rows)
+        {
+            if (rows == null || rows.Count == 0)
+            {
+                return null;
+            }
+
+            var latestNonIrRow = rows
+                .Where(row => !string.Equals(row.TestMode, "IR", StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(row => row.Id)
+                .FirstOrDefault();
+
+            return latestNonIrRow;
+        }
+
+        /// <summary>
         /// 机器人TCP服务端消息接收处理方法
         /// 业务流程：机器人作为客户端连接本视觉系统，通过指令驱动各工位的检测流程
         /// 
@@ -226,12 +418,12 @@ namespace BusbarCompressionSystem.ViewModel
         ///    - 从PLC读取压力测试数据（平均值、最大值、最小值）
         ///    - 调用sqlite.Check1校验拍照留底、耐压测试、阻值测试
         ///    - 根据校验结果返回OK/NG1/NG2/NG3给机器人
-        ///    - 保存过程数据到MES服务器并报工
+        ///    - 按测试模式从 SQLite 上传本轮期望电测过程数据到 MES，并报工一次
         /// 
         /// 3. "CHECK2" - 第二次数据校验（最终出站前）
         ///    - 调用sqlite.Check2校验所有工序（包括外观检测）
         ///    - 根据校验结果返回OK/NG1~NG4给机器人
-        ///    - 保存过程数据到MES服务器并报工（第二工站）
+        ///    - 上传一条最终/AOI 快照到 MES，并按第二工站报工一次
         /// 
         /// - 机器人控制产品流转节奏，视觉系统被动响应
         /// - 通过两次CHECK实现分段校验：CHECK1拦截前工序不良品，CHECK2最终全检
@@ -574,20 +766,15 @@ namespace BusbarCompressionSystem.ViewModel
 
                         #region 保存过程数据到服务器
 
-                        // CHECK1 正常流程下，同样通过 SN 在 ProductInfoRecords 中找到对应记录，
-                        // 再将其中汇总好的过程数据一次性写入 MES。
-                        foreach (var pi in DataModel.Recordmodel.ProductInfoRecords)
-                        {
-                            if (DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN == pi.Productinfo.SN)
-                            {
-                                var persistedTvInfo = GetLocalizedTvStatus(pi.TVInfo);
-                                MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.SaveBusBarData(
-                                   DataModel.Settingmodel.SETTING_DATA.StationCode, DataModel.Settingmodel.SETTING_DATA.MachineID, pi.Productinfo.PartNOID, pi.Productinfo.WOCODE, pi.Productinfo.SN,
-                                    pi.TakePhoto1, pi.Res, pi.TVMaxVoltage, pi.TVMaxCurrent, pi.TVMeterID, persistedTvInfo, pi.TVResult,
-                                    pi.Pressure_Max, pi.Pressure_Average, pi.Pressure_Min, pi.Pressure_Result, pi.AppearanceInspection, resultstr);
-                                break;
-                            }
-                        }
+                        SaveStandardElectricalProcessDataToMes(
+                            "CHECK1",
+                            DataModel.Settingmodel.SETTING_DATA.StationCode,
+                            DataModel.Settingmodel.SETTING_DATA.MachineID,
+                            DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID,
+                            DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE,
+                            DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN,
+                            resultstr,
+                            uploadAllModes: true);
                         #endregion
                         #region 汇报结果数据
                         report(ss[1], ss[0], resultstr);
@@ -794,18 +981,15 @@ namespace BusbarCompressionSystem.ViewModel
 
                         #region 保存过程数据到服务器
 
-                        foreach (var pi in DataModel.Recordmodel.ProductInfoRecords)
-                        {
-                            if (DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN == pi.Productinfo.SN)
-                            {
-                                var persistedTvInfo = GetLocalizedTvStatus(pi.TVInfo);
-                                MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.SaveBusBarData(
-                                DataModel.Settingmodel.SETTING_DATA.StationCode2, DataModel.Settingmodel.SETTING_DATA.MachineID, pi.Productinfo.PartNOID, pi.Productinfo.WOCODE, pi.Productinfo.SN,
-                                pi.TakePhoto1, pi.Res, pi.TVMaxVoltage, pi.TVMaxCurrent, pi.TVMeterID, persistedTvInfo, pi.TVResult,
-                                pi.Pressure_Max, pi.Pressure_Average, pi.Pressure_Min, pi.Pressure_Result, pi.AppearanceInspection, resultstr);
-                                break;
-                            }
-                        }
+                        SaveStandardElectricalProcessDataToMes(
+                            "CHECK2",
+                            DataModel.Settingmodel.SETTING_DATA.StationCode2,
+                            DataModel.Settingmodel.SETTING_DATA.MachineID,
+                            DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID,
+                            DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE,
+                            DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN,
+                            resultstr,
+                            uploadAllModes: false);
 
                         #endregion
                         #region 汇报结果数据                    
