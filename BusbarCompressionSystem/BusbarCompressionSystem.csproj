@@ -172,6 +172,7 @@
     <Compile Include="Model\Setting1\TcpSetting.cs" />
     <Compile Include="Model\Setting1\HipotCommParameters.cs" />
     <Compile Include="Model\SettingModel.cs" />
+    <Compile Include="Utils\ConfigXmlSaveHelper.cs" />
     <Compile Include="Utils\DynamicPasswordAuthService.cs" />
     <Compile Include="Utils\TvStatusTranslator.cs" />
     <Compile Include="SettingForm.xaml.cs">

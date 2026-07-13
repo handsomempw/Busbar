@@ -95,6 +95,7 @@ namespace BusbarCompressionSystem
 
             OnlyOnce.check.OnlyOnce();
 
+            vml.Main.BackupConfigXmlsBeforeLoad();
             vml.Main.LoadSettingModel();
             vml.Main.LoadRecordModel();
             vml.Main.LoadProcessmodel();
@@ -102,6 +103,7 @@ namespace BusbarCompressionSystem
             bool dualYElectricalTestDeployment = vml.Main.IsDualYElectricalTestDeployment();
 
             vml.Main.Faravision_LoadSettingModel();
+            vml.Main.BackupCurrentAoiProjectXmlsBeforeLoad();
             vml.Main.Load_Prj();
             vml.Main.InitShm();
 

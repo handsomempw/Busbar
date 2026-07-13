@@ -6,54 +6,52 @@ using GalaSoft.MvvmLight;
 using System;
 using System.IO;
 using System.Windows;
-using System.Xml.Serialization;
 
 namespace BusbarCompressionSystem.ViewModel
 {
     public partial class MainViewModel : ViewModelBase
     {
-        // 持久化相关方法拆分到独立文件，方便维护
-        private void SaveXmlSafely<T>(string filename, T data)
+        /// <summary>
+        /// 系统过程数据本轮启动时的加载状态。已有 XML 损坏且无法从备份恢复时，关闭软件保存会跳过该文件，保留现场样本供维护排查。
+        /// </summary>
+        private bool _processConfigLoadFailed;
+
+        /// <summary>
+        /// 系统主配置本轮启动时的加载状态。该配置承载设备参数、MES/PLC/耐压仪通信和权限策略，加载失败后禁止默认对象覆盖现场文件。
+        /// </summary>
+        private bool _settingConfigLoadFailed;
+
+        /// <summary>
+        /// 系统记录数据本轮启动时的加载状态。已有 XML 损坏且无法恢复时，自动保存会跳过该文件，避免清空现场追溯数据。
+        /// </summary>
+        private bool _recordConfigLoadFailed;
+
+        /// <summary>
+        /// 视觉主配置本轮启动时的加载状态。该配置决定 AOI 工程目录、工程名称和相机相关参数，加载失败后保存流程会保护磁盘文件。
+        /// </summary>
+        private bool _faraVisionSettingConfigLoadFailed;
+
+        /// <summary>
+        /// 视觉记录数据本轮启动时的加载状态。已有 XML 损坏且无法恢复时，自动保存会跳过该文件，避免追溯记录被默认对象覆盖。
+        /// </summary>
+        private bool _faraVisionRecordConfigLoadFailed;
+
+        /// <summary>
+        /// AOI 工程工具 XML 本轮加载状态。任一 <c>Tool*.xml</c> 无法从备份恢复时，工程保存会停止，防止工具顺序压缩后误删现场配方。
+        /// </summary>
+        private bool _aoiProjectLoadFailed;
+
+        /// <summary>
+        /// 持久化文件统一保存入口。调用方传入本轮加载状态，首装默认对象可落盘，已有文件损坏时保护现场 XML。
+        /// </summary>
+        /// <typeparam name="T">XML 根节点对应的数据模型类型。</typeparam>
+        /// <param name="filename">目标 XML 文件完整路径。</param>
+        /// <param name="data">准备保存的数据对象。</param>
+        /// <param name="loadFailed">本轮启动时该文件是否发生不可恢复的加载失败。</param>
+        /// <returns>返回 true 表示文件保存完成；返回 false 表示保护策略拦截或写入失败。</returns>
+        private bool SaveXmlSafely<T>(string filename, T data, bool loadFailed = false) where T : class
         {
-            string dir = Path.GetDirectoryName(filename);
-            if (!Directory.Exists(dir))
-            {
-                Directory.CreateDirectory(dir);
-            }
-
-            string tempFile = $"{filename}.tmp";
-            string backupFile = $"{filename}.bak";
-
-            try
-            {
-                using (var stream = new FileStream(tempFile, FileMode.Create, FileAccess.Write, FileShare.None))
-                {
-                    var serializer = new XmlSerializer(typeof(T));
-                    serializer.Serialize(stream, data);
-                    stream.Flush();
-                }
-
-                if (File.Exists(filename))
-                {
-                    File.Replace(tempFile, filename, backupFile, true);
-                    if (File.Exists(backupFile))
-                    {
-                        File.Delete(backupFile);
-                    }
-                }
-                else
-                {
-                    File.Move(tempFile, filename);
-                }
-            }
-            catch
-            {
-                if (File.Exists(tempFile))
-                {
-                    File.Delete(tempFile);
-                }
-                throw;
-            }
+            return ConfigXmlSaveHelper.TrySave(filename, data, loadFailed, message => writeLog(message));
         }
 
         private string GetConfigPath(string fileName)
@@ -61,40 +59,41 @@ namespace BusbarCompressionSystem.ViewModel
             return Path.Combine(Environment.CurrentDirectory, "配置", fileName);
         }
 
+        /// <summary>
+        /// 在系统配置加载前备份 exe 目录下的 <c>配置</c> XML。快照用于保留启动前现场样本，不改变后续配置加载、备份恢复和默认模板生成流程。
+        /// </summary>
+        public void BackupConfigXmlsBeforeLoad()
+        {
+            string configDir = Path.Combine(Environment.CurrentDirectory, "配置");
+            string backupRoot = Path.Combine(Environment.CurrentDirectory, "配置备份");
+            ConfigXmlSaveHelper.BackupXmlFiles(configDir, backupRoot, "系统配置", message => writeLog(message));
+        }
+
         #region 数据保存加载
         #region 过程数据
         public void SaveProcessmodel()
         {
             string filename = GetConfigPath("过程数据.xml");
-            SaveXmlSafely(filename, DataModel.Processmodel);
+            SaveXmlSafely(filename, DataModel.Processmodel, _processConfigLoadFailed);
         }
         public void LoadProcessmodel()
         {
             try
             {
                 string filename = GetConfigPath("过程数据.xml");
-                string dir = Path.GetDirectoryName(filename);
-                if (!Directory.Exists(dir))
-                {
-                    Directory.CreateDirectory(dir);
-                }
-                if (File.Exists(filename))
-                {
-                    using (var stream = File.OpenRead(filename))
-                    {
-                        var serializer = new XmlSerializer(typeof(Processmodel));
-                        DataModel.Processmodel = serializer.Deserialize(stream) as Processmodel;
-                    }
-                }
-                else
-                {
-                    DataModel.Processmodel = new Processmodel();
-                }
+                ConfigLoadResult<Processmodel> result = ConfigXmlSaveHelper.TryLoad(
+                    filename,
+                    () => new Processmodel(),
+                    message => writeLog(message));
+
+                DataModel.Processmodel = result.Data ?? new Processmodel();
+                _processConfigLoadFailed = result.LoadFailed;
             }
             catch (Exception ex)
             {
                 DataModel.Processmodel = new Processmodel();
-
+                _processConfigLoadFailed = true;
+                writeLog($"[配置加载] 过程数据.xml加载异常：{ex.Message}");
             }
         }
         #endregion
@@ -146,34 +145,31 @@ namespace BusbarCompressionSystem.ViewModel
         public void SaveSettingModel()
         {
             string filename = GetConfigPath("配置数据.xml");
-            SaveXmlSafely(filename, DataModel.Settingmodel);
+            SaveXmlSafely(filename, DataModel.Settingmodel, _settingConfigLoadFailed);
         }
         public void LoadSettingModel()
         {
             try
             {
                 string filename = GetConfigPath("配置数据.xml");
-                string dir = Path.GetDirectoryName(filename);
-                if (!Directory.Exists(dir))
-                {
-                    Directory.CreateDirectory(dir);
-                }
-                if (File.Exists(filename))
-                {
-                    string xmlText = File.ReadAllText(filename);
-                    using (var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(xmlText)))
-                    {
-                        var serializer = new XmlSerializer(typeof(SettingModel));
-                        DataModel.Settingmodel = serializer.Deserialize(stream) as SettingModel;
-                    }
+                ConfigLoadResult<SettingModel> result = ConfigXmlSaveHelper.TryLoad(
+                    filename,
+                    () => new SettingModel(),
+                    message => writeLog(message));
 
-                    ApplyReportFailAlarmDefaultFromXml(xmlText);
-                    ApplyDynamicPasswordProductionDefaultFromXml(xmlText);
-                }
-                else
+                DataModel.Settingmodel = result.Data ?? new SettingModel();
+                _settingConfigLoadFailed = result.LoadFailed;
+
+                ApplyReportFailAlarmDefaultFromXml(result.XmlText);
+                ApplyDynamicPasswordProductionDefaultFromXml(result.XmlText);
+
+                if (result.RestoredFromBackup)
                 {
-                    DataModel.Settingmodel = new SettingModel();
-                    ApplyDynamicPasswordProductionDefaultFromXml(null);
+                    writeLog($"配置数据.xml已从备份恢复：{Path.GetFileName(result.RestoredFrom)}");
+                }
+                else if (result.LoadFailed)
+                {
+                    MessageBox.Show("配置数据.xml加载失败且无法从备份恢复，软件本轮使用默认内存配置；关闭软件时会跳过该文件保存，现场 XML 文件会保留供维护排查。");
                 }
                 
                 // 加载独立的耐压状态映射配置文件
@@ -183,8 +179,10 @@ namespace BusbarCompressionSystem.ViewModel
             catch (Exception ex)
             {
                 DataModel.Settingmodel = new SettingModel();
+                _settingConfigLoadFailed = true;
+                ApplyDynamicPasswordProductionDefaultFromXml(null);
 
-                MessageBox.Show($"配置数据.xml加载失败,软件已重置配置，请进入配置文件按需求修改,再重新打开软件:\r\n{ex.Message}");
+                MessageBox.Show($"配置数据.xml加载异常，软件本轮使用默认内存配置；关闭软件时会跳过该文件保存，现场 XML 文件会保留供维护排查:\r\n{ex.Message}");
                 
                 // 加载独立的耐压状态映射配置文件
                 LoadTvStatusMappings();
@@ -202,34 +200,26 @@ namespace BusbarCompressionSystem.ViewModel
         public void SaveRecordModel()
         {
             string filename = GetConfigPath("日志数据.xml");
-            SaveXmlSafely(filename, DataModel.Recordmodel);
+            SaveXmlSafely(filename, DataModel.Recordmodel, _recordConfigLoadFailed);
         }
         public void LoadRecordModel()
         {
             try
             {
                 string filename = GetConfigPath("日志数据.xml");
-                string dir = Path.GetDirectoryName(filename);
-                if (!Directory.Exists(dir))
-                {
-                    Directory.CreateDirectory(dir);
-                }
-                if (File.Exists(filename))
-                {
-                    using (var stream = File.OpenRead(filename))
-                    {
-                        var serializer = new XmlSerializer(typeof(RecordModel));
-                        DataModel.Recordmodel = serializer.Deserialize(stream) as RecordModel;
-                    }
-                }
-                else
-                {
-                    DataModel.Recordmodel = new RecordModel();
-                }
+                ConfigLoadResult<RecordModel> result = ConfigXmlSaveHelper.TryLoad(
+                    filename,
+                    () => new RecordModel(),
+                    message => writeLog(message));
+
+                DataModel.Recordmodel = result.Data ?? new RecordModel();
+                _recordConfigLoadFailed = result.LoadFailed;
             }
             catch (Exception ex)
             {
                 DataModel.Recordmodel = new RecordModel();
+                _recordConfigLoadFailed = true;
+                writeLog($"[配置加载] 日志数据.xml加载异常：{ex.Message}");
                 //MessageBox.Show($"日志数据.xml加载失败,软件已重置配置，请进入配置文件按需求修改,再重新打开软件:\r\n{ex.Message}");
 
             }
@@ -290,20 +280,30 @@ namespace BusbarCompressionSystem.ViewModel
             {
                 string xmlPath = GetConfigPath("耐压仪通信参数.xml");
                 HipotCommParameters p;
+                bool shouldCreateTemplate = !File.Exists(xmlPath);
 
-                if (!File.Exists(xmlPath))
+                ConfigLoadResult<HipotCommParameters> result = ConfigXmlSaveHelper.TryLoad(
+                    xmlPath,
+                    () => new HipotCommParameters(),
+                    message => writeLog(message));
+
+                p = result.Data ?? new HipotCommParameters();
+
+                if (shouldCreateTemplate && !result.LoadFailed)
                 {
-                    p = new HipotCommParameters();
                     SaveXmlSafely(xmlPath, p);
                     writeLog($"已生成默认耐压仪通信参数: {xmlPath}");
                 }
+                else if (result.RestoredFromBackup)
+                {
+                    writeLog($"耐压仪通信参数已从备份恢复: {Path.GetFileName(result.RestoredFrom)}");
+                }
+                else if (result.LoadFailed)
+                {
+                    writeLog("耐压仪通信参数加载失败且无法从备份恢复，本轮使用默认通信参数");
+                }
                 else
                 {
-                    using (var stream = File.OpenRead(xmlPath))
-                    {
-                        var serializer = new XmlSerializer(typeof(HipotCommParameters));
-                        p = serializer.Deserialize(stream) as HipotCommParameters ?? new HipotCommParameters();
-                    }
                     writeLog($"已加载耐压仪通信参数: {xmlPath}");
                 }
 

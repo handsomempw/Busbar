@@ -6,6 +6,7 @@
 using BusbarCompressionSystem.FaraVision;
 using BusbarCompressionSystem.Model.FaraVision.Tool;
 using BusbarCompressionSystem.Model.FaraVision;
+using BusbarCompressionSystem.Utils;
 using Faratronic.EquipUtils.Authentication.Models;
 using Faratronic.EquipUtils.Authentication;
 using GalaSoft.MvvmLight.Command;
@@ -226,11 +227,13 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
-        /// 从工程目录读取 Tool*.xml 构建工具列表，同时加载对应的示教图像缩略图显示。
+        /// 从当前 AOI 工程目录读取 <c>Tool*.xml</c> 构建工具列表，同时加载对应的示教图像缩略图显示。
+        /// 工具 XML 读取失败时优先从同名备份恢复；无法恢复的工具会标记本轮工程保存保护，避免关闭软件时压缩工具顺序并覆盖现场配方。
         /// </summary>
         public void LoadPrjXmls()
         {
 
+            _aoiProjectLoadFailed = false;
             DataModel.FaraVisionDataModel.Processmodel.Tools.Clear();
             string dir = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}";
             if (!Directory.Exists(dir))
@@ -338,29 +341,31 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
-        /// 读取指定序号的 Tool 配置 XML。
+        /// 读取指定序号的 AOI 工具 XML。该方法用于工程打开阶段，负责把主文件、<c>.bak</c> 和 <c>.lastgood</c> 中可用的工具配置恢复到内存。
         /// </summary>
-        /// <param name="index">工具序号(1-based)</param>
-        /// <returns>反序列化的 ToolModel，失败则返回 null</returns>
+        /// <param name="index">工具在工程目录中的文件序号；1 表示 <c>Tool1.xml</c>。</param>
+        /// <returns>返回可用于界面和检测流程的工具配置；文件缺失或无法恢复时返回 <c>null</c>。</returns>
         private ToolModel LoadPrjXml(int index)
         {
             string dir = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}";
             string filename = $"{dir}\\Tool{index}.xml";
 
-            if (File.Exists(filename))
+            ConfigLoadResult<ToolModel> result = ConfigXmlSaveHelper.TryLoad<ToolModel>(
+                filename,
+                () => null,
+                message => writeLog(message));
+
+            if (result.RestoredFromBackup)
             {
-                using (var stream = File.OpenRead(filename))
-                {
-                    try
-                    {
-                        var serializer = new XmlSerializer(typeof(ToolModel));
-                        var r = serializer.Deserialize(stream) as ToolModel;
-                        return (ToolModel)r;
-                    }
-                    catch {; }
-                }
+                writeLog($"[AOI工程加载] Tool{index}.xml已从备份恢复：{Path.GetFileName(result.RestoredFrom)}");
             }
-            return null;
+            else if (result.LoadFailed)
+            {
+                _aoiProjectLoadFailed = true;
+                writeLog($"[AOI工程加载] Tool{index}.xml损坏且无法从备份恢复，工程保存已保护");
+            }
+
+            return result.Data;
         }
 
         public KColor GetPixelData(int X, int Y)
@@ -387,13 +392,25 @@ namespace BusbarCompressionSystem.ViewModel
 
         /// <summary>
         /// 保存当前 AOI 工程的工具 XML，并在授权会话内按参数差异审计口径记录变更。
-        /// 工具 XML 采用临时文件替换正式文件；任一工具保存失败时保留原正式文件，并把失败结果返回给调用方。
+        /// 工具 XML 采用临时文件校验、正式文件替换和同名备份保留；工程加载存在无法恢复的工具时返回失败，保留现场上一版配方文件。
         /// </summary>
         /// <returns>全部工具 XML 保存完成返回 <c>true</c>；目录、序列化、文件替换或审计流程抛出异常时返回 <c>false</c>。</returns>
         public bool SavePrjXmls()
         {
             try
             {
+                if (_aoiProjectLoadFailed)
+                {
+                    writeLog("[AOI工程保存] 本轮加载存在无法恢复的Tool XML，已跳过保存以保留现场工程文件", true);
+                    return false;
+                }
+
+                if (_faraVisionSettingConfigLoadFailed)
+                {
+                    writeLog("[AOI工程保存] 视觉配置数据加载失败，工程目录和工程名称不适合作为保存依据，已跳过工程保存", true);
+                    return false;
+                }
+
                 // ==================== 动态密码审计（P1）：保存工程时上报参数差异 ====================
                 // 仅在“动态密码验证通过且已开启编辑权限”时，记录本次保存涉及的参数变化（old/new）
                 bool shouldReport = CanReportDynamicPasswordAudit(
@@ -467,6 +484,17 @@ namespace BusbarCompressionSystem.ViewModel
         private string GetCurrentProjectDirectory()
         {
             return $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}";
+        }
+
+        /// <summary>
+        /// 在当前 AOI 工程工具 XML 加载前备份工程目录下的 XML。该快照保留自动恢复前的现场配方样本，不参与检测流程和参数审计。
+        /// </summary>
+        public void BackupCurrentAoiProjectXmlsBeforeLoad()
+        {
+            string projectDir = GetCurrentProjectDirectory();
+            string backupRoot = Path.Combine(Environment.CurrentDirectory, "配置备份");
+            string categoryName = $"AOI工程_{DataModel.FaraVisionDataModel.Settingmodel.Name}";
+            ConfigXmlSaveHelper.BackupXmlFiles(projectDir, backupRoot, categoryName, message => writeLog(message));
         }
 
         /// <summary>
@@ -917,7 +945,10 @@ namespace BusbarCompressionSystem.ViewModel
         private void SavePrjXml(ToolModel td, int index)
         {
             string filename = $"{GetCurrentProjectDirectory()}\\Tool{index}.xml";
-            SaveXmlSafely(filename, td);
+            if (!SaveXmlSafely(filename, td))
+            {
+                throw new IOException($"Tool{index}.xml保存失败");
+            }
         }
 
         public bool LoadBitmapSource()
@@ -1506,36 +1537,36 @@ namespace BusbarCompressionSystem.ViewModel
         {
 
             string filename = $"{Environment.CurrentDirectory}\\配置\\视觉配置数据.xml";
-            SaveXmlSafely(filename, DataModel.FaraVisionDataModel.Settingmodel);
+            SaveXmlSafely(filename, DataModel.FaraVisionDataModel.Settingmodel, _faraVisionSettingConfigLoadFailed);
         }
         public void Faravision_LoadSettingModel()
         {
             try
             {
                 string filename = $"{Environment.CurrentDirectory}\\配置\\视觉配置数据.xml";
-                string dir = Path.GetDirectoryName(filename);
-                if (!Directory.Exists(dir))
+                ConfigLoadResult<VisionSettingModel> result = ConfigXmlSaveHelper.TryLoad(
+                    filename,
+                    () => new VisionSettingModel(),
+                    message => writeLog(message));
+
+                DataModel.FaraVisionDataModel.Settingmodel = result.Data ?? new VisionSettingModel();
+                _faraVisionSettingConfigLoadFailed = result.LoadFailed;
+
+                if (result.RestoredFromBackup)
                 {
-                    Directory.CreateDirectory(dir);
+                    writeLog($"视觉配置数据.xml已从备份恢复：{Path.GetFileName(result.RestoredFrom)}");
                 }
-                if (File.Exists(filename))
+                else if (result.LoadFailed)
                 {
-                    using (var stream = File.OpenRead(filename))
-                    {
-                        var serializer = new XmlSerializer(typeof(VisionSettingModel));
-                        DataModel.FaraVisionDataModel.Settingmodel = serializer.Deserialize(stream) as VisionSettingModel;
-                    }
-                }
-                else
-                {
-                    DataModel.FaraVisionDataModel.Settingmodel = new VisionSettingModel();
+                    MessageBox.Show("视觉配置数据.xml加载失败且无法从备份恢复，软件本轮使用默认内存配置；关闭软件时会跳过该文件保存，现场 XML 文件会保留供维护排查。");
                 }
             }
             catch (Exception ex)
             {
                 DataModel.FaraVisionDataModel.Settingmodel = new VisionSettingModel();
+                _faraVisionSettingConfigLoadFailed = true;
 
-                MessageBox.Show($"配置数据.xml加载失败,软件已重置配置，请进入配置文件按需求修改,再重新打开软件:\r\n{ex.Message}");
+                MessageBox.Show($"视觉配置数据.xml加载异常，软件本轮使用默认内存配置；关闭软件时会跳过该文件保存，现场 XML 文件会保留供维护排查:\r\n{ex.Message}");
 
             }
         }
@@ -1545,34 +1576,26 @@ namespace BusbarCompressionSystem.ViewModel
         public void Faravision_SaveRecordModel()
         {
             string filename = $"{Environment.CurrentDirectory}\\配置\\视觉日志数据.xml";
-            SaveXmlSafely(filename, DataModel.FaraVisionDataModel.Recordmodel);
+            SaveXmlSafely(filename, DataModel.FaraVisionDataModel.Recordmodel, _faraVisionRecordConfigLoadFailed);
         }
         public void Faravision_LoadRecordModel()
         {
             try
             {
                 string filename = $"{Environment.CurrentDirectory}\\配置\\视觉日志数据.xml";
-                string dir = Path.GetDirectoryName(filename);
-                if (!Directory.Exists(dir))
-                {
-                    Directory.CreateDirectory(dir);
-                }
-                if (File.Exists(filename))
-                {
-                    using (var stream = File.OpenRead(filename))
-                    {
-                        var serializer = new XmlSerializer(typeof(RecordModel));
-                        DataModel.FaraVisionDataModel.Recordmodel = serializer.Deserialize(stream) as RecordModel;
-                    }
-                }
-                else
-                {
-                    DataModel.FaraVisionDataModel.Recordmodel = new RecordModel();
-                }
+                ConfigLoadResult<RecordModel> result = ConfigXmlSaveHelper.TryLoad(
+                    filename,
+                    () => new RecordModel(),
+                    message => writeLog(message));
+
+                DataModel.FaraVisionDataModel.Recordmodel = result.Data ?? new RecordModel();
+                _faraVisionRecordConfigLoadFailed = result.LoadFailed;
             }
             catch (Exception ex)
             {
                 DataModel.FaraVisionDataModel.Recordmodel = new RecordModel();
+                _faraVisionRecordConfigLoadFailed = true;
+                writeLog($"[配置加载] 视觉日志数据.xml加载异常：{ex.Message}");
                 //MessageBox.Show($"日志数据.xml加载失败,软件已重置配置，请进入配置文件按需求修改,再重新打开软件:\r\n{ex.Message}");
 
             }
