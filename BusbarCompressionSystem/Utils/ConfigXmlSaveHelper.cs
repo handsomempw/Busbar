@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
+using System.Linq;
+using System.Text;
 using System.Xml.Serialization;
 
 namespace BusbarCompressionSystem.Utils
@@ -45,6 +48,8 @@ namespace BusbarCompressionSystem.Utils
     {
         private const string BackupExtension = ".bak";
         private const string LastGoodExtension = ".lastgood";
+        private const int MaxTimestampBackupDirectories = 30;
+        private const string RecoveryReadmeFileName = "readme.txt";
 
         /// <summary>
         /// 按主文件、<c>.bak</c>、<c>.lastgood</c> 的顺序加载 XML。主文件损坏时自动恢复可用备份；首装无候选文件时返回默认对象并允许首次保存。
@@ -145,6 +150,8 @@ namespace BusbarCompressionSystem.Utils
         {
             try
             {
+                PrepareBackupRoot(backupRoot, log);
+
                 if (string.IsNullOrWhiteSpace(sourceDir) || !Directory.Exists(sourceDir))
                 {
                     return;
@@ -182,10 +189,115 @@ namespace BusbarCompressionSystem.Utils
                 {
                     log?.Invoke($"[配置备份] 已备份{copiedCount}个XML到：{targetDir}");
                 }
+
+                PruneTimestampBackupDirectories(backupRoot, log);
             }
             catch (Exception ex)
             {
                 log?.Invoke($"[配置备份] 目录备份失败：{sourceDir}，{ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 准备现场配置备份根目录。该入口在系统配置和 AOI 工程快照前执行，确保恢复说明持续可用，并把磁盘占用限制在最近 30 个启动时间点。
+        /// </summary>
+        /// <param name="backupRoot">exe 目录下的配置备份根目录。</param>
+        /// <param name="log">诊断日志入口，用于记录恢复说明生成或历史目录清理失败。</param>
+        private static void PrepareBackupRoot(string backupRoot, Action<string> log)
+        {
+            if (string.IsNullOrWhiteSpace(backupRoot))
+            {
+                return;
+            }
+
+            Directory.CreateDirectory(backupRoot);
+            WriteRecoveryReadme(backupRoot, log);
+            PruneTimestampBackupDirectories(backupRoot, log);
+        }
+
+        /// <summary>
+        /// 在备份根目录生成现场恢复说明。该文件只指导维护人员恢复系统配置和 AOI 工程 XML，不参与程序加载、测量、判定或设备通信。
+        /// </summary>
+        /// <param name="backupRoot">exe 目录下的配置备份根目录。</param>
+        /// <param name="log">诊断日志入口，用于记录说明文件写入失败原因。</param>
+        private static void WriteRecoveryReadme(string backupRoot, Action<string> log)
+        {
+            const string content =
+                "配置备份与恢复说明\r\n" +
+                "\r\n" +
+                "1. 本目录由软件自动管理，保留最近30个 yyyyMMdd_HHmmss 时间戳目录。\r\n" +
+                "2. 系统配置位于时间戳目录的“系统配置”中；视觉工具配方位于“AOI工程_工程名”中。\r\n" +
+                "3. 正常生产时无需手工修改、移动或删除这些文件。\r\n" +
+                "4. 需要人工恢复时：先关闭软件，备份当前故障文件，再把选定时间戳中的 XML 复制回原“配置”或 AOI 工程目录。\r\n" +
+                "5. 正式 XML 旁的 .bak 是上一次保存版本，.lastgood 是最近一次校验通过版本，由软件自动恢复。\r\n" +
+                "6. 恢复后请核对当前工程、相机、PLC、MES、电测参数和点检配置，再恢复设备生产。\r\n";
+
+            try
+            {
+                string readmePath = Path.Combine(backupRoot, RecoveryReadmeFileName);
+                if (!File.Exists(readmePath) || !string.Equals(File.ReadAllText(readmePath), content, StringComparison.Ordinal))
+                {
+                    File.WriteAllText(readmePath, content, new UTF8Encoding(true));
+                }
+            }
+            catch (Exception ex)
+            {
+                log?.Invoke($"[配置备份] 恢复说明生成失败：{ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 清理超过保留上限的启动快照。仅识别 <c>yyyyMMdd_HHmmss</c> 时间戳目录；恢复说明和人工建立的其他目录保持原样。
+        /// </summary>
+        /// <param name="backupRoot">exe 目录下的配置备份根目录。</param>
+        /// <param name="log">诊断日志入口，用于记录被清理目录和单个目录删除失败原因。</param>
+        private static void PruneTimestampBackupDirectories(string backupRoot, Action<string> log)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(backupRoot) || !Directory.Exists(backupRoot))
+                {
+                    return;
+                }
+
+                var timestampDirectories = new List<KeyValuePair<DateTime, DirectoryInfo>>();
+                foreach (DirectoryInfo directory in new DirectoryInfo(backupRoot).GetDirectories())
+                {
+                    DateTime timestamp;
+                    if (DateTime.TryParseExact(
+                        directory.Name,
+                        "yyyyMMdd_HHmmss",
+                        CultureInfo.InvariantCulture,
+                        DateTimeStyles.None,
+                        out timestamp))
+                    {
+                        timestampDirectories.Add(new KeyValuePair<DateTime, DirectoryInfo>(timestamp, directory));
+                    }
+                }
+
+                DirectoryInfo[] expiredDirectories = timestampDirectories
+                    .OrderByDescending(item => item.Key)
+                    .ThenByDescending(item => item.Value.Name, StringComparer.Ordinal)
+                    .Skip(MaxTimestampBackupDirectories)
+                    .Select(item => item.Value)
+                    .ToArray();
+
+                foreach (DirectoryInfo directory in expiredDirectories)
+                {
+                    try
+                    {
+                        directory.Delete(true);
+                        log?.Invoke($"[配置备份] 已清理超出保留数量的旧备份：{directory.Name}");
+                    }
+                    catch (Exception ex)
+                    {
+                        log?.Invoke($"[配置备份] 旧备份清理失败：{directory.FullName}，{ex.Message}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                log?.Invoke($"[配置备份] 保留策略执行失败：{ex.Message}");
             }
         }
 
