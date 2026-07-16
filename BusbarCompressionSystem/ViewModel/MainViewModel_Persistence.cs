@@ -37,12 +37,13 @@ namespace BusbarCompressionSystem.ViewModel
         private bool _faraVisionRecordConfigLoadFailed;
 
         /// <summary>
-        /// AOI 工程工具 XML 本轮加载状态。任一 <c>Tool*.xml</c> 无法从备份恢复时，工程保存会停止，防止工具顺序压缩后误删现场配方。
+        /// AOI 工程工具 XML 本轮加载状态。任一 <c>Tool*.xml</c> 无法读取时，工程保存会停止，防止工具顺序压缩后误删现场配方。
         /// </summary>
         private bool _aoiProjectLoadFailed;
 
         /// <summary>
-        /// 持久化文件统一保存入口。调用方传入本轮加载状态，首装默认对象可落盘，已有文件损坏时保护现场 XML。
+        /// 系统配置 XML 统一保存入口。调用方传入本轮加载状态，首装默认对象可落盘，已有文件损坏时保护现场 XML。
+        /// 配置恢复副本集中写入“配置\备份”；AOI 工程工具使用独立保存入口和按工程名维护的单份完整快照。
         /// </summary>
         /// <typeparam name="T">XML 根节点对应的数据模型类型。</typeparam>
         /// <param name="filename">目标 XML 文件完整路径。</param>
@@ -52,6 +53,20 @@ namespace BusbarCompressionSystem.ViewModel
         private bool SaveXmlSafely<T>(string filename, T data, bool loadFailed = false) where T : class
         {
             return ConfigXmlSaveHelper.TrySave(filename, data, loadFailed, message => writeLog(message));
+        }
+
+        /// <summary>
+        /// AOI 工程工具 XML 保存入口。工具参数经过临时文件校验和原子替换；完整工程快照在全部工具保存成功后按需覆盖。
+        /// 该入口保持参数审计、工具顺序、示教图片、模型文件、检测流程和设备通信的原有业务边界。
+        /// </summary>
+        /// <typeparam name="T">AOI 工具 XML 根节点对应的数据模型类型。</typeparam>
+        /// <param name="filename">当前 AOI 工程目录中的工具 XML 完整路径。</param>
+        /// <param name="data">准备保存的工具配置对象。</param>
+        /// <param name="loadFailed">本轮工程加载是否发生不可恢复的失败。</param>
+        /// <returns>工具 XML 完成更新或内容保持一致时返回 <c>true</c>。</returns>
+        private bool SaveProjectXmlSafely<T>(string filename, T data, bool loadFailed = false) where T : class
+        {
+            return ConfigXmlSaveHelper.TrySaveProjectFile(filename, data, loadFailed, message => writeLog(message));
         }
 
         private string GetConfigPath(string fileName)

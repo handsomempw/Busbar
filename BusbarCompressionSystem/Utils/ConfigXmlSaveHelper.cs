@@ -42,17 +42,24 @@ namespace BusbarCompressionSystem.Utils
 
     /// <summary>
     /// 现场 XML 配置和 AOI 工程工具 XML 的安全读写入口。
-    /// <para>主文件优先生效，<c>.bak</c> 保留替换前版本，<c>.lastgood</c> 保留最近一次可反序列化版本；加载失败时保护磁盘文件免受默认对象覆盖。</para>
+    /// <para>系统配置恢复副本集中保存在“配置\备份”；AOI 工程在“配置备份”下按工程名保留一份完整快照，仅在配方实际变更后覆盖。</para>
+    /// <para>加载失败时保存入口保护磁盘文件，防止默认对象覆盖现场参数。</para>
     /// </summary>
     internal static class ConfigXmlSaveHelper
     {
         private const string BackupExtension = ".bak";
         private const string LastGoodExtension = ".lastgood";
+
+        /// <summary>
+        /// 配置 XML 恢复副本目录名。该目录位于正式“配置”目录下，只承载自动恢复文件，不参与 AOI 工程管理。
+        /// </summary>
+        private const string RecoveryDirectoryName = "备份";
+
         private const int MaxTimestampBackupDirectories = 30;
         private const string RecoveryReadmeFileName = "readme.txt";
 
         /// <summary>
-        /// 按主文件、<c>.bak</c>、<c>.lastgood</c> 的顺序加载 XML。主文件损坏时自动恢复可用备份；首装无候选文件时返回默认对象并允许首次保存。
+        /// 按候选顺序加载 XML。系统配置损坏时从“配置\备份”自动恢复；AOI 工具 XML 只读取工程内主文件。
         /// </summary>
         /// <typeparam name="T">XML 根节点对应的数据模型类型。</typeparam>
         /// <param name="filename">主 XML 文件完整路径。</param>
@@ -111,7 +118,7 @@ namespace BusbarCompressionSystem.Utils
         /// <param name="data">准备落盘的数据对象。</param>
         /// <param name="loadFailed">本轮启动时该文件是否发生不可恢复的加载失败。</param>
         /// <param name="log">诊断日志入口，用于记录跳过、成功和失败原因。</param>
-        /// <returns>返回 true 表示正式文件保存完成；返回 false 表示保存被保护策略拦截或写入失败。</returns>
+        /// <returns>正式文件完成更新或内容保持一致时返回 <c>true</c>；保护策略拦截或写入失败时返回 <c>false</c>。</returns>
         public static bool TrySave<T>(string filename, T data, bool loadFailed, Action<string> log = null) where T : class
         {
             if (data == null)
@@ -128,7 +135,7 @@ namespace BusbarCompressionSystem.Utils
 
             try
             {
-                SaveValidatedXml(filename, data, log);
+                SaveValidatedXml(filename, data, true, log);
                 log?.Invoke($"[配置保存] 成功：{Path.GetFileName(filename)}");
                 return true;
             }
@@ -140,9 +147,46 @@ namespace BusbarCompressionSystem.Utils
         }
 
         /// <summary>
-        /// 在启动加载前复制指定目录下的 XML 文件到 exe 目录的备份区。该快照保留现场原始文件状态，便于维护人员在自动恢复后追溯启动前样本。
+        /// 保存 AOI 工具 XML。工具参数经过临时文件校验和原子替换；旁路恢复文件不参与工程工具读写。
+        /// <para>完整工程恢复样本由保存成功后的单份工程快照提供，不改变工具顺序、参数审计、检测执行或设备通信。</para>
         /// </summary>
-        /// <param name="sourceDir">待备份目录，通常为 <c>配置</c> 目录或当前 AOI 工程目录。</param>
+        /// <typeparam name="T">AOI 工具 XML 根节点对应的数据模型类型。</typeparam>
+        /// <param name="filename">当前 AOI 工程目录中的工具 XML 完整路径。</param>
+        /// <param name="data">准备落盘的工具配置对象。</param>
+        /// <param name="loadFailed">本轮工程加载是否发生不可恢复的失败；为 <c>true</c> 时保护现场工程文件。</param>
+        /// <param name="log">诊断日志入口，用于记录保存跳过、成功和失败原因。</param>
+        /// <returns>工具 XML 完成更新或内容保持一致时返回 <c>true</c>。</returns>
+        public static bool TrySaveProjectFile<T>(string filename, T data, bool loadFailed, Action<string> log = null) where T : class
+        {
+            if (data == null)
+            {
+                log?.Invoke($"[AOI工程保存] 跳过：{Path.GetFileName(filename)} 工具数据为空");
+                return false;
+            }
+
+            if (loadFailed)
+            {
+                log?.Invoke($"[AOI工程保存] 跳过：{Path.GetFileName(filename)} 本轮工程加载失败，保留现场工程文件");
+                return false;
+            }
+
+            try
+            {
+                SaveValidatedXml(filename, data, false, log);
+                log?.Invoke($"[AOI工程保存] 成功：{Path.GetFileName(filename)}");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                log?.Invoke($"[AOI工程保存] 失败：{Path.GetFileName(filename)}，{ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 在启动加载前复制“配置”目录中的正式 XML 到 exe 目录的时间戳备份区。该快照保留现场原始文件状态，便于维护人员追溯启动前样本。
+        /// </summary>
+        /// <param name="sourceDir">exe 目录下的正式“配置”目录。</param>
         /// <param name="backupRoot">备份根目录，建议位于 exe 目录下，便于现场替换程序时一并查看。</param>
         /// <param name="categoryName">备份分类名称，用于区分系统配置和 AOI 工程配方。</param>
         /// <param name="log">诊断日志入口，用于记录备份数量和失败原因。</param>
@@ -157,8 +201,8 @@ namespace BusbarCompressionSystem.Utils
                     return;
                 }
 
-                string[] xmlFiles = Directory.GetFiles(sourceDir, "*.xml", SearchOption.TopDirectoryOnly);
-                if (xmlFiles.Length == 0)
+                string[] sourceFiles = Directory.GetFiles(sourceDir, "*.xml", SearchOption.TopDirectoryOnly);
+                if (sourceFiles.Length == 0)
                 {
                     return;
                 }
@@ -171,7 +215,7 @@ namespace BusbarCompressionSystem.Utils
                 Directory.CreateDirectory(targetDir);
 
                 int copiedCount = 0;
-                foreach (string sourceFile in xmlFiles)
+                foreach (string sourceFile in sourceFiles)
                 {
                     try
                     {
@@ -187,7 +231,7 @@ namespace BusbarCompressionSystem.Utils
 
                 if (copiedCount > 0)
                 {
-                    log?.Invoke($"[配置备份] 已备份{copiedCount}个XML到：{targetDir}");
+                    log?.Invoke($"[配置备份] 已备份{copiedCount}个配置XML到：{targetDir}");
                 }
 
                 PruneTimestampBackupDirectories(backupRoot, log);
@@ -199,7 +243,78 @@ namespace BusbarCompressionSystem.Utils
         }
 
         /// <summary>
-        /// 准备现场配置备份根目录。该入口在系统配置和 AOI 工程快照前执行，确保恢复说明持续可用，并把磁盘占用限制在最近 30 个启动时间点。
+        /// 在 AOI 工程配方成功保存后同步单份完整工程快照。每个工程名对应固定备份目录，内容无变化时跳过复制。
+        /// <para>该快照供人工整批恢复工具 XML、示教图片和视觉模型，不参与运行时加载、检测判定或设备通信。</para>
+        /// </summary>
+        /// <param name="sourceDir">当前 AOI 工程绝对目录。</param>
+        /// <param name="backupRoot">exe 目录下的配置备份根目录。</param>
+        /// <param name="categoryName">包含 AOI 工程名称的备份分类。</param>
+        /// <param name="log">诊断日志入口，用于记录跳过、同步数量和单文件失败原因。</param>
+        public static void BackupProjectFilesIfChanged(string sourceDir, string backupRoot, string categoryName, Action<string> log = null)
+        {
+            try
+            {
+                PrepareBackupRoot(backupRoot, log);
+
+                if (string.IsNullOrWhiteSpace(sourceDir) || !Directory.Exists(sourceDir))
+                {
+                    return;
+                }
+
+                string[] sourceFiles = Directory.GetFiles(sourceDir, "*", SearchOption.AllDirectories);
+                if (sourceFiles.Length == 0)
+                {
+                    return;
+                }
+
+                string targetDir = Path.Combine(backupRoot, SanitizeDirectoryName(categoryName));
+                if (!ProjectBackupNeedsRefresh(sourceDir, targetDir, sourceFiles))
+                {
+                    log?.Invoke($"[配置备份] AOI工程内容未变化，跳过备份：{SanitizeDirectoryName(categoryName)}");
+                    return;
+                }
+
+                Directory.CreateDirectory(targetDir);
+
+                var retainedRelativePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                int copiedCount = 0;
+                foreach (string sourceFile in sourceFiles)
+                {
+                    try
+                    {
+                        string relativePath = GetRelativePath(sourceDir, sourceFile);
+                        retainedRelativePaths.Add(relativePath);
+                        string targetFile = Path.Combine(targetDir, relativePath);
+                        if (File.Exists(targetFile) && FilesHaveSameContent(sourceFile, targetFile))
+                        {
+                            continue;
+                        }
+
+                        EnsureDirectory(targetFile);
+                        File.Copy(sourceFile, targetFile, true);
+                        copiedCount++;
+                    }
+                    catch (Exception ex)
+                    {
+                        log?.Invoke($"[配置备份] AOI工程文件备份失败：{Path.GetFileName(sourceFile)}，{ex.Message}");
+                    }
+                }
+
+                RemoveObsoleteProjectBackupFiles(targetDir, retainedRelativePaths, log);
+
+                if (copiedCount > 0)
+                {
+                    log?.Invoke($"[配置备份] 已同步{copiedCount}个AOI工程文件到：{targetDir}");
+                }
+            }
+            catch (Exception ex)
+            {
+                log?.Invoke($"[配置备份] AOI工程备份失败：{sourceDir}，{ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 准备现场配置备份根目录。该入口在系统配置和 AOI 工程快照前执行，确保恢复说明持续可用，并把时间戳系统配置快照限制在最近 30 份。
         /// </summary>
         /// <param name="backupRoot">exe 目录下的配置备份根目录。</param>
         /// <param name="log">诊断日志入口，用于记录恢复说明生成或历史目录清理失败。</param>
@@ -216,7 +331,7 @@ namespace BusbarCompressionSystem.Utils
         }
 
         /// <summary>
-        /// 在备份根目录生成现场恢复说明。该文件只指导维护人员恢复系统配置和 AOI 工程 XML，不参与程序加载、测量、判定或设备通信。
+        /// 在备份根目录生成现场恢复说明。该文件指导维护人员恢复系统配置和 AOI 工程快照，程序加载、测量、判定和设备通信保持原有入口。
         /// </summary>
         /// <param name="backupRoot">exe 目录下的配置备份根目录。</param>
         /// <param name="log">诊断日志入口，用于记录说明文件写入失败原因。</param>
@@ -225,12 +340,13 @@ namespace BusbarCompressionSystem.Utils
             const string content =
                 "配置备份与恢复说明\r\n" +
                 "\r\n" +
-                "1. 本目录由软件自动管理，保留最近30个 yyyyMMdd_HHmmss 时间戳目录。\r\n" +
-                "2. 系统配置位于时间戳目录的“系统配置”中；视觉工具配方位于“AOI工程_工程名”中。\r\n" +
-                "3. 正常生产时无需手工修改、移动或删除这些文件。\r\n" +
-                "4. 需要人工恢复时：先关闭软件，备份当前故障文件，再把选定时间戳中的 XML 复制回原“配置”或 AOI 工程目录。\r\n" +
-                "5. 正式 XML 旁的 .bak 是上一次保存版本，.lastgood 是最近一次校验通过版本，由软件自动恢复。\r\n" +
-                "6. 恢复后请核对当前工程、相机、PLC、MES、电测参数和点检配置，再恢复设备生产。\r\n";
+                "1. 本目录由软件自动管理。\r\n" +
+                "2. 系统配置位于 yyyyMMdd_HHmmss 时间戳目录的“系统配置”中，软件保留最近30个时间戳目录。\r\n" +
+                "3. AOI 工程位于固定目录“AOI工程_工程名”中，每个工程只保留一份完整快照（工具 XML、图片、模型和子目录）；配方实际变更并保存成功后才会覆盖。\r\n" +
+                "4. 正常生产时无需手工修改、移动或删除这些文件。\r\n" +
+                "5. 需要人工恢复时：先关闭软件，备份当前故障文件，再把对应目录中的文件复制回原“配置”或 AOI 工程目录。\r\n" +
+                "6. 配置 XML 的 .bak 和 .lastgood 集中位于“配置\\备份”目录，由软件自动恢复；AOI 工程主文件损坏时不会自动旁路回滚，需人工从本目录恢复。\r\n" +
+                "7. 恢复后请核对当前工程、相机、PLC、MES、电测参数和点检配置，再恢复设备生产。\r\n";
 
             try
             {
@@ -247,7 +363,7 @@ namespace BusbarCompressionSystem.Utils
         }
 
         /// <summary>
-        /// 清理超过保留上限的启动快照。仅识别 <c>yyyyMMdd_HHmmss</c> 时间戳目录；恢复说明和人工建立的其他目录保持原样。
+        /// 清理超过保留上限的系统配置时间戳快照。仅识别 <c>yyyyMMdd_HHmmss</c> 目录；AOI 工程固定目录、恢复说明和人工目录保持原样。
         /// </summary>
         /// <param name="backupRoot">exe 目录下的配置备份根目录。</param>
         /// <param name="log">诊断日志入口，用于记录被清理目录和单个目录删除失败原因。</param>
@@ -302,27 +418,131 @@ namespace BusbarCompressionSystem.Utils
         }
 
         /// <summary>
-        /// 判断主文件或任一备份文件是否曾经存在。该判断用于区分首装无文件和已有文件损坏两类现场状态。
+        /// 判断主文件或配置集中恢复副本是否曾经存在。该判断用于区分首装无文件和已有文件损坏两类现场状态。
         /// </summary>
         /// <param name="filename">主 XML 文件完整路径。</param>
-        /// <returns>返回 true 表示主文件、<c>.bak</c> 或 <c>.lastgood</c> 中至少存在一个。</returns>
+        /// <returns>返回 true 表示主文件或配置恢复副本中至少存在一个。</returns>
         private static bool HasAnyPersistedFile(string filename)
         {
-            return File.Exists(filename)
-                || File.Exists(filename + BackupExtension)
-                || File.Exists(filename + LastGoodExtension);
+            return GetLoadCandidates(filename).Any(File.Exists);
         }
 
         /// <summary>
-        /// 返回同一配置文件的恢复候选顺序。主文件优先保证现场最新设置生效，备份文件用于文件损坏后的自动恢复。
+        /// 返回同一文件的恢复候选顺序。系统配置优先主文件，其次“配置\备份”中的恢复副本；AOI 工具只使用工程内主文件。
         /// </summary>
         /// <param name="filename">主 XML 文件完整路径。</param>
         /// <returns>按加载优先级排列的候选文件路径。</returns>
         private static IEnumerable<string> GetLoadCandidates(string filename)
         {
             yield return filename;
-            yield return filename + BackupExtension;
-            yield return filename + LastGoodExtension;
+
+            if (IsConfigurationFile(filename))
+            {
+                yield return GetRecoveryFilePath(filename, BackupExtension);
+                yield return GetRecoveryFilePath(filename, LastGoodExtension);
+            }
+        }
+
+        /// <summary>
+        /// 判断目标 XML 是否属于 exe 目录下的正式“配置”目录。该边界决定恢复副本进入“配置\备份”，AOI 工程不走自动旁路恢复。
+        /// </summary>
+        /// <param name="filename">待分类的 XML 完整路径。</param>
+        /// <returns>文件直属目录名为“配置”时返回 <c>true</c>。</returns>
+        private static bool IsConfigurationFile(string filename)
+        {
+            string directory = Path.GetDirectoryName(filename);
+            return !string.IsNullOrWhiteSpace(directory)
+                && string.Equals(new DirectoryInfo(directory).Name, "配置", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// 获取配置 XML 在集中恢复目录中的副本路径。文件名保留正式 XML 名称和恢复扩展名，便于现场按名称配对。
+        /// </summary>
+        /// <param name="filename">正式配置 XML 完整路径。</param>
+        /// <param name="extension"><c>.bak</c> 或 <c>.lastgood</c> 恢复扩展名。</param>
+        /// <returns>位于“配置\备份”目录中的恢复文件完整路径。</returns>
+        private static string GetRecoveryFilePath(string filename, string extension)
+        {
+            string directory = Path.GetDirectoryName(filename) ?? string.Empty;
+            return Path.Combine(directory, RecoveryDirectoryName, Path.GetFileName(filename) + extension);
+        }
+
+        /// <summary>
+        /// 判断 AOI 工程快照是否需要刷新。备份目录缺失、文件数量不一致或任一文件内容不同时返回 <c>true</c>。
+        /// </summary>
+        /// <param name="sourceDir">当前 AOI 工程绝对目录。</param>
+        /// <param name="targetDir">该工程对应的固定备份目录。</param>
+        /// <param name="sourceFiles">工程内待比对的全部文件。</param>
+        /// <returns>需要覆盖备份时返回 <c>true</c>。</returns>
+        private static bool ProjectBackupNeedsRefresh(string sourceDir, string targetDir, string[] sourceFiles)
+        {
+            if (!Directory.Exists(targetDir))
+            {
+                return true;
+            }
+
+            string[] backupFiles = Directory.GetFiles(targetDir, "*", SearchOption.AllDirectories);
+            if (backupFiles.Length != sourceFiles.Length)
+            {
+                return true;
+            }
+
+            var backupRelativePaths = new HashSet<string>(
+                backupFiles.Select(file => GetRelativePath(targetDir, file)),
+                StringComparer.OrdinalIgnoreCase);
+
+            foreach (string sourceFile in sourceFiles)
+            {
+                string relativePath = GetRelativePath(sourceDir, sourceFile);
+                if (!backupRelativePaths.Contains(relativePath))
+                {
+                    return true;
+                }
+
+                string targetFile = Path.Combine(targetDir, relativePath);
+                if (!FilesHaveSameContent(sourceFile, targetFile))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// 删除工程快照中已不存在于正式工程的陈旧文件，使备份目录与当前配方目录保持一致。
+        /// </summary>
+        /// <param name="targetDir">该工程对应的固定备份目录。</param>
+        /// <param name="retainedRelativePaths">本轮正式工程中应保留的相对路径集合。</param>
+        /// <param name="log">现场诊断日志入口。</param>
+        private static void RemoveObsoleteProjectBackupFiles(
+            string targetDir,
+            HashSet<string> retainedRelativePaths,
+            Action<string> log)
+        {
+            if (!Directory.Exists(targetDir))
+            {
+                return;
+            }
+
+            foreach (string backupFile in Directory.GetFiles(targetDir, "*", SearchOption.AllDirectories))
+            {
+                string relativePath = GetRelativePath(targetDir, backupFile);
+                if (retainedRelativePaths.Contains(relativePath))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    File.Delete(backupFile);
+                    log?.Invoke($"[配置备份] 已移除陈旧AOI工程备份文件：{relativePath}");
+                }
+                catch (Exception ex)
+                {
+                    log?.Invoke($"[配置备份] 陈旧AOI工程备份文件删除失败：{relativePath}，{ex.Message}");
+                }
+            }
         }
 
         /// <summary>
@@ -363,19 +583,21 @@ namespace BusbarCompressionSystem.Utils
         }
 
         /// <summary>
-        /// 将 XML 写入临时文件并完成可读性校验，再替换正式文件。正式文件替换前会保存为 <c>.bak</c>，替换成功后刷新 <c>.lastgood</c>。
+        /// 将 XML 写入临时文件并完成可读性校验，再替换正式文件。配置 XML 刷新集中恢复副本，AOI 工具 XML 不维护旁路恢复文件。
         /// </summary>
         /// <typeparam name="T">XML 根节点对应的数据模型类型。</typeparam>
         /// <param name="filename">主 XML 文件完整路径。</param>
         /// <param name="data">准备写入的数据对象。</param>
+        /// <param name="maintainRecoveryCopies">配置 XML 为 <c>true</c>；AOI 工具 XML 为 <c>false</c>。</param>
         /// <param name="log">诊断日志入口，备份副本刷新失败时记录原因。</param>
-        private static void SaveValidatedXml<T>(string filename, T data, Action<string> log) where T : class
+        private static void SaveValidatedXml<T>(string filename, T data, bool maintainRecoveryCopies, Action<string> log) where T : class
         {
             EnsureDirectory(filename);
 
             string tempFile = filename + ".tmp";
-            string backupFile = filename + BackupExtension;
-            string lastGoodFile = filename + LastGoodExtension;
+            string backupFile = maintainRecoveryCopies ? GetRecoveryFilePath(filename, BackupExtension) : null;
+            string lastGoodFile = maintainRecoveryCopies ? GetRecoveryFilePath(filename, LastGoodExtension) : null;
+            string logPrefix = maintainRecoveryCopies ? "[配置保存]" : "[AOI工程保存]";
 
             try
             {
@@ -393,9 +615,23 @@ namespace BusbarCompressionSystem.Utils
                     throw new InvalidOperationException("临时文件校验失败");
                 }
 
+                if (File.Exists(filename) && FilesHaveSameContent(tempFile, filename))
+                {
+                    if (maintainRecoveryCopies)
+                    {
+                        TryCopyFile(filename, lastGoodFile, log);
+                    }
+
+                    log?.Invoke($"{logPrefix} 内容未变化，跳过替换：{Path.GetFileName(filename)}");
+                    return;
+                }
+
                 if (File.Exists(filename))
                 {
-                    TryCopyFile(filename, backupFile, log);
+                    if (maintainRecoveryCopies)
+                    {
+                        TryCopyFile(filename, backupFile, log);
+                    }
                     ReplaceExistingFile(tempFile, filename);
                 }
                 else
@@ -403,7 +639,10 @@ namespace BusbarCompressionSystem.Utils
                     File.Move(tempFile, filename);
                 }
 
-                TryCopyFile(filename, lastGoodFile, log);
+                if (maintainRecoveryCopies)
+                {
+                    TryCopyFile(filename, lastGoodFile, log);
+                }
             }
             finally
             {
@@ -421,6 +660,11 @@ namespace BusbarCompressionSystem.Utils
         {
             try
             {
+                if (File.Exists(destinationFile) && FilesHaveSameContent(sourceFile, destinationFile))
+                {
+                    return;
+                }
+
                 EnsureDirectory(destinationFile);
 
                 string tempCopy = destinationFile + ".copytmp";
@@ -442,6 +686,69 @@ namespace BusbarCompressionSystem.Utils
             {
                 TryDeleteFile(destinationFile + ".copytmp");
             }
+        }
+
+        /// <summary>
+        /// 按文件长度和字节内容判断两个落盘文件是否一致。保存入口据此跳过重复替换，降低关闭保存和权限回收自动保存产生的磁盘写入。
+        /// </summary>
+        /// <param name="firstFile">已序列化临时文件或来源文件。</param>
+        /// <param name="secondFile">正式文件或恢复副本。</param>
+        /// <returns>两个文件均存在且字节内容完全一致时返回 <c>true</c>。</returns>
+        private static bool FilesHaveSameContent(string firstFile, string secondFile)
+        {
+            var firstInfo = new FileInfo(firstFile);
+            var secondInfo = new FileInfo(secondFile);
+            if (!firstInfo.Exists || !secondInfo.Exists || firstInfo.Length != secondInfo.Length)
+            {
+                return false;
+            }
+
+            const int bufferSize = 81920;
+            byte[] firstBuffer = new byte[bufferSize];
+            byte[] secondBuffer = new byte[bufferSize];
+            using (var firstStream = new FileStream(firstFile, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize))
+            using (var secondStream = new FileStream(secondFile, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize))
+            {
+                int firstRead;
+                while ((firstRead = firstStream.Read(firstBuffer, 0, firstBuffer.Length)) > 0)
+                {
+                    int secondRead = secondStream.Read(secondBuffer, 0, secondBuffer.Length);
+                    if (firstRead != secondRead)
+                    {
+                        return false;
+                    }
+
+                    for (int i = 0; i < firstRead; i++)
+                    {
+                        if (firstBuffer[i] != secondBuffer[i])
+                        {
+                            return false;
+                        }
+                    }
+                }
+
+                return secondStream.ReadByte() == -1;
+            }
+        }
+
+        /// <summary>
+        /// 获取 AOI 工程文件相对于工程根目录的路径。完整快照据此保留图片、模型和其他业务子目录结构。
+        /// </summary>
+        /// <param name="rootDirectory">当前 AOI 工程根目录。</param>
+        /// <param name="filename">工程内待备份文件完整路径。</param>
+        /// <returns>工程根目录内的相对路径；路径超出根目录时返回文件名作为保护性回退。</returns>
+        private static string GetRelativePath(string rootDirectory, string filename)
+        {
+            string normalizedRoot = Path.GetFullPath(rootDirectory)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                + Path.DirectorySeparatorChar;
+            string normalizedFile = Path.GetFullPath(filename);
+            if (normalizedFile.StartsWith(normalizedRoot, StringComparison.OrdinalIgnoreCase))
+            {
+                return normalizedFile.Substring(normalizedRoot.Length);
+            }
+
+            return Path.GetFileName(filename);
         }
 
         /// <summary>
@@ -487,7 +794,7 @@ namespace BusbarCompressionSystem.Utils
         }
 
         /// <summary>
-        /// 替换已存在的正式文件，并把替换过程产生的系统备份限制在临时文件名内。业务备份由 <c>.bak</c> 和 <c>.lastgood</c> 承担。
+        /// 替换已存在的正式文件，并把替换过程产生的系统备份限制在临时文件名内。配置恢复由“配置\备份”承担，AOI 工程恢复由固定工程快照承担。
         /// </summary>
         /// <param name="sourceFile">已校验的临时来源文件。</param>
         /// <param name="destinationFile">待替换的正式文件。</param>

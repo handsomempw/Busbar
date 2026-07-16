@@ -228,7 +228,8 @@ namespace BusbarCompressionSystem.ViewModel
 
         /// <summary>
         /// 从当前 AOI 工程目录读取 <c>Tool*.xml</c> 构建工具列表，同时加载对应的示教图像缩略图显示。
-        /// 工具 XML 读取失败时优先从同名备份恢复；无法恢复的工具会标记本轮工程保存保护，避免关闭软件时压缩工具顺序并覆盖现场配方。
+        /// 工具 XML 只读取工程内主文件；保存成功后维护的单份工程快照供人工整批恢复 XML、图片和模型。
+        /// 任一工具无法加载时标记本轮工程保存保护，避免关闭软件时压缩工具顺序并覆盖现场配方。
         /// </summary>
         public void LoadPrjXmls()
         {
@@ -341,10 +342,10 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
-        /// 读取指定序号的 AOI 工具 XML。该方法用于工程打开阶段，负责把主文件、<c>.bak</c> 和 <c>.lastgood</c> 中可用的工具配置恢复到内存。
+        /// 读取指定序号的 AOI 工具 XML。该方法用于工程打开阶段，仅加载工程目录内的主文件。
         /// </summary>
         /// <param name="index">工具在工程目录中的文件序号；1 表示 <c>Tool1.xml</c>。</param>
-        /// <returns>返回可用于界面和检测流程的工具配置；文件缺失或无法恢复时返回 <c>null</c>。</returns>
+        /// <returns>返回可用于界面和检测流程的工具配置；文件缺失或无法反序列化时返回 <c>null</c>。</returns>
         private ToolModel LoadPrjXml(int index)
         {
             string dir = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}";
@@ -355,14 +356,10 @@ namespace BusbarCompressionSystem.ViewModel
                 () => null,
                 message => writeLog(message));
 
-            if (result.RestoredFromBackup)
-            {
-                writeLog($"[AOI工程加载] Tool{index}.xml已从备份恢复：{Path.GetFileName(result.RestoredFrom)}");
-            }
-            else if (result.LoadFailed)
+            if (result.LoadFailed)
             {
                 _aoiProjectLoadFailed = true;
-                writeLog($"[AOI工程加载] Tool{index}.xml损坏且无法从备份恢复，工程保存已保护");
+                writeLog($"[AOI工程加载] Tool{index}.xml损坏或无法读取，工程保存已保护");
             }
 
             return result.Data;
@@ -392,7 +389,8 @@ namespace BusbarCompressionSystem.ViewModel
 
         /// <summary>
         /// 保存当前 AOI 工程的工具 XML，并在授权会话内按参数差异审计口径记录变更。
-        /// 工具 XML 采用临时文件校验、正式文件替换和同名备份保留；工程加载存在无法恢复的工具时返回失败，保留现场上一版配方文件。
+        /// 工具 XML 采用临时文件校验和正式文件原子替换；保存成功后按工程名维护一份完整快照供人工恢复。
+        /// 工程加载存在无法读取的工具时返回失败，保留现场工程文件和参数审计上下文。
         /// </summary>
         /// <returns>全部工具 XML 保存完成返回 <c>true</c>；目录、序列化、文件替换或审计流程抛出异常时返回 <c>false</c>。</returns>
         public bool SavePrjXmls()
@@ -401,7 +399,7 @@ namespace BusbarCompressionSystem.ViewModel
             {
                 if (_aoiProjectLoadFailed)
                 {
-                    writeLog("[AOI工程保存] 本轮加载存在无法恢复的Tool XML，已跳过保存以保留现场工程文件", true);
+                    writeLog("[AOI工程保存] 本轮加载存在无法读取的Tool XML，已跳过保存以保留现场工程文件", true);
                     return false;
                 }
 
@@ -467,6 +465,8 @@ namespace BusbarCompressionSystem.ViewModel
                     DataModel.FaraVisionDataModel.Processmodel.EditingToolSnapshot = CloneToolModelSnapshot(newTool);
                     DataModel.FaraVisionDataModel.Processmodel.EditingToolSnapshotTime = DateTime.Now;
                 }
+
+                BackupCurrentAoiProjectFilesAfterSave();
                 return true;
             }
             catch (Exception ex)
@@ -487,14 +487,15 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
-        /// 在当前 AOI 工程工具 XML 加载前备份工程目录下的 XML。该快照保留自动恢复前的现场配方样本，不参与检测流程和参数审计。
+        /// 在当前 AOI 工程配方保存成功后同步单份完整工程快照。工程内容无变化时跳过复制。
+        /// 备份流程不改变工程选择、模型初始化、检测执行、参数审计、相机取图或 PLC/MES 通信。
         /// </summary>
-        public void BackupCurrentAoiProjectXmlsBeforeLoad()
+        private void BackupCurrentAoiProjectFilesAfterSave()
         {
             string projectDir = GetCurrentProjectDirectory();
             string backupRoot = Path.Combine(Environment.CurrentDirectory, "配置备份");
             string categoryName = $"AOI工程_{DataModel.FaraVisionDataModel.Settingmodel.Name}";
-            ConfigXmlSaveHelper.BackupXmlFiles(projectDir, backupRoot, categoryName, message => writeLog(message));
+            ConfigXmlSaveHelper.BackupProjectFilesIfChanged(projectDir, backupRoot, categoryName, message => writeLog(message));
         }
 
         /// <summary>
@@ -938,14 +939,14 @@ namespace BusbarCompressionSystem.ViewModel
 
         /// <summary>
         /// 保存单个 AOI 工具 XML。
-        /// 文件先写入同目录临时文件，再替换正式 Tool XML；写入或替换失败时正式文件保留为上一次成功保存版本。
+        /// 文件先写入同目录临时文件并校验，再原子替换正式 Tool XML；保存成功后的单份工程快照承担整批人工恢复。
         /// </summary>
         /// <param name="td">当前工程内待持久化的工具模型，内容会写入对应的 Tool XML。</param>
         /// <param name="index">工具文件序号；1 表示 <c>Tool1.xml</c>，与界面工具顺序一致。</param>
         private void SavePrjXml(ToolModel td, int index)
         {
             string filename = $"{GetCurrentProjectDirectory()}\\Tool{index}.xml";
-            if (!SaveXmlSafely(filename, td))
+            if (!SaveProjectXmlSafely(filename, td, _aoiProjectLoadFailed))
             {
                 throw new IOException($"Tool{index}.xml保存失败");
             }

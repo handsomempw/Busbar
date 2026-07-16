@@ -68,9 +68,9 @@
                             <DropShadowEffect BlurRadius="100" Opacity="0.75"/>
                         </Image.Effect>
                     </Image>
-                    <Rectangle x:Name="RectangleBarcode"   Visibility="{Binding TestMode,Converter={StaticResource TestMode2Visibility_Barcode}}" StrokeThickness="2"    Stroke="OrangeRed" Canvas.Left="10" Canvas.Right="10" Width="50" Height="50"    HorizontalAlignment="Left" VerticalAlignment="Top"></Rectangle>
-                    <Rectangle x:Name="RectanglePosition" Visibility="{Binding TestMode,Converter={StaticResource TestMode2Visibility_ShapeMatch}}"  StrokeThickness="2"   Stroke="Orange" Canvas.Left="10" Canvas.Right="10" Width="50" Height="50"    HorizontalAlignment="Left" VerticalAlignment="Top"></Rectangle>
-                    <Rectangle x:Name="RectangleDimension" Visibility="{Binding TestMode,Converter={StaticResource TestMode2Visibility_Dimension}}"   StrokeThickness="2"   Stroke="Orange" Canvas.Left="10" Canvas.Right="10" Width="50" Height="50"    HorizontalAlignment="Left" VerticalAlignment="Top"></Rectangle>
+                    <Rectangle x:Name="RectangleBarcode"   Visibility="{Binding TestMode,Converter={StaticResource TestMode2Visibility_Barcode}}" StrokeThickness="2"    Stroke="OrangeRed" Margin="10,10" Width="50" Height="50"    HorizontalAlignment="Left" VerticalAlignment="Top"></Rectangle>
+                    <Rectangle x:Name="RectanglePosition" Visibility="{Binding TestMode,Converter={StaticResource TestMode2Visibility_ShapeMatch}}"  StrokeThickness="2"   Stroke="Orange" Margin="10,10" Width="50" Height="50"    HorizontalAlignment="Left" VerticalAlignment="Top"></Rectangle>
+                    <Rectangle x:Name="RectangleDimension" Visibility="{Binding TestMode,Converter={StaticResource TestMode2Visibility_Dimension}}"   StrokeThickness="2"   Stroke="Orange" Margin="10,10" Width="50" Height="50"    HorizontalAlignment="Left" VerticalAlignment="Top"></Rectangle>
 
                     <!-- 尺寸测量工具的两个测量对象ROI（矩形，已废弃） -->
                     <Rectangle x:Name="RectangleMeasureObject1" Visibility="Collapsed" StrokeThickness="2" Stroke="Lime" Canvas.Left="10" Canvas.Right="10" Width="50" Height="50" HorizontalAlignment="Left" VerticalAlignment="Top"></Rectangle>
