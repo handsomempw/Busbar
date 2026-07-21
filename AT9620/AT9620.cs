@@ -95,6 +95,43 @@ namespace AT9620
         /// <summary>参数下发进行中拒绝重复下发时返回给上层的固定说明。</summary>
         public const string ErrorDownloadBlockedByDownload = "参数正在下发，已拒绝重复下发";
 
+        /// <summary>
+        /// Fetch 轮询中，状态字段连续无法识别时结束测试所需的次数。
+        /// 代码内固定阈值，不写入耐压仪通信参数 XML。
+        /// 达到该次数后按通信异常结束：Error 写通信说明，不把乱码原文当作仪器判定结论；
+        /// 未达次数前继续轮询，过程态与已知结束态仍立即采信。
+        /// </summary>
+        public const int UnknownStatusConfirmCount = 3;
+
+        /// <summary>
+        /// AT9620 测试过程中的阶段状态白名单。
+        /// 仅这三类表示耐压仍在执行；命中后继续轮询，并清零状态可疑连续计数。
+        /// </summary>
+        private static readonly HashSet<string> KnownProcessStatuses = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "Ramp Up",
+            "Dwell",
+            "Ramp Down"
+        };
+
+        /// <summary>
+        /// AT9620 已知结束状态白名单（与上位机 TvStatusTranslator 映射表口径一致）。
+        /// 命中后立即结束测试：PASS 记合格，其余记仪器不合格原因；不参与状态可疑连续确认。
+        /// </summary>
+        private static readonly HashSet<string> KnownTerminalStatuses = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "PASS",
+            "SHORT",
+            "ARC",
+            "GFI",
+            "BREAKDOWN",
+            "ERROR",
+            "OV",
+            "UPPER",
+            "LOWER",
+            "RISELOW"
+        };
+
         private enum InstrumentSessionState
         {
             Idle,
@@ -470,10 +507,25 @@ namespace AT9620
         }
 
         /// <summary>
-        /// 执行耐压测试的核心方法
-        /// 这是电测系统的核心执行逻辑，负责启动测试、实时监控测试过程、判断测试结果
+        /// 执行耐压测试：向 AT9620 发启动命令，轮询 Fetch 过程数据，并按状态口径给出本机测试结论。
+        ///
+        /// 业务场景：
+        /// - 上层工位流程在参数下发成功后调用 Start/_Start，等待本方法返回后再做 PLC 回写与数据库落库。
+        ///
+        /// 核心口径：
+        /// - 过程态（Ramp Up / Dwell / Ramp Down）继续轮询。
+        /// - 已知结束态（PASS / SHORT / ARC 等）立即结束；PASS 为合格，其余为仪器不合格原因。
+        /// - 状态字段可解析但不在上述白名单时，按不可信状态处理：连续达到
+        ///   <see cref="UnknownStatusConfirmCount"/> 次后以通信异常结束，避免偶发乱码被写成仪器 NG。
+        /// - 超时仍按理论总时长 +2s 兜底。
+        /// - 通信异常与超时属上位机单方面收工：退出前先发 FUNCtion:STOP，避免仅断 TCP 后仪器仍加压、
+        ///   而 PLC 已按流程完成推进下一件。已知结束态由仪器自行收束，不再重复 STOP。
+        /// - 本方法不写 PLC、不落库。
         /// </summary>
-        /// <returns>Result对象，包含测试结果和详细的错误信息或过程数据</returns>
+        /// <returns>
+        /// 本机测试结论：Success 表示仪器判定 PASS；
+        /// Error 为仪器不合格原因、通信异常说明或超时说明；Recordstr 为过程原始串。
+        /// </returns>
         public Result _Start()
         {
             // 初始化返回结果对象
@@ -533,11 +585,13 @@ namespace AT9620
             // 初始化停止标志
             stop = false;
 
-            // 用于「阶段变化时记录仪器原文」：与上一次成功解析的阶段比较
+            // 用于「阶段变化时记录仪器原文」：与上一次成功解析的可信阶段比较
             string lastStatusForRawCapture = null;
-            // 最近一次成功解析的阶段（用于超时/异常时的说明）
+            // 最近一次成功解析的可信阶段（过程态或已知结束态；用于超时/异常时的说明）
             string lastSuccessParsedStatus = null;
             int successPollCount = 0;
+            // 连续收到“格式可解析但状态字段不可信”的次数；过程态/已知结束态/采样失败会清零
+            int unknownStatusStreak = 0;
             float lastSampleV = 0, lastSampleI = 0, lastSampleT = 0;
             string lastSampleStatus = null;
             double lastSampleElapsedPc = 0;
@@ -547,6 +601,51 @@ namespace AT9620
                 if (successPollCount > 1)
                 {
                     Diag($"【采样-末条】阶段={lastSampleStatus}，电压={lastSampleV}，电流={lastSampleI}，仪器时间={lastSampleT}s，PC已耗时={lastSampleElapsedPc:F2}s");
+                }
+            }
+
+            void RecordTrustedSample(string st, float v, float cur, float instrT, double elapsedPc)
+            {
+                // 仅记录过程态/已知结束态采样，供阶段变化诊断与超时说明；未知状态不进入此路径
+                lastSuccessParsedStatus = st;
+                successPollCount++;
+                if (successPollCount == 1)
+                {
+                    Diag($"【采样-首条】阶段={st}，电压={v}，电流={cur}，仪器时间={instrT}s，PC已耗时={elapsedPc:F2}s");
+                }
+
+                if (st != lastStatusForRawCapture)
+                {
+                    if (lastStatusForRawCapture != null)
+                    {
+                        Diag($"【阶段变化】{lastStatusForRawCapture}→{st}，电压={v}，电流={cur}，仪器时间={instrT}s，PC已耗时={elapsedPc:F2}s");
+                    }
+                    if (!string.IsNullOrEmpty(LastFetchRaw))
+                    {
+                        Diag($"【仪器原文（阶段变化时记录）】{LastFetchRaw}");
+                    }
+                    lastStatusForRawCapture = st;
+                }
+
+                lastSampleV = v;
+                lastSampleI = cur;
+                lastSampleT = instrT;
+                lastSampleStatus = st;
+                lastSampleElapsedPc = elapsedPc;
+            }
+
+            // 上位机异常收工前先停仪：仪器可能仍在 Dwell 加高压，仅断 TCP 不会停止输出；
+            // PLC 随后会按本方法返回推进下一件，必须先发 STOP 再退出监控。
+            void StopInstrumentBeforeAbnormalExit(string exitReason)
+            {
+                var stopResult = Send("FUNCtion:STOP\n");
+                if (stopResult.Success)
+                {
+                    Diag($"【异常收工停仪】原因={exitReason}，已发送 FUNCtion:STOP");
+                }
+                else
+                {
+                    Diag($"【异常收工停仪】原因={exitReason}，FUNCtion:STOP 发送失败：{stopResult.Error ?? "未知"}");
                 }
             }
 
@@ -568,36 +667,10 @@ namespace AT9620
                     if (resultTVProcess.Success)
                     {
                         var st = resultTVProcess.Value.status;
-                        lastSuccessParsedStatus = st;
                         double elapsedPc = (DateTime.Now - dt).TotalSeconds;
                         var v = resultTVProcess.Value.Voltage;
                         var cur = resultTVProcess.Value.Current;
                         var instrT = resultTVProcess.Value.Time;
-
-                        successPollCount++;
-                        if (successPollCount == 1)
-                        {
-                            Diag($"【采样-首条】阶段={st}，电压={v}，电流={cur}，仪器时间={instrT}s，PC已耗时={elapsedPc:F2}s");
-                        }
-
-                        if (st != lastStatusForRawCapture)
-                        {
-                            if (lastStatusForRawCapture != null)
-                            {
-                                Diag($"【阶段变化】{lastStatusForRawCapture}→{st}，电压={v}，电流={cur}，仪器时间={instrT}s，PC已耗时={elapsedPc:F2}s");
-                            }
-                            if (!string.IsNullOrEmpty(LastFetchRaw))
-                            {
-                                Diag($"【仪器原文（阶段变化时记录）】{LastFetchRaw}");
-                            }
-                            lastStatusForRawCapture = st;
-                        }
-
-                        lastSampleV = v;
-                        lastSampleI = cur;
-                        lastSampleT = instrT;
-                        lastSampleStatus = st;
-                        lastSampleElapsedPc = elapsedPc;
 
                         // 触发数据接收事件，通知上层应用更新界面显示
                         DataReceived.Invoke(this, new AT9620EventArgs()
@@ -605,35 +678,57 @@ namespace AT9620
                             ResultTVProcess = resultTVProcess
                         });
 
-                        // 核心状态判断逻辑
-                        // AT9620设备在测试的不同阶段会返回不同的状态字符串：
-                        // "Ramp Up" - 电压上升阶段
-                        // "Dwell" - 电压保持阶段
-                        // "Ramp Down" - 电压下降阶段
-                        // "PASS" - 测试通过
-                        // 其他状态 - 测试失败（如"上升不良"、"电流超限"等）
-                        if (resultTVProcess.Value.status != "Dwell" &&
-                            resultTVProcess.Value.status != "Ramp Up" &&
-                            resultTVProcess.Value.status != "Ramp Down")
+                        // 状态判定业务口径（影响本方法返回的 Success/Error，不影响 PLC/落库）：
+                        // 1) 过程态——耐压仍在执行，清零可疑计数后继续轮询
+                        // 2) 已知结束态——立即结束；PASS 合格，其余按仪器原因 NG
+                        // 3) 未知状态——状态字段不可信（现场常见于干扰乱码如 Dwgll、?well）：
+                        //    不立刻结束；连续 UnknownStatusConfirmCount 次仍不可信时按通信异常结束；
+                        //    超时兜底仍由下方 totaltime+2s 负责
+                        if (IsProcessStatus(st))
                         {
-                            // 收到非过程状态，表示测试已结束
-                            if (resultTVProcess.Value.status == "PASS")
+                            unknownStatusStreak = 0;
+                            RecordTrustedSample(st, v, cur, instrT, elapsedPc);
+                        }
+                        else if (IsKnownTerminalStatus(st))
+                        {
+                            unknownStatusStreak = 0;
+                            RecordTrustedSample(st, v, cur, instrT, elapsedPc);
+
+                            if (string.Equals(st, "PASS", StringComparison.OrdinalIgnoreCase))
                             {
-                                r.Success = true; // 测试通过
+                                r.Success = true;
                                 Diag("【结束】仪器返回结束状态 PASS");
                             }
                             else
                             {
-                                // 测试失败，记录具体的失败原因
-                                r.Error = resultTVProcess.Value.status;
-                                Diag($"【结束】仪器返回结束状态：{resultTVProcess.Value.status}");
+                                r.Error = st;
+                                Diag($"【结束】仪器返回结束状态：{st}");
                             }
                             TryDiagLastSample();
-                            break; // 退出监控循环
+                            break;
+                        }
+                        else
+                        {
+                            unknownStatusStreak++;
+                            string rawPart = string.IsNullOrEmpty(LastFetchRaw) ? "(空)" : LastFetchRaw;
+                            string phaseRef = lastSuccessParsedStatus ?? "尚无成功解析";
+                            Diag($"【状态可疑-忽略】原文状态={st}，连续可疑次数={unknownStatusStreak}/{UnknownStatusConfirmCount}，同一测试内参考阶段={phaseRef}，仪器原文={rawPart}，PC已耗时={elapsedPc:F2}s");
+
+                            if (unknownStatusStreak >= UnknownStatusConfirmCount)
+                            {
+                                r.Error = $"通信异常：状态字段连续{UnknownStatusConfirmCount}次无法识别（末次={st}）";
+                                Diag($"【结束】{r.Error}");
+                                TryDiagLastSample();
+                                // 通信异常时仪器未必已出结束态，可能仍在加压；先 STOP 再断链，避免 PLC 收工后高压残留
+                                StopInstrumentBeforeAbnormalExit(r.Error);
+                                break;
+                            }
                         }
                     }
                     else
                     {
+                        // 采样失败（超时/空包等）与“状态字段可疑”分属不同路径：中断连续可疑计数，避免与空包混算
+                        unknownStatusStreak = 0;
                         double failElapsedPc = (DateTime.Now - dt).TotalSeconds;
                         string rawPart = string.IsNullOrEmpty(LastFetchRaw) ? "(空)" : LastFetchRaw;
                         string phaseRef = lastSuccessParsedStatus ?? "尚无成功解析";
@@ -654,6 +749,8 @@ namespace AT9620
                         r.Error = "测试超时未完成";
                         Diag($"【结束】上位机判定超时（PC已耗时 > {totaltime + 2}s），最后成功解析阶段={lastSuccessParsedStatus ?? "无"}");
                         TryDiagLastSample();
+                        // 与通信异常同属上位机单方面收工：仪器可能仍在输出，先 STOP 再退出
+                        StopInstrumentBeforeAbnormalExit(r.Error);
                         break;
                     }
                 }
@@ -890,6 +987,32 @@ namespace AT9620
 
             }
             return ResultTVProcess;
+        }
+
+        /// <summary>
+        /// 判断 Fetch 返回的状态是否为测试过程阶段。
+        /// 过程阶段表示耐压仍在执行，监控循环继续轮询，不进入结束判定。
+        /// </summary>
+        /// <param name="status">
+        /// 仪器 Fetch 应答第 3 段状态原文；来自 GetProcess 解析结果，本方法不修改该值。
+        /// </param>
+        /// <returns>属于 Ramp Up / Dwell / Ramp Down 时返回 true，表示测试未结束。</returns>
+        private static bool IsProcessStatus(string status)
+        {
+            return !string.IsNullOrEmpty(status) && KnownProcessStatuses.Contains(status);
+        }
+
+        /// <summary>
+        /// 判断 Fetch 返回的状态是否为仪器已知结束结论。
+        /// 已知结束结论可立即采信写入本方法返回值；不进入状态可疑连续确认。
+        /// </summary>
+        /// <param name="status">
+        /// 仪器 Fetch 应答第 3 段状态原文；与 TvStatusTranslator 已知码表对齐，比较时忽略大小写。
+        /// </param>
+        /// <returns>属于 PASS / SHORT / ARC 等已知结束码时返回 true，表示可立即结束测试。</returns>
+        private static bool IsKnownTerminalStatus(string status)
+        {
+            return !string.IsNullOrEmpty(status) && KnownTerminalStatuses.Contains(status);
         }
 
 
