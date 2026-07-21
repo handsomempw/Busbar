@@ -146,7 +146,7 @@ namespace BusbarCompressionSystem.ViewModel
         /// 6. 将SN和工单号写入PLC
         /// 7. 在本地数据库创建生产记录
         /// 业务逻辑：
-        /// 1. 点检SN码（INSPECTION_TV_OK/NG, INSPECTION_AOI_OK/NG）：保留点检旁路，直接创建本地记录
+        /// 1. 点检SN码（耐压、IR、AOI 的 OK/NG 标准件）：保留点检旁路，从 MES 取得工单和料号后创建本地记录
         /// 2. 普通SN码：调用MES解析获取产品信息，校验参数批号和规格一致性后创建本地记录
         /// </remarks>
         public string _ScanSN(string snstr)
@@ -157,6 +157,349 @@ namespace BusbarCompressionSystem.ViewModel
             }
 
             return ProcessScanSnToPlc(snstr, DataModel.Settingmodel.AddressSN, 1, false, false, "扫码");
+        }
+
+        /// <summary>
+        /// 保存一次点检扫码经 MES 确认的工单、料号和本轮 IR 实测结果。
+        /// 固定点检 SN 每次扫码都会覆盖同一键值，使 CHECK 只消费当前标准件的测试结果。
+        /// </summary>
+        private sealed class InspectionRunContext
+        {
+            /// <summary>本次点检扫码对应的 MES 工单号。</summary>
+            public string WorkOrderCode { get; set; }
+
+            /// <summary>本次点检扫码对应的 MES 料号。</summary>
+            public string PartNoId { get; set; }
+
+            /// <summary>本轮 IR 仪器实测结果；null 表示本轮测试尚未完成。</summary>
+            public bool? IrActualOk { get; set; }
+
+            /// <summary>本轮 IR 测试读取的接触电阻，单位沿用 PLC 当前标定。</summary>
+            public float ContactResistance { get; set; }
+
+            /// <summary>本轮 IR 仪器返回的绝缘电阻，单位沿用 AT6835FL 参数配置。</summary>
+            public float IrResistance { get; set; }
+
+            /// <summary>本轮 IR 仪器返回的漏电流，单位沿用 AT6835FL 参数配置。</summary>
+            public float IrLeakCurrent { get; set; }
+
+            /// <summary>带 [IR] 前缀的本轮仪器状态，用于 SQLite 与 MES 识别电测类型。</summary>
+            public string IrInfo { get; set; }
+
+            /// <summary>本轮 IR 测试使用的仪表编号。</summary>
+            public string IrMeterId { get; set; }
+
+            /// <summary>本轮 IR 过程行已经写入 SQLite 时为 true，供 CHECK 日志呈现本地追溯状态。</summary>
+            public bool IrProcessRowSaved { get; set; }
+        }
+
+        /// <summary>
+        /// 保护点检扫码上下文的跨线程读写。
+        /// 扫码、IR 测试和机器人 CHECK 分别运行在设备事件线程，锁仅覆盖内存字段访问。
+        /// </summary>
+        private readonly object _inspectionRunContextSync = new object();
+
+        /// <summary>
+        /// 按点检 SN 保存最近一次扫码上下文。
+        /// 配置最多包含耐压、IR、AOI 六个固定码，字典规模保持稳定。
+        /// </summary>
+        private readonly Dictionary<string, InspectionRunContext> _inspectionRunContexts =
+            new Dictionary<string, InspectionRunContext>(StringComparer.Ordinal);
+
+        /// <summary>
+        /// 建立本次点检扫码上下文，并清空同一固定 SN 的上一轮 IR 结果。
+        /// </summary>
+        /// <param name="sn">已识别并归一化的点检 SN。</param>
+        /// <param name="wocode">MES 返回的点检工单号。</param>
+        /// <param name="partnoid">MES 返回的点检料号。</param>
+        private void RememberInspectionRunContext(string sn, string wocode, string partnoid)
+        {
+            string normalizedSn = (sn ?? string.Empty).Trim();
+            if (string.IsNullOrEmpty(normalizedSn))
+            {
+                return;
+            }
+
+            lock (_inspectionRunContextSync)
+            {
+                _inspectionRunContexts[normalizedSn] = new InspectionRunContext
+                {
+                    WorkOrderCode = (wocode ?? string.Empty).Trim(),
+                    PartNoId = (partnoid ?? string.Empty).Trim(),
+                    IrActualOk = null,
+                    IrProcessRowSaved = false
+                };
+            }
+        }
+
+        /// <summary>
+        /// 取得点检扫码时由 MES 确认的料号，供 IR 落库和 CHECK 上传沿用同一产品上下文。
+        /// 内存上下文缺失时再次查询 MES；查询失败时返回空值，由设备流程按 NG 处理并保留诊断日志。
+        /// </summary>
+        /// <param name="sn">当前点检 SN。</param>
+        /// <param name="wocode">PLC 产品码携带的点检工单号。</param>
+        /// <param name="fallbackPartNoId">正常产品使用的当前生产料号；点检产品始终使用 MES 料号。</param>
+        /// <param name="stageTag">当前业务阶段，用于日志定位。</param>
+        /// <returns>本次点检使用的料号。</returns>
+        private string ResolveInspectionPartNo(string sn, string wocode, string fallbackPartNoId, string stageTag)
+        {
+            string fallback = (fallbackPartNoId ?? string.Empty).Trim();
+            if (!IsInspectionSn(sn))
+            {
+                return fallback;
+            }
+
+            string normalizedSn = (sn ?? string.Empty).Trim();
+            string normalizedWo = (wocode ?? string.Empty).Trim();
+            lock (_inspectionRunContextSync)
+            {
+                InspectionRunContext context;
+                if (_inspectionRunContexts.TryGetValue(normalizedSn, out context)
+                    && string.Equals(context.WorkOrderCode, normalizedWo, StringComparison.Ordinal)
+                    && !string.IsNullOrWhiteSpace(context.PartNoId))
+                {
+                    return context.PartNoId;
+                }
+            }
+
+            try
+            {
+                string mesPartNoId = MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.get_PartNO_ID(normalizedSn);
+                if (!string.IsNullOrWhiteSpace(mesPartNoId))
+                {
+                    mesPartNoId = mesPartNoId.Trim();
+                    RememberInspectionRunContext(normalizedSn, normalizedWo, mesPartNoId);
+                    writeLog($"[{stageTag}] 点检扫码上下文已通过MES恢复，SN={normalizedSn}, WO={normalizedWo}, PartNOID={mesPartNoId}");
+                    return mesPartNoId;
+                }
+            }
+            catch (Exception ex)
+            {
+                writeLog($"[{stageTag}] 点检料号恢复异常，SN={normalizedSn}, WO={normalizedWo}, 原因={ex.Message}", true);
+            }
+
+            writeLog($"[{stageTag}] 点检料号上下文缺失，SN={normalizedSn}, WO={normalizedWo}，已按点检数据不完整处理。", true);
+            return string.Empty;
+        }
+
+        /// <summary>
+        /// 保存本轮 IR 点检的仪器实测结果和 SQLite 落库状态。
+        /// 该结果与 D1015 使用同一布尔值，CHECK 据此生成机器人分流回执。
+        /// </summary>
+        /// <param name="sn">当前 IR 点检 SN。</param>
+        /// <param name="wocode">当前 IR 点检工单号。</param>
+        /// <param name="partnoid">扫码时由 MES 确认的点检料号。</param>
+        /// <param name="contactResistance">本轮 PLC 接触电阻。</param>
+        /// <param name="irResistance">本轮 IR 仪器绝缘电阻。</param>
+        /// <param name="irLeakCurrent">本轮 IR 仪器漏电流。</param>
+        /// <param name="irInfo">本轮带 [IR] 前缀的仪器状态。</param>
+        /// <param name="irMeterId">本轮 IR 仪表编号。</param>
+        /// <param name="actualOk">IR 仪器实测结果。</param>
+        /// <param name="processRowSaved">本轮 IR 过程行写入 SQLite 的结果。</param>
+        private void RememberIrInspectionResult(
+            string sn,
+            string wocode,
+            string partnoid,
+            float contactResistance,
+            float irResistance,
+            float irLeakCurrent,
+            string irInfo,
+            string irMeterId,
+            bool actualOk,
+            bool processRowSaved)
+        {
+            if (!IsIrInspectionSn(sn))
+            {
+                return;
+            }
+
+            string normalizedSn = (sn ?? string.Empty).Trim();
+            string normalizedWo = (wocode ?? string.Empty).Trim();
+            lock (_inspectionRunContextSync)
+            {
+                InspectionRunContext context;
+                if (!_inspectionRunContexts.TryGetValue(normalizedSn, out context)
+                    || !string.Equals(context.WorkOrderCode, normalizedWo, StringComparison.Ordinal))
+                {
+                    context = new InspectionRunContext
+                    {
+                        WorkOrderCode = normalizedWo,
+                        PartNoId = (partnoid ?? string.Empty).Trim()
+                    };
+                    _inspectionRunContexts[normalizedSn] = context;
+                }
+
+                context.IrActualOk = actualOk;
+                context.ContactResistance = contactResistance;
+                context.IrResistance = irResistance;
+                context.IrLeakCurrent = irLeakCurrent;
+                context.IrInfo = irInfo ?? string.Empty;
+                context.IrMeterId = irMeterId ?? string.Empty;
+                context.IrProcessRowSaved = processRowSaved;
+            }
+        }
+
+        /// <summary>
+        /// 读取本次扫码对应的 IR 测量快照，阻止固定点检 SN 复用上一轮缓存或 SQLite 历史结果。
+        /// </summary>
+        /// <param name="sn">当前 IR 点检 SN。</param>
+        /// <param name="wocode">当前 IR 点检工单号。</param>
+        /// <param name="resultContext">返回本轮 IR 结果和测量值的只读快照。</param>
+        /// <param name="currentRunKnown">返回是否存在与当前 SN、工单匹配的扫码上下文。</param>
+        /// <returns>本轮 IR 测试已完成并具有实测结果时返回 true。</returns>
+        private bool TryGetIrInspectionResult(string sn, string wocode, out InspectionRunContext resultContext, out bool currentRunKnown)
+        {
+            resultContext = null;
+            currentRunKnown = false;
+            string normalizedSn = (sn ?? string.Empty).Trim();
+            string normalizedWo = (wocode ?? string.Empty).Trim();
+
+            lock (_inspectionRunContextSync)
+            {
+                InspectionRunContext context;
+                if (!_inspectionRunContexts.TryGetValue(normalizedSn, out context)
+                    || !string.Equals(context.WorkOrderCode, normalizedWo, StringComparison.Ordinal))
+                {
+                    return false;
+                }
+
+                currentRunKnown = true;
+                if (!context.IrActualOk.HasValue)
+                {
+                    return false;
+                }
+
+                resultContext = new InspectionRunContext
+                {
+                    WorkOrderCode = context.WorkOrderCode,
+                    PartNoId = context.PartNoId,
+                    IrActualOk = context.IrActualOk,
+                    ContactResistance = context.ContactResistance,
+                    IrResistance = context.IrResistance,
+                    IrLeakCurrent = context.IrLeakCurrent,
+                    IrInfo = context.IrInfo,
+                    IrMeterId = context.IrMeterId,
+                    IrProcessRowSaved = context.IrProcessRowSaved
+                };
+                return true;
+            }
+        }
+
+        /// <summary>
+        /// 判断扫码值是否为已配置的点检标准件 SN。
+        /// 点检包含耐压、IR 和 AOI 的 OK/NG 标准件；该判断只决定扫码旁路和 CHECK 分支，仪器实际结果仍决定 PLC 与机器人的分流回执。
+        /// </summary>
+        /// <param name="sn">扫码器或 PLC 提供的当前产品 SN。</param>
+        /// <returns>命中任一非空点检配置码时返回 true。</returns>
+        private bool IsInspectionSn(string sn)
+        {
+            return GetInspectionSnMatchCount(sn) > 0;
+        }
+
+        /// <summary>
+        /// 统计当前扫码值命中的点检配置数量。
+        /// 一个 SN 只能承担一种设备和一种期望结果；重复配置会在扫码及 CHECK 入口被拦截。
+        /// </summary>
+        /// <param name="sn">扫码器或 PLC 提供的当前产品 SN。</param>
+        /// <returns>命中的非空点检配置数量。</returns>
+        private int GetInspectionSnMatchCount(string sn)
+        {
+            int count = 0;
+            if (IsConfiguredInspectionSn(sn, DataModel.Settingmodel.SETTING_DATA.InspectionTVOKSN)) count++;
+            if (IsConfiguredInspectionSn(sn, DataModel.Settingmodel.SETTING_DATA.InspectionTVNGSN)) count++;
+            if (IsConfiguredInspectionSn(sn, DataModel.Settingmodel.SETTING_DATA.InspectionIROKSN)) count++;
+            if (IsConfiguredInspectionSn(sn, DataModel.Settingmodel.SETTING_DATA.InspectionIRNGSN)) count++;
+            if (IsConfiguredInspectionSn(sn, DataModel.Settingmodel.SETTING_DATA.InspectionAOIOKSN)) count++;
+            if (IsConfiguredInspectionSn(sn, DataModel.Settingmodel.SETTING_DATA.InspectionAOINGSN)) count++;
+            return count;
+        }
+
+        /// <summary>
+        /// 判断当前 SN 是否属于 AOI 点检标准件，供 CHECK 阶段选择 AOI 专用判定口径。
+        /// </summary>
+        /// <param name="sn">CHECK 从 PLC 产品码中解析的 SN。</param>
+        /// <returns>AOI OK/NG 任一点检码命中时返回 true。</returns>
+        private bool IsAoiInspectionSn(string sn)
+        {
+            return IsConfiguredInspectionSn(sn, DataModel.Settingmodel.SETTING_DATA.InspectionAOIOKSN)
+                || IsConfiguredInspectionSn(sn, DataModel.Settingmodel.SETTING_DATA.InspectionAOINGSN);
+        }
+
+        /// <summary>
+        /// 判断当前 SN 是否属于 IR 绝缘电阻点检标准件，供 CHECK 阶段从本轮测量快照生成机器人分流回执。
+        /// </summary>
+        /// <param name="sn">CHECK 从 PLC 产品码中解析的 SN。</param>
+        /// <returns>IR OK/NG 任一点检码命中时返回 true。</returns>
+        private bool IsIrInspectionSn(string sn)
+        {
+            return IsConfiguredInspectionSn(sn, DataModel.Settingmodel.SETTING_DATA.InspectionIROKSN)
+                || IsConfiguredInspectionSn(sn, DataModel.Settingmodel.SETTING_DATA.InspectionIRNGSN);
+        }
+
+        /// <summary>
+        /// 判断 IR 点检标准件的期望结果是否为 OK。
+        /// 返回值只用于点检命中留档；D1015 和 CHECK 回执始终保留仪器实测 OK/NG 语义。
+        /// </summary>
+        /// <param name="sn">已识别为 IR 点检的当前 SN。</param>
+        /// <returns>IR OK 点检码返回 true，IR NG 点检码返回 false。</returns>
+        private bool IsIrOkInspectionSn(string sn)
+        {
+            return IsConfiguredInspectionSn(sn, DataModel.Settingmodel.SETTING_DATA.InspectionIROKSN);
+        }
+
+        /// <summary>
+        /// 将点检 SN 映射为操作员可识别的点检类型。
+        /// 文本服务扫码日志，PLC、仪器和 CHECK 判定继续使用各自的实测结果口径；OK/NG 标准件属性一并展示，便于现场确认标准件身份。
+        /// </summary>
+        /// <param name="sn">已通过点检配置匹配的扫码 SN。</param>
+        /// <returns>耐压、IR 或 AOI 点检类型及其 OK/NG 标准件属性。</returns>
+        private string GetInspectionTypeText(string sn)
+        {
+            if (IsConfiguredInspectionSn(sn, DataModel.Settingmodel.SETTING_DATA.InspectionTVOKSN))
+            {
+                return "耐压点检（OK标准件）";
+            }
+
+            if (IsConfiguredInspectionSn(sn, DataModel.Settingmodel.SETTING_DATA.InspectionTVNGSN))
+            {
+                return "耐压点检（NG标准件）";
+            }
+
+            if (IsConfiguredInspectionSn(sn, DataModel.Settingmodel.SETTING_DATA.InspectionIROKSN))
+            {
+                return "IR点检（OK标准件）";
+            }
+
+            if (IsConfiguredInspectionSn(sn, DataModel.Settingmodel.SETTING_DATA.InspectionIRNGSN))
+            {
+                return "IR点检（NG标准件）";
+            }
+
+            if (IsConfiguredInspectionSn(sn, DataModel.Settingmodel.SETTING_DATA.InspectionAOIOKSN))
+            {
+                return "AOI点检（OK标准件）";
+            }
+
+            if (IsConfiguredInspectionSn(sn, DataModel.Settingmodel.SETTING_DATA.InspectionAOINGSN))
+            {
+                return "AOI点检（NG标准件）";
+            }
+
+            return "未知点检类型";
+        }
+
+        /// <summary>
+        /// 按精确文本匹配扫码值与点检配置码。
+        /// 空配置不参与匹配，避免旧工程 XML 缺节点时把空扫码误识别为点检。
+        /// </summary>
+        /// <param name="sn">扫码或 PLC 解析后的产品 SN。</param>
+        /// <param name="configuredSn">工程 XML 中配置的点检 SN。</param>
+        /// <returns>两者均为非空文本且精确相等时返回 true。</returns>
+        private static bool IsConfiguredInspectionSn(string sn, string configuredSn)
+        {
+            return !string.IsNullOrWhiteSpace(sn)
+                && !string.IsNullOrWhiteSpace(configuredSn)
+                && string.Equals(sn.Trim(), configuredSn.Trim(), StringComparison.Ordinal);
         }
 
         /// <summary>
@@ -188,34 +531,54 @@ namespace BusbarCompressionSystem.ViewModel
         /// <returns>业务失败原因；空字符串表示扫码业务已完成。</returns>
         private string ProcessScanSnToPlc(string snstr, int plcSnAddress, int stationIndex, bool createDualYProductRecord, bool plcWriteRequired, string contextTag)
         {
-            // 点检SN码特殊处理：跳过MES校验，直接返回成功
-            // 扩展为四个点检 SN：耐压点检 OK/NG + AOI 点检 OK/NG
-            if (snstr == DataModel.Settingmodel.SETTING_DATA.InspectionTVOKSN ||
-                snstr == DataModel.Settingmodel.SETTING_DATA.InspectionTVNGSN ||
-                snstr == DataModel.Settingmodel.SETTING_DATA.InspectionAOIOKSN ||
-                snstr == DataModel.Settingmodel.SETTING_DATA.InspectionAOINGSN)
+            // 点检标准件跳过普通产品的工单一致性和混批校验，仍从 MES 取得工单、料号用于 PLC 移位和 SQLite 追溯。
+            int inspectionMatchCount = GetInspectionSnMatchCount(snstr);
+            if (inspectionMatchCount > 1)
             {
-                writeLog($"[{contextTag}] 点检扫码原始数据: {snstr}");
-                string wocode = MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.get_WO_CODE(snstr);
-                string partnoid = MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.get_PartNO_ID(snstr);
+                writeLog($"[{contextTag}] 点检SN配置重复，扫码值={(snstr ?? string.Empty).Trim()}, 命中配置数={inspectionMatchCount}，已拦截进站。", true);
+                return "点检SN配置重复，请检查耐压、IR、AOI点检码";
+            }
 
-                bool plcWriteOk = PLC_Writestring(plcSnAddress.ToString(), $"{snstr};{wocode}");
-                writeLog($"[{contextTag}] 写入PLC地址 D{plcSnAddress}: {(plcWriteOk ? "成功" : "失败")} | {snstr};{wocode}");
+            if (inspectionMatchCount == 1)
+            {
+                string inspectionSn = snstr.Trim();
+                writeLog($"[{contextTag}] 点检扫码原始数据: {inspectionSn}");
+                string wocode = MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.get_WO_CODE(inspectionSn);
+                string partnoid = MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.get_PartNO_ID(inspectionSn);
+
+                if (string.IsNullOrWhiteSpace(wocode))
+                {
+                    writeLog($"[{contextTag}] 点检SN未从MES取得工单，SN={inspectionSn}", true);
+                    return "点检关联工单读取失败";
+                }
+                if (string.IsNullOrWhiteSpace(partnoid))
+                {
+                    writeLog($"[{contextTag}] 点检SN未从MES取得料号，SN={inspectionSn}, WO={wocode}", true);
+                    return "点检关联规格信息读取失败";
+                }
+
+                wocode = wocode.Trim();
+                partnoid = partnoid.Trim();
+                RememberInspectionRunContext(inspectionSn, wocode, partnoid);
+                writeLog($"[{contextTag}] 点检类型：{GetInspectionTypeText(inspectionSn)}，SN={inspectionSn}");
+
+                bool plcWriteOk = PLC_Writestring(plcSnAddress.ToString(), $"{inspectionSn};{wocode}");
+                writeLog($"[{contextTag}] 写入PLC地址 D{plcSnAddress}: {(plcWriteOk ? "成功" : "失败")} | {inspectionSn};{wocode}");
                 if (!plcWriteOk)
                 {
                     // 【日志归置】PLC 写入异常属于设备/通讯类错误，按约定归到“日志\\错误”，避免污染“数据库异常”
-                    writePlcError($"[PLC写入异常]{contextTag}-写入产品码失败 | D{plcSnAddress}, 内容长度={(($"{snstr};{wocode}")?.Length ?? 0)}, SN={snstr}, WO={wocode}");
+                    writePlcError($"[PLC写入异常]{contextTag}-写入产品码失败 | D{plcSnAddress}, 内容长度={(($"{inspectionSn};{wocode}")?.Length ?? 0)}, SN={inspectionSn}, WO={wocode}");
                     if (plcWriteRequired)
                     {
                         return "PLC产品码写入失败";
                     }
                 }
 
-                bool dbResult = sqlite.CREATENEWLINE(wocode, partnoid, snstr, DataModel.Settingmodel.SETTING_DATA.StationCode, DataModel.Settingmodel.SETTING_DATA.MachineID, DateTime.Now);
-                writeLog($"[{contextTag}] 创建数据库记录: wocode={wocode}, partnoid={partnoid}, SN={snstr}, 工位={DataModel.Settingmodel.SETTING_DATA.StationCode}, 设备={DataModel.Settingmodel.SETTING_DATA.MachineID}");
+                bool dbResult = sqlite.CREATENEWLINE(wocode, partnoid, inspectionSn, DataModel.Settingmodel.SETTING_DATA.StationCode, DataModel.Settingmodel.SETTING_DATA.MachineID, DateTime.Now);
+                writeLog($"[{contextTag}] 创建数据库记录: wocode={wocode}, partnoid={partnoid}, SN={inspectionSn}, 工位={DataModel.Settingmodel.SETTING_DATA.StationCode}, 设备={DataModel.Settingmodel.SETTING_DATA.MachineID}");
                 if (!dbResult)
                 {
-                    writeLog($"[{contextTag}] 数据库记录创建失败，wocode={wocode}, SN={snstr}", true);
+                    writeLog($"[{contextTag}] 数据库记录创建失败，wocode={wocode}, SN={inspectionSn}", true);
                     if (createDualYProductRecord)
                     {
                         return "数据库记录创建失败";
@@ -224,7 +587,7 @@ namespace BusbarCompressionSystem.ViewModel
 
                 if (createDualYProductRecord)
                 {
-                    EnsureProductInfoRecord(snstr, wocode, partnoid, stationIndex);
+                    EnsureProductInfoRecord(inspectionSn, wocode, partnoid, stationIndex);
                 }
 
                 writeLog($"[{contextTag}] 点检扫码处理成功");
@@ -355,7 +718,7 @@ namespace BusbarCompressionSystem.ViewModel
         /// </summary>
         /// <remarks>
         /// 触发方式：手动扫码（Enter键/按钮）或 自动扫码（PLC触发）
-        /// 点检SN码会跳过MES校验，普通SN进行完整校验
+        /// 点检 SN 通过 MES 取得工单和料号，并跳过当前生产工单一致性及规格混批校验；普通 SN 执行完整进站校验。
         /// </remarks>
         /// <returns>true: 扫码成功; false: 扫码失败</returns>
         public bool ScanSN()
@@ -2119,6 +2482,20 @@ namespace BusbarCompressionSystem.ViewModel
                     return;
                 }
 
+                int inspectionMatchCount = GetInspectionSnMatchCount(sn);
+                if (inspectionMatchCount > 1)
+                {
+                    writeLog($"[IR测试] 点检SN配置重复，SN={sn}, 命中配置数={inspectionMatchCount}，本轮按NG结束。", true);
+                    return;
+                }
+
+                partnoid = ResolveInspectionPartNo(sn, wocode, partnoid, "IR测试");
+                if (IsIrInspectionSn(sn) && string.IsNullOrWhiteSpace(partnoid))
+                {
+                    writeLog($"[IR测试] 点检料号为空，SN={sn}, WO={wocode}，本轮按NG结束。", true);
+                    return;
+                }
+
                 // 2) 读取接触电阻/阻值（写入 RES 列供 CHECK 使用）
                 // 注意：这不是 IR 仪器返回的绝缘电阻（绝缘电阻在 r.Resistance 中）。
                 float res = PLC_ReadFloat(DataModel.Settingmodel.AddressRes + 2 * 2);
@@ -2171,6 +2548,18 @@ namespace BusbarCompressionSystem.ViewModel
                 {
                     writeLog($"[IR测试] ⚠ SQLite InsertIR_Test失败! SN={sn}", true);
                 }
+
+                RememberIrInspectionResult(
+                    sn,
+                    wocode,
+                    partnoid,
+                    res,
+                    (float)r.Resistance,
+                    (float)r.LeakCurrent,
+                    irInfo,
+                    DataModel.Settingmodel.SETTING_DATA.IRMeterID,
+                    irSuccess,
+                    dbOk);
 
                 // 6) F7失败追溯（仅失败时）
                 if (!r.Success)

@@ -404,6 +404,93 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
+        /// 完成 IR 点检标准件在 CHECK 阶段的结果结算与机器人分流回执。
+        /// 实测 OK 始终返回 OK，实测 NG 始终返回 NG2；IR NG 标准件被正确识别时仍进入 NG 分流。
+        /// 本次扫码上下文隔离固定 SN 的相邻点检轮次；点检期望用于日志和 MES 留档，D1015 与机器人持续表达仪器实测结果。
+        /// </summary>
+        /// <param name="stageTag">CHECK1 或 CHECK2 阶段名称，用于日志和现场追溯。</param>
+        /// <param name="stationCode">MES 过程数据工站号；CHECK1 使用一工站，CHECK2 使用二工站。</param>
+        /// <param name="productInfo">CHECK 从 PLC 产品码解析的 SN、工单和当前料号。</param>
+        private void HandleIrInspectionCheck(string stageTag, string stationCode, Productinfo productInfo)
+        {
+            if (productInfo == null
+                || string.IsNullOrWhiteSpace(productInfo.SN)
+                || string.IsNullOrWhiteSpace(productInfo.WOCODE))
+            {
+                writeLog($"[{stageTag}] IR点检产品码不完整，已返回NG2进入NG分流。", true);
+                SendMsgRobot("NG2");
+                return;
+            }
+
+            InspectionRunContext resultContext;
+            bool currentRunKnown;
+            bool hasCurrentRunResult = TryGetIrInspectionResult(
+                productInfo.SN,
+                productInfo.WOCODE,
+                out resultContext,
+                out currentRunKnown);
+
+            if (!hasCurrentRunResult)
+            {
+                string missingReason = currentRunKnown
+                    ? "本轮IR测试结果尚未形成"
+                    : "本次点检扫码上下文缺失";
+                writeLog($"[{stageTag}] IR点检结算失败，SN={productInfo.SN}, WO={productInfo.WOCODE}, 原因={missingReason}，已返回NG2进入NG分流。", true);
+                SendMsgRobot("NG2");
+                return;
+            }
+
+            bool actualOk = resultContext.IrActualOk.Value;
+            bool expectedOk = IsIrOkInspectionSn(productInfo.SN);
+            bool inspectionPassed = actualOk == expectedOk;
+            string expectedText = expectedOk ? "OK" : "NG";
+            string actualText = actualOk ? "OK" : "NG";
+            string robotMessage = actualOk ? "OK" : "NG2";
+            string resultstr = $"IR_{expectedText}点检{(inspectionPassed ? "通过" : "不通过")}(实测{actualText})";
+
+            string inspectionPartNoId = string.IsNullOrWhiteSpace(resultContext.PartNoId)
+                ? productInfo.PartNOID
+                : resultContext.PartNoId;
+            bool hasArchiveContext = !string.IsNullOrWhiteSpace(inspectionPartNoId);
+            bool saveOk = false;
+            string mesArchiveStatus;
+            if (hasArchiveContext)
+            {
+                string persistedTvInfo = GetLocalizedTvStatus(resultContext.IrInfo);
+                saveOk = MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.SaveBusBarData(
+                    stationCode,
+                    DataModel.Settingmodel.SETTING_DATA.MachineID,
+                    inspectionPartNoId,
+                    productInfo.WOCODE,
+                    productInfo.SN,
+                    false,
+                    resultContext.ContactResistance,
+                    resultContext.IrResistance,
+                    resultContext.IrLeakCurrent,
+                    resultContext.IrMeterId,
+                    persistedTvInfo,
+                    actualOk,
+                    0,
+                    0,
+                    0,
+                    false,
+                    false,
+                    resultstr);
+                mesArchiveStatus = saveOk ? "成功" : "失败";
+            }
+            else
+            {
+                mesArchiveStatus = "跳过(点检料号为空)";
+                writeLog($"[{stageTag}] IR点检MES留档跳过，SN={productInfo.SN}, WO={productInfo.WOCODE}, 原因=点检料号为空", true);
+            }
+
+            writeLog(
+                $"[{stageTag}] IR点检结算，SN={productInfo.SN}, 期望={expectedText}, 实测={actualText}, 点检={(inspectionPassed ? "通过" : "不通过")}, 机器人返回={robotMessage}, SQLite留档={(resultContext.IrProcessRowSaved ? "成功" : "失败")}, MES留档={mesArchiveStatus}",
+                !inspectionPassed || !resultContext.IrProcessRowSaved || !hasArchiveContext || !saveOk);
+            SendMsgRobot(robotMessage);
+        }
+
+        /// <summary>
         /// 机器人TCP服务端消息接收处理方法
         /// 业务流程：机器人作为客户端连接本视觉系统，通过指令驱动各工位的检测流程
         /// 
@@ -550,8 +637,18 @@ namespace BusbarCompressionSystem.ViewModel
                     }
 
                     string[] ss = new string[] { snCode, woCode };
+                    int inspectionMatchCount = GetInspectionSnMatchCount(snCode);
+                    if (inspectionMatchCount > 1)
+                    {
+                        writeLog($"[CHECK1] 点检SN配置重复，SN={snCode}, 命中配置数={inspectionMatchCount}，已返回NG2进入NG分流。", true);
+                        SendMsgRobot("NG2");
+                        return;
+                    }
+
+                    string productPartNoId = ResolveInspectionPartNo(
+                        snCode, woCode, DataModel.Processmodel.PartNOID, "CHECK1");
                     //DataModel.Processmodel.TakePhotoTestModel.Productinfo = new Model.Record.Productinfo() { SN = ss[0], WOCODE = ss[1], PartNOID = "" };
-                    DataModel.Processmodel.TakePhotoTestMode2.Productinfo = new Productinfo() { SN = snCode, WOCODE = woCode, PartNOID = DataModel.Processmodel.PartNOID };
+                    DataModel.Processmodel.TakePhotoTestMode2.Productinfo = new Productinfo() { SN = snCode, WOCODE = woCode, PartNOID = productPartNoId };
                     App.Current.Dispatcher.BeginInvoke((Action)(() =>
                     {
                         DataModel.FaraVisionDataModel.Processmodel.SNList.Clear();
@@ -560,18 +657,21 @@ namespace BusbarCompressionSystem.ViewModel
 
                     #endregion
 
-                    // 点检SN码特殊处理：跳过校验和报工，但保留其他流程
-                    // 这里的点检 SN 包含「耐压点检」和「AOI 点检」两类 SN 码
-                    bool isInspectionSN = ss.Length == 2 &&
-                        (ss[0] == DataModel.Settingmodel.SETTING_DATA.InspectionTVOKSN ||
-                         ss[0] == DataModel.Settingmodel.SETTING_DATA.InspectionTVNGSN ||
-                         ss[0] == DataModel.Settingmodel.SETTING_DATA.InspectionAOIOKSN ||
-                         ss[0] == DataModel.Settingmodel.SETTING_DATA.InspectionAOINGSN);
+                    // 点检标准件跳过正常报工，耐压、IR、AOI 分别使用自己的过程结果口径。
+                    bool isInspectionSN = IsInspectionSn(ss[0]);
 
                     // AOI 点检 SN：在 CHECK1 中无论实际测试结果如何，都强制返回 OK
-                    bool isAoiInspectionSN = ss.Length == 2 &&
-                        (ss[0] == DataModel.Settingmodel.SETTING_DATA.InspectionAOIOKSN ||
-                         ss[0] == DataModel.Settingmodel.SETTING_DATA.InspectionAOINGSN);
+                    bool isAoiInspectionSN = IsAoiInspectionSn(ss[0]);
+                    bool isIrInspectionSN = IsIrInspectionSn(ss[0]);
+
+                    if (isIrInspectionSN)
+                    {
+                        HandleIrInspectionCheck(
+                            "CHECK1",
+                            DataModel.Settingmodel.SETTING_DATA.StationCode,
+                            DataModel.Processmodel.TakePhotoTestMode2.Productinfo);
+                        return;
+                    }
 
                     if (isInspectionSN)
                     {
@@ -628,7 +728,7 @@ namespace BusbarCompressionSystem.ViewModel
                             }
                             else
                             {
-                                // 非 AOI 点检 SN：根据实际测试数据综合判断（逻辑同 Check1）
+                                // 耐压点检 SN：根据实际测试数据综合判断（逻辑同 Check1）
                                 if (!pi.TakePhoto1)
                                 {
                                     MSG = "NG1";
@@ -791,32 +891,43 @@ namespace BusbarCompressionSystem.ViewModel
                 {
                     // SendMsgRobot("OK");
 
-                    // 点检SN码特殊处理：跳过校验和报工，但保留其他流程
-                    // 这里的点检 SN 同样包含「耐压点检」和「AOI 点检」两类 SN 码
+                    // CHECK2 继续保留点检专用分支，用实测结果完成最终机器人分流。
                     string currentSN = DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN;
-                    bool isInspectionSN = !string.IsNullOrEmpty(currentSN) &&
-                        (currentSN == DataModel.Settingmodel.SETTING_DATA.InspectionTVOKSN ||
-                         currentSN == DataModel.Settingmodel.SETTING_DATA.InspectionTVNGSN ||
-                         currentSN == DataModel.Settingmodel.SETTING_DATA.InspectionAOIOKSN ||
-                         currentSN == DataModel.Settingmodel.SETTING_DATA.InspectionAOINGSN);
+                    int inspectionMatchCount = GetInspectionSnMatchCount(currentSN);
+                    if (inspectionMatchCount > 1)
+                    {
+                        writeLog($"[CHECK2] 点检SN配置重复，SN={currentSN}, 命中配置数={inspectionMatchCount}，已返回NG2进入NG分流。", true);
+                        SendMsgRobot("NG2");
+                        return;
+                    }
+
+                    bool isInspectionSN = IsInspectionSn(currentSN);
 
                     // 判断是否是 AOI 点检 SN（在 CHECK2 中只需检查 AOI 结果，不检查耐压、阻值）
-                    bool isAoiInspectionSN = !string.IsNullOrEmpty(currentSN) &&
-                        (currentSN == DataModel.Settingmodel.SETTING_DATA.InspectionAOIOKSN ||
-                         currentSN == DataModel.Settingmodel.SETTING_DATA.InspectionAOINGSN);
+                    bool isAoiInspectionSN = IsAoiInspectionSn(currentSN);
+                    bool isIrInspectionSN = IsIrInspectionSn(currentSN);
+
+                    if (isIrInspectionSN)
+                    {
+                        HandleIrInspectionCheck(
+                            "CHECK2",
+                            DataModel.Settingmodel.SETTING_DATA.StationCode2,
+                            DataModel.Processmodel.TakePhotoTestMode2.Productinfo);
+                        return;
+                    }
 
                     if (isInspectionSN)
                     {
                         // 从 ProductInfoRecords 取数并做综合判断的整体思路：
                         // 1. 先用 SN 在集合中找到对应的 ProductInfoRecord；
-                        // 2. 使用记录中的拍照、耐压、阻值、AOI、压力等字段进行一次「内存级」综合判定；
+                         // 2. 使用记录中的拍照、耐压、阻值、压力等字段进行一次「内存级」综合判定；
                         // 3. 不再调用 sqlite.Check2，避免重复访问数据库；
                         // 4. 仅将最终判定结果连同过程数据一起 SaveBusBarData 到 MES，不做报工。
-                        // 点检SN码：根据实际测试数据（包括AOI结果）进行综合判断，跳过数据库校验和报工
+                         // 点检SN码：耐压点检按电测与压力结果判断，AOI结果仅保留过程追溯；AOI点检使用独立判定口径。
                         string MSG = "NG1";
                         string resultstr = "拍照留底不良";
                         
-                        // 从 ProductInfoRecords 中获取实际测试数据（拍照留底、耐压、阻值、AOI、压力等）
+                         // 从 ProductInfoRecords 中获取实际测试数据（拍照留底、耐压、阻值、压力和 AOI 追溯结果）
                         ProductInfoRecord pi = null;
                         foreach (var p in DataModel.Recordmodel.ProductInfoRecords)
                         {
@@ -834,7 +945,8 @@ namespace BusbarCompressionSystem.ViewModel
                             {
                                 // AOI 点检 SN：只判断 AOI 结果，跳过拍照、耐压、阻值检查
                                 // AOI NG点检：全部判定工具须为 NG 或 NG2，才向 PLC 写通过信号
-                                bool isAoiNGInspection = currentSN == DataModel.Settingmodel.SETTING_DATA.InspectionAOINGSN;
+                                bool isAoiNGInspection = IsConfiguredInspectionSn(
+                                    currentSN, DataModel.Settingmodel.SETTING_DATA.InspectionAOINGSN);
 
                                 if (isAoiNGInspection)
                                 {
@@ -873,7 +985,7 @@ namespace BusbarCompressionSystem.ViewModel
                             }
                             else
                             {
-                                // 耐压点检 SN：完整判断拍照、耐压、阻值、压力、AOI
+                                 // 耐压点检 SN：判断拍照、耐压、阻值和压力；AOI 结果保留在记录中供追溯。
                                 if (!pi.TakePhoto1)
                                 {
                                     MSG = "NG1";
@@ -899,12 +1011,7 @@ namespace BusbarCompressionSystem.ViewModel
                                     MSG = "NG3";
                                     resultstr = "阻值或压力测试不合格";
                                 }
-                                else if (!pi.AppearanceInspection)
-                                {
-                                    MSG = "NG4";
-                                    resultstr = "AOI测试不合格";
-                                }
-                                else
+                                 else
                                 {
                                     MSG = "OK";
                                     resultstr = "合格";

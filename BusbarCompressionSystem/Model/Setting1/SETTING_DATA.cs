@@ -86,17 +86,45 @@ namespace BusbarCompressionSystem.Model.Setting1
         [XmlElement("仪器类型3")]
         public TVMeterType TVMeterType3 { set; get; } = TVMeterType.AT9620;
 
-        // 耐压工位点检 OK / NG SN 码
+        /// <summary>
+        /// 耐压 OK 标准件点检 SN。
+        /// 工程 XML 保存该值；扫码后仍由 MES 解析工单和料号，CHECK 阶段按耐压实测结果返回机器人分流指令。
+        /// </summary>
         [XmlElement("耐压点检OK_SN码")]
         public string InspectionTVOKSN { set; get; } = "INSPECTION_TV_OK";
 
+        /// <summary>
+        /// 耐压 NG 标准件点检 SN。
+        /// 实测 NG 时 CHECK 继续返回 NG2，使标准件进入 NG 分流；SN 用于识别期望结果和点检留档。
+        /// </summary>
         [XmlElement("耐压点检NG_SN码")]
         public string InspectionTVNGSN { set; get; } = "INSPECTION_TV_NG";
 
-        // AOI 工位点检 OK / NG SN 码
+        /// <summary>
+        /// IR 绝缘电阻 OK 标准件点检 SN。
+        /// 工程 XML 缺少该节点时使用默认码；正常产品扫码、耐压和 AOI 点检口径保持原有行为。
+        /// </summary>
+        [XmlElement("IR点检OK_SN码")]
+        public string InspectionIROKSN { set; get; } = "INSPECTION_IR_OK";
+
+        /// <summary>
+        /// IR 绝缘电阻 NG 标准件点检 SN。
+        /// 实测 NG 时 D1015 保持 2、CHECK 返回 NG2，使标准件按实际结果进入 NG 分流。
+        /// </summary>
+        [XmlElement("IR点检NG_SN码")]
+        public string InspectionIRNGSN { set; get; } = "INSPECTION_IR_NG";
+
+        /// <summary>
+        /// AOI OK 标准件点检 SN。
+        /// 该码仅改变点检判定边界，正常产品的扫码校验和报工流程保持原有口径。
+        /// </summary>
         [XmlElement("AOI点检OK_SN码")]
         public string InspectionAOIOKSN { set; get; } = "INSPECTION_AOI_OK";
 
+        /// <summary>
+        /// AOI NG 标准件点检 SN。
+        /// 全部判定工具命中 NG/NG2 时返回 NG4 并通过 AOI NG 点检信号记录期望命中结果。
+        /// </summary>
         [XmlElement("AOI点检NG_SN码")]
         public string InspectionAOINGSN { set; get; } = "INSPECTION_AOI_NG";
 
