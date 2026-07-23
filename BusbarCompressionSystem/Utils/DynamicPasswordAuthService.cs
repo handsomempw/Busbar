@@ -10,11 +10,9 @@ using System.Threading.Tasks;
 namespace BusbarCompressionSystem.Utils
 {
     /// <summary>
-    /// 动态密码授权服务（轻量封装）
-    ///
-    /// 设计目标：
-    /// - 将 UI 与第三方认证库解耦（MainWindow 只关心“申请/验证/过期”）
-    /// - 统一处理：测试模式/严格模式、指定接收人、异步调用避免卡UI
+    /// 动态密码授权服务。
+    /// 主程序的 AOI 编辑权限固定通过生产认证服务申请和验证；现场 XML 仅承载设备编号、接收人和有效期等业务参数。
+    /// 动态密码联调由独立的 <c>AuthenticationTest</c> 开发工具承担，避免发布程序出现可由配置文件改变的认证通道。
     /// </summary>
     public sealed class DynamicPasswordAuthService : IDisposable
     {
@@ -39,10 +37,9 @@ namespace BusbarCompressionSystem.Utils
 
             this.equipNo = equipNo;
 
-            // - 先允许“测试模式开关”以便联调
-            // - 后期切换为严格模式时，只需要把 StrictMode 置为 true，即可强制走生产模式
-            bool testMode = !this.setting.StrictMode && this.setting.TestMode;
-            dynamicPassword = new DynamicPassword(testMode);
+            // AOI 编辑权限属于现场受控操作，主程序每次均连接生产认证服务。
+            const bool useTestAuthentication = false;
+            dynamicPassword = new DynamicPassword(useTestAuthentication);
             dynamicPassword.PasswordExpired += OnPasswordExpired;
         }
 

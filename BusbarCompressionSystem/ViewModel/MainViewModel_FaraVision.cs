@@ -640,10 +640,6 @@ namespace BusbarCompressionSystem.ViewModel
                     });
                 }
 
-                bool testMode = DataModel.Settingmodel.SETTING_DATA.DynamicPasswordAuth != null
-                    && !DataModel.Settingmodel.SETTING_DATA.DynamicPasswordAuth.StrictMode
-                    && DataModel.Settingmodel.SETTING_DATA.DynamicPasswordAuth.TestMode;
-
                 string equipNo = DataModel.Settingmodel.SETTING_DATA.MachineID ?? string.Empty;
 
                 var record = new OperationRecord
@@ -668,7 +664,9 @@ namespace BusbarCompressionSystem.ViewModel
                 {
                     try
                     {
-                        OperationLog opLog = new OperationLog(testMode);
+                        // 参数审计与权限验证使用同一生产服务边界，确保现场变更记录进入正式审计链路。
+                        const bool useTestAuthentication = false;
+                        OperationLog opLog = new OperationLog(useTestAuthentication);
                         opLog.Log(record);
                         writeLog($"[动态密码][参数审计] 已上报：工程={prjName}, 工具序号={toolFileIndex}, 参数变更={diffCount}, 上下文={contextCount}, 合计={totalCount}", true);
                     }
