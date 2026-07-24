@@ -104,7 +104,6 @@ namespace BusbarCompressionSystem
 
             vml.Main.Faravision_LoadSettingModel();
             vml.Main.Load_Prj();
-            vml.Main.InitShm();
 
 
             inittvparameter();
@@ -458,13 +457,65 @@ namespace BusbarCompressionSystem
             settingForm.ShowDialog();
         }
 
+        /// <summary>
+        /// 保存当前 AOI 工程后加载操作员选中的工程。
+        /// 切换前先保存并同步当前工程快照；目标工程 XML 不完整或模板模型未就绪时回滚当前工程，且不把未确认的工程名称写入视觉配置。
+        /// 仅当 XML 与模板模型均就绪时才持久化工程名称；模板模型未就绪不进入配方保存保护，也不拦截后续生产检测主流程。
+        /// </summary>
+        /// <param name="sender">切换工程按钮。</param>
+        /// <param name="e">WPF 点击事件参数。</param>
         private void ChangePrj_Click(object sender, RoutedEventArgs e)
         {
             try
             {
-                vml.Main.Load_Prj(vml.Main.DataModel.FaraVisionDataModel.Settingmodel.Prjs[vml.Main.DataModel.FaraVisionDataModel.Settingmodel.prjselected]);
+                int selectedIndex = vml.Main.DataModel.FaraVisionDataModel.Settingmodel.prjselected;
+                var projects = vml.Main.DataModel.FaraVisionDataModel.Settingmodel.Prjs;
+                if (selectedIndex < 0 || selectedIndex >= projects.Count)
+                {
+                    NoticeBox.Show("请先选择目标工程", "提示", MessageBoxIcon.Warning, true, 5000);
+                    return;
+                }
+
+                if (!vml.Main.SavePrjXmls())
+                {
+                    NoticeBox.Show("当前工程保存失败，已保留当前工程，请处理日志后再切换", "提示", MessageBoxIcon.Warning, true, 6000);
+                    return;
+                }
+
+                string currentProjectName = vml.Main.DataModel.FaraVisionDataModel.Settingmodel.Name;
+                string targetProjectName = projects[selectedIndex];
+                if (!vml.Main.Load_Prj(targetProjectName))
+                {
+                    bool restored = vml.Main.Load_Prj(currentProjectName);
+                    vml.Main.InitHwindow(Hwindow4.HalconWindow);
+                    if (restored)
+                    {
+                        NoticeBox.Show("目标工程文件存在缺失或损坏，当前工程已恢复，请检查运行日志", "提示", MessageBoxIcon.Warning, true, 7000);
+                    }
+                    else
+                    {
+                        NoticeBox.Show("目标工程加载失败，当前工程回滚也失败，界面当前不可用于检测和保存，请检查运行日志并恢复工程快照", "严重错误", MessageBoxIcon.Error, true, 10000);
+                    }
+                    return;
+                }
+
+                if (vml.Main.AoiShapeModelNotReady)
+                {
+                    bool restored = vml.Main.Load_Prj(currentProjectName);
+                    vml.Main.InitHwindow(Hwindow4.HalconWindow);
+                    if (restored)
+                    {
+                        NoticeBox.Show("目标工程模板模型未就绪，未切换工程，请补齐对应 Tool*.shm 后再试", "提示", MessageBoxIcon.Warning, true, 7000);
+                    }
+                    else
+                    {
+                        NoticeBox.Show("目标工程模板模型未就绪，且当前工程回滚失败，请检查运行日志并恢复工程快照", "严重错误", MessageBoxIcon.Error, true, 10000);
+                    }
+                    return;
+                }
+
                 vml.Main.InitHwindow(Hwindow4.HalconWindow);
-                vml.Main.InitShm();
+                vml.Main.Faravision_SaveSettingModel();
 
             }
             catch (Exception ex)

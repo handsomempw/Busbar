@@ -63,31 +63,50 @@ namespace PositionDetect
 
         /// <summary>
         /// 从磁盘读取形状模型（.shm），供模板匹配算子使用。
-        /// 重复加载时会先释放旧模型句柄，避免编辑/切换工程后句柄残留。
+        /// 新文件通过 HALCON 读取成功后才替换当前句柄；保存中断、文件损坏或手动重载失败时保留当前可用模型，保证本次生产周期的检测状态连续。
         /// </summary>
         /// <param name="filename">形状模型完整路径；由工程目录与工具序号拼出。</param>
-        /// <returns>加载成功返回 true；文件无效或 HALCON 读失败返回 false，此时 <see cref="ModelLoaded"/> 为 false。</returns>
+        /// <returns>加载成功返回 true；文件无效或 HALCON 读失败返回 false，已有模型继续保留其加载状态。</returns>
         public bool init(string filename)
         {
+            HTuple loadedModelId = null;
             try
             {
-                ClearModel();
-                HOperatorSet.ReadShapeModel(filename, out modelID);
-                ModelLoaded = modelID != null && modelID.Length > 0;
-                if (ModelLoaded)
+                HOperatorSet.ReadShapeModel(filename, out loadedModelId);
+                if (loadedModelId == null || loadedModelId.Length == 0)
                 {
-                    LoadedModelPath = System.IO.Path.GetFullPath(filename);
-                    LoadedModelWriteTimeUtc = System.IO.File.Exists(LoadedModelPath)
-                        ? System.IO.File.GetLastWriteTimeUtc(LoadedModelPath)
-                        : DateTime.MinValue;
+                    ClearShapeModelHandle(loadedModelId);
+                    return false;
                 }
-                return ModelLoaded;
+
+                string loadedModelPath = System.IO.Path.GetFullPath(filename);
+                DateTime loadedModelWriteTimeUtc = System.IO.File.Exists(loadedModelPath)
+                    ? System.IO.File.GetLastWriteTimeUtc(loadedModelPath)
+                    : DateTime.MinValue;
+
+                HTuple previousModelId = modelID;
+                modelID = loadedModelId;
+                loadedModelId = null;
+                ModelLoaded = true;
+                LoadedModelPath = loadedModelPath;
+                LoadedModelWriteTimeUtc = loadedModelWriteTimeUtc;
+                ClearShapeModelHandle(previousModelId);
+                return true;
             }
             catch (Exception)
             {
-                ClearModel();
+                ClearShapeModelHandle(loadedModelId);
                 return false;
             }
+        }
+
+        /// <summary>
+        /// 在工程切换、工具移除或进程关闭前释放当前形状模型句柄。
+        /// 工程 XML 仅保存工具参数；该方法只释放当前进程的 HALCON 资源，不删除工程目录中的 .shm 文件。
+        /// </summary>
+        public void ReleaseModel()
+        {
+            ClearModel();
         }
 
         /// <summary>
@@ -95,21 +114,31 @@ namespace PositionDetect
         /// </summary>
         private void ClearModel()
         {
-            if (modelID != null && modelID.Length > 0)
-            {
-                try
-                {
-                    HOperatorSet.ClearShapeModel(modelID);
-                }
-                catch (Exception)
-                {
-                }
-            }
+            ClearShapeModelHandle(modelID);
 
             modelID = null;
             ModelLoaded = false;
             LoadedModelPath = string.Empty;
             LoadedModelWriteTimeUtc = DateTime.MinValue;
+        }
+
+        /// <summary>
+        /// 释放单个 HALCON 形状模型句柄。
+        /// 读取候选模型失败时调用该入口，当前业务模型句柄保持由调用方管理。
+        /// </summary>
+        /// <param name="shapeModelId">待释放的 HALCON 形状模型句柄。</param>
+        private static void ClearShapeModelHandle(HTuple shapeModelId)
+        {
+            if (shapeModelId != null && shapeModelId.Length > 0)
+            {
+                try
+                {
+                    HOperatorSet.ClearShapeModel(shapeModelId);
+                }
+                catch (Exception)
+                {
+                }
+            }
         }
 
         /// <summary>

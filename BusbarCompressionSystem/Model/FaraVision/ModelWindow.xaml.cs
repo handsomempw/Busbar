@@ -92,12 +92,33 @@ namespace BusbarCompressionSystem.Model.FaraVision
             UpdateModelStatus(success ? "已预览生成，待保存模型文件" : "预览生成失败");
         }
 
+        /// <summary>
+        /// 发布当前预览模型，并让当前工程工具立即切换到已校验的 .shm。
+        /// 工程快照在模型发布成功后同步，工程切换、工具重排或现场恢复时可按同一 Tool 序号取得 XML、示教图和模型文件。
+        /// </summary>
+        /// <param name="sender">模型保存按钮。</param>
+        /// <param name="e">WPF 点击事件参数。</param>
         private void exportModel_Click(object sender, RoutedEventArgs e)
         {
             bool success = vml.PositionDetectViewModel.OutputModel();
             if (success)
             {
-                UpdateModelStatus($"已导出 {System.IO.Path.GetFileName(vml.PositionDetectViewModel.DATA.modelfilename)}");
+                var tool = vml?.Main?.DataModel?.FaraVisionDataModel?.Processmodel?.tool;
+                bool loaded = tool != null && vml.Main.EnsureShapeModelLoaded(tool, "模型保存后加载", true);
+                bool snapshotSaved = vml.Main.BackupCurrentAoiProjectFilesAfterSave();
+
+                if (loaded && snapshotSaved)
+                {
+                    UpdateModelStatus($"已保存并加载 {System.IO.Path.GetFileName(vml.PositionDetectViewModel.DATA.modelfilename)}");
+                }
+                else if (loaded)
+                {
+                    UpdateModelStatus("模型文件已保存并加载，工程快照未确认，请检查运行日志");
+                }
+                else
+                {
+                    UpdateModelStatus("模型文件已保存，内存重载失败，请检查运行日志");
+                }
             }
             else
             {
@@ -249,32 +270,44 @@ namespace BusbarCompressionSystem.Model.FaraVision
             }
         }
 
+        /// <summary>
+        /// 由操作员手动重载当前工具的工程模型。
+        /// 手动入口跳过文件时间判断；文件缺失或损坏时保留当前可用内存模型，并把现场可执行状态明确反馈给操作员。
+        /// </summary>
+        /// <param name="sender">加载当前模型按钮。</param>
+        /// <param name="e">WPF 点击事件参数。</param>
         private void loadshmfromfile_Click(object sender, RoutedEventArgs e)
         {
             try
             {
-                string shmfilename = $"{vml.Main.DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{vml.Main.DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{vml.Main.DataModel.FaraVisionDataModel.Processmodel.Tools[vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool.Index - 1].Index}.shm";
-                bool loaded = false;
+                var tool = vml?.Main?.DataModel?.FaraVisionDataModel?.Processmodel?.tool;
+                if (tool == null)
+                {
+                    UpdateModelStatus("当前工具未就绪");
+                    return;
+                }
 
-                if (File.Exists(shmfilename))
-                {
-                    loaded = vml.Main.DataModel.FaraVisionDataModel.Processmodel.Tools[vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool.Index - 1].ShapeMatch.init(shmfilename);
-                }
-                else
-                {
-                    vml.Main.writeLog($"模型文件不存在:{vml.Main.DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{vml.Main.DataModel.FaraVisionDataModel.Processmodel.Tools[vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool.Index - 1].Index}.shm");
-                }
-                bool editingToolLoaded = vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool.ShapeMatch.init(shmfilename);
-                if (loaded || editingToolLoaded)
+                string shmfilename = vml.Main.GetShapeModelPath(tool);
+                bool fileExists = File.Exists(shmfilename);
+                bool loaded = vml.Main.EnsureShapeModelLoaded(tool, "手动重载", true);
+                if (fileExists && loaded)
                 {
                     UpdateModelStatus($"已重载 {System.IO.Path.GetFileName(shmfilename)}");
                 }
+                else if (!fileExists && tool.ShapeMatch.ModelLoaded)
+                {
+                    UpdateModelStatus("模型文件不存在，当前继续使用已加载模型");
+                }
                 else
                 {
-                    UpdateModelStatus("重载失败");
+                    UpdateModelStatus("重载失败，请检查模型文件和运行日志");
                 }
             }
-            catch (Exception ex) { }
+            catch (Exception ex)
+            {
+                UpdateModelStatus($"重载异常：{ex.Message}");
+                vml?.Main?.writeLog($"[模板模型重载] 异常：{ex.Message}", true);
+            }
 
         }
 

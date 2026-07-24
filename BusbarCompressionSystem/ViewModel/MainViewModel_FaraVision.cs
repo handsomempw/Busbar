@@ -70,29 +70,49 @@ namespace BusbarCompressionSystem.ViewModel
             }
         }
         /// <summary>
-        /// 初始化工程内所有模板工具的形状模型；软件启动和切换工程后调用。
-        /// 模型句柄只保存在内存中，工程 XML 仍只保存工具参数，.shm 文件作为模板模型来源。
+        /// 初始化工程内所有模板工具的形状模型；软件启动和切换工程后由 <see cref="Load_Prj()"/> 调用。
+        /// 模型句柄只保存在内存中，工程 XML 仍只保存工具参数，.shm 文件作为模板匹配与模板定位的现场模型来源。
         /// </summary>
-        public void InitShm()
+        /// <returns>
+        /// 未能从工程目录准备的模板模型数量；大于 0 时由 <see cref="Load_Prj()"/> 标记模型未就绪，
+        /// 供工程切换拒绝持久化工程名称，不进入配方保存保护，也不拦截生产检测主流程。
+        /// </returns>
+        public int InitShm()
         {
+            int shapeToolCount = 0;
+            int unavailableModelCount = 0;
             for (int i = 0; i < DataModel.FaraVisionDataModel.Processmodel.Tools.Count; i++)
             {
                 ToolModel tool = DataModel.FaraVisionDataModel.Processmodel.Tools[i];
                 if (IsShapeModelTool(tool))
                 {
-                    EnsureShapeModelLoaded(tool, "模型加载");
+                    shapeToolCount++;
+                    if (!EnsureShapeModelLoaded(tool, "模型加载"))
+                    {
+                        unavailableModelCount++;
+                    }
                 }
             }
+
+            if (shapeToolCount > 0)
+            {
+                writeLog(
+                    $"[模板模型加载] 工程={DataModel.FaraVisionDataModel.Settingmodel.Name}，模板工具={shapeToolCount}，已就绪={shapeToolCount - unavailableModelCount}，待处理={unavailableModelCount}",
+                    unavailableModelCount > 0);
+            }
+
+            return unavailableModelCount;
         }
 
         /// <summary>
         /// 在 AOI 执行或照片测试前确认模板模型已加载，避免重启软件后 XML 已恢复但 .shm 仍未读入内存。
-        /// 当磁盘 .shm 比内存模型更新时会自动重载；文件缺失且内存中已有同路径模型时，当前进程继续使用已加载句柄。
+        /// 当磁盘 .shm 比内存模型更新时会自动重载；文件缺失且内存中已有同路径模型时，当前进程继续使用已加载句柄。手动重载可跳过文件时间判断，读取失败时由 ShapeMatch 保留原模型句柄。
         /// </summary>
         /// <param name="tool">模板匹配或模板定位工具。</param>
         /// <param name="eventKind">追溯事件类型，如执行前加载、照片测试加载。</param>
+        /// <param name="forceReload">true 时直接读取当前工程的 .shm，用于模型保存后和操作员手动重载；false 时沿用文件时间一致的内存模型。</param>
         /// <returns>true 表示可进入模板匹配算子；false 表示模型文件缺失或读取失败。</returns>
-        internal bool EnsureShapeModelLoaded(ToolModel tool, string eventKind)
+        internal bool EnsureShapeModelLoaded(ToolModel tool, string eventKind, bool forceReload = false)
         {
             if (!IsShapeModelTool(tool))
             {
@@ -102,7 +122,7 @@ namespace BusbarCompressionSystem.ViewModel
             string shmfilename = GetShapeModelPath(tool);
             try
             {
-                if (tool.ShapeMatch != null && tool.ShapeMatch.IsModelFileCurrent(shmfilename))
+                if (!forceReload && tool.ShapeMatch != null && tool.ShapeMatch.IsModelFileCurrent(shmfilename))
                 {
                     return true;
                 }
@@ -150,7 +170,7 @@ namespace BusbarCompressionSystem.ViewModel
         /// <summary>
         /// 按工程目录和工具序号生成形状模型路径；XML 中的模型文件名字段保持兼容，不改变现有 Tool 序号文件约定。
         /// </summary>
-        private string GetShapeModelPath(ToolModel tool)
+        internal string GetShapeModelPath(ToolModel tool)
         {
             return $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{tool.Index}.shm";
         }
@@ -213,132 +233,220 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
 
-        public void Load_Prj()
+        /// <summary>
+        /// 加载当前名称对应的 AOI 工程，并在工具 XML 成功恢复后准备其中的模板模型。
+        /// Tool XML 损坏或序号缺口时返回 false，并进入配方保存保护；模板 .shm 未就绪只置 <see cref="AoiShapeModelNotReady"/>，
+        /// 不返回 false，也不禁止保存与生产检测，由工程切换入口决定是否持久化工程名称。
+        /// </summary>
+        /// <returns>工具 XML 通过完整性校验时返回 true；与模板模型是否就绪无关。</returns>
+        public bool Load_Prj()
         {
             LoadPrjXmls();
+            _aoiShapeModelNotReady = false;
+            if (!_aoiProjectLoadFailed)
+            {
+                int unavailableModelCount = InitShm();
+                if (unavailableModelCount > 0)
+                {
+                    _aoiShapeModelNotReady = true;
+                    writeLog(
+                        $"[AOI工程加载] 有 {unavailableModelCount} 个模板工具模型未就绪；工程可继续保存和检测，工程切换成功前不会写入该工程名称",
+                        true);
+                }
+            }
+
             CheckPrj();
             Prjs_selectedindex();
             //ClearToolStatus();
+            return !_aoiProjectLoadFailed;
         }
-        public void Load_Prj(string PrjName)
+
+        /// <summary>
+        /// 切换到指定工程并执行工具 XML、示教图和 .shm 的加载入口。
+        /// </summary>
+        /// <param name="PrjName">操作员选择的 AOI 工程名称。</param>
+        /// <returns>指定工程的工具 XML 通过完整性校验时返回 true；模板模型就绪状态见 <see cref="AoiShapeModelNotReady"/>。</returns>
+        public bool Load_Prj(string PrjName)
         {
             DataModel.FaraVisionDataModel.Settingmodel.Name = PrjName;
-            Load_Prj();
+            return Load_Prj();
+        }
+
+        /// <summary>
+        /// 当前 AOI 工程中模板匹配或模板定位工具的形状模型是否未全部就绪。
+        /// 工程切换在持久化工程名称前检查该状态；为 true 时不写入视觉配置，但不阻止工程保存和生产检测。
+        /// </summary>
+        internal bool AoiShapeModelNotReady => _aoiShapeModelNotReady;
+
+        /// <summary>
+        /// 在工程切换、工具移除或工程清空前释放当前工具持有的运行时资源。
+        /// 工程目录中的 XML、示教图和 .shm 文件保持原样；释放范围覆盖 HALCON 模型、图像句柄和 WPF 图像引用，避免异常加载后继续累积进程资源。
+        /// </summary>
+        private void ReleaseLoadedToolResources()
+        {
+            foreach (ToolModel tool in DataModel.FaraVisionDataModel.Processmodel.Tools)
+            {
+                ReleaseToolRuntimeResources(tool);
+            }
+        }
+
+        /// <summary>
+        /// 释放单个工具的 HALCON 模型、示教图像和界面图像引用。
+        /// 工具从工程列表移除或工程加载中止时调用；磁盘上的 XML、JPG 和 SHM 文件不受影响，便于后续按快照恢复。
+        /// </summary>
+        /// <param name="tool">待释放运行时资源的工具对象。</param>
+        private void ReleaseToolRuntimeResources(ToolModel tool)
+        {
+            if (tool == null)
+            {
+                return;
+            }
+
+            try
+            {
+                tool.ShapeMatch?.ReleaseModel();
+            }
+            catch (Exception ex)
+            {
+                writeLog($"[模板模型释放] Tool{tool.Index} 释放异常：{ex.Message}", false);
+            }
+
+            if (tool.Image != null)
+            {
+                try
+                {
+                    tool.Image.Dispose();
+                }
+                catch (Exception ex)
+                {
+                    writeLog($"[工程图像释放] Tool{tool.Index} 释放异常：{ex.Message}", false);
+                }
+                finally
+                {
+                    tool.Image = null;
+                }
+            }
+
+            tool.BitmapSource = null;
+            tool.CurrentBitmapSource = null;
         }
 
         /// <summary>
         /// 从当前 AOI 工程目录读取 <c>Tool*.xml</c> 构建工具列表，同时加载对应的示教图像缩略图显示。
         /// 工具 XML 只读取工程内主文件；保存成功后维护的单份工程快照供人工整批恢复 XML、图片和模型。
-        /// 任一工具无法加载时标记本轮工程保存保护，避免关闭软件时压缩工具顺序并覆盖现场配方。
+        /// 工具文件按 Tool 序号枚举并校验连续性；任一工具 XML 无法加载或序号存在缺口时标记本轮工程保存保护，避免关闭软件时压缩工具顺序并覆盖现场配方。
         /// </summary>
         public void LoadPrjXmls()
         {
 
             _aoiProjectLoadFailed = false;
+            _aoiShapeModelNotReady = false;
+            ReleaseLoadedToolResources();
             DataModel.FaraVisionDataModel.Processmodel.Tools.Clear();
+            DataModel.FaraVisionDataModel.Processmodel.tool = new ToolModel();
+            DataModel.FaraVisionDataModel.Processmodel.selectedindex = -1;
             string dir = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}";
             if (!Directory.Exists(dir))
             {
+                _aoiProjectLoadFailed = true;
+                writeLog($"[AOI工程加载] 工程目录不存在：{dir}；工程保存已保护", true);
                 return;
             }
-            string[] toolfilenames = Directory.GetFiles(dir);
-            int count = 0;
-            for (int i = 0; i < toolfilenames.Length; i++)
+            var toolFiles = new SortedDictionary<int, string>();
+            foreach (string filename in Directory.GetFiles(dir, "Tool*.xml"))
             {
-                FileInfo fi = new FileInfo(toolfilenames[i]);
-                if (fi.Extension.ToUpper() == ".XML")
+                string name = Path.GetFileNameWithoutExtension(filename);
+                string indexText = name != null && name.StartsWith("Tool", StringComparison.OrdinalIgnoreCase)
+                    ? name.Substring(4)
+                    : string.Empty;
+
+                int toolIndex;
+                if (int.TryParse(indexText, out toolIndex) && toolIndex > 0)
                 {
-                    count++;
+                    toolFiles[toolIndex] = filename;
                 }
             }
-            int index = 0;
-            for (int k = 0; k < count; k++)
+
+            int expectedIndex = 1;
+            foreach (int toolIndex in toolFiles.Keys)
             {
+                if (toolIndex != expectedIndex)
+                {
+                    _aoiProjectLoadFailed = true;
+                    writeLog($"[AOI工程加载] Tool 文件序号不连续，期望 Tool{expectedIndex}.xml，实际发现 Tool{toolIndex}.xml；工程保存已保护", true);
+                    return;
+                }
+
+                expectedIndex++;
+            }
+
+            foreach (int toolIndex in toolFiles.Keys)
+            {
+                ToolModel tool = LoadPrjXml(toolIndex);
+                if (tool == null)
+                {
+                    _aoiProjectLoadFailed = true;
+                    ReleaseLoadedToolResources();
+                    DataModel.FaraVisionDataModel.Processmodel.Tools.Clear();
+                    writeLog($"[AOI工程加载] Tool{toolIndex}.xml 未生成有效工具对象，工程保存已保护", true);
+                    return;
+                }
+
+                tool.Index = toolIndex;
+                DataModel.FaraVisionDataModel.Processmodel.Tools.Add(tool);
+
+                string jpgfilename = Path.Combine(dir, $"Tool{toolIndex}.jpg");
                 try
                 {
-                    var tool = LoadPrjXml(k + 1);
-                    if (tool != null)
+                    tool.Image?.Dispose();
+                    HOperatorSet.GenEmptyObj(out tool.Image);
+                    HOperatorSet.ReadImage(out tool.Image, jpgfilename);
+
+                    HObject reducedImage = null;
+                    Bitmap bitmap = null;
+                    try
                     {
-                        tool.Index = (index++) + 1;
-                        DataModel.FaraVisionDataModel.Processmodel.Tools.Add(tool);
-                        string jpgfilename = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{index}.jpg";
-                        #region 加载模型图片
-                        tool.Image?.Dispose();
-                        HOperatorSet.GenEmptyObj(out tool.Image);
-                        HOperatorSet.ReadImage(out tool.Image, jpgfilename);
-                        #endregion
+                        reducedImage = GetReducedImage(
+                            DataModel.FaraVisionDataModel.Settingmodel.ImageSize,
+                            DataModel.FaraVisionDataModel.Settingmodel.ImageSize,
+                            tool.Image);
+                        Hobject2Bitmap.HobjectToBitmap24(reducedImage, out bitmap);
 
-
-                        Bitmap bmp;
-                        Bitmap src;
-                        //HObject Image;
-                        //HOperatorSet.GenEmptyObj(out Image);
-
+                        IntPtr currentBitmapHandle = bitmap.GetHbitmap();
                         try
                         {
-                            //HOperatorSet.ReadImage(out Image, filename);
-                            var dst = GetReducedImage(DataModel.FaraVisionDataModel.Settingmodel.ImageSize, DataModel.FaraVisionDataModel.Settingmodel.ImageSize, tool.Image);
-                            //Hobject2Bitmap.HobjectToBitmap(tool.Image, out src);
-                            Hobject2Bitmap.HobjectToBitmap24(dst, out bmp);
-
-                            // 修复GDI句柄泄漏：GetHbitmap()创建的句柄需要手动释放
-                            IntPtr hBitmap1 = bmp.GetHbitmap();
-                            try
-                            {
-                                tool.CurrentBitmapSource = null;
-                                tool.CurrentBitmapSource = Imaging.CreateBitmapSourceFromHBitmap(hBitmap1, IntPtr.Zero, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
-                            }
-                            finally
-                            {
-                                DeleteObject(hBitmap1); // 释放GDI句柄
-                            }
-
-                            IntPtr hBitmap2 = bmp.GetHbitmap();
-                            try
-                            {
-                                tool.BitmapSource = null;
-                                tool.BitmapSource = Imaging.CreateBitmapSourceFromHBitmap(hBitmap2, IntPtr.Zero, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
-                            }
-                            finally
-                            {
-                                DeleteObject(hBitmap2); // 释放GDI句柄
-                            }
-
-                            bmp?.Dispose();
-                            dst?.Dispose();
-                            // src?.Dispose();
+                            tool.CurrentBitmapSource = null;
+                            tool.CurrentBitmapSource = Imaging.CreateBitmapSourceFromHBitmap(currentBitmapHandle, IntPtr.Zero, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
                         }
-                        catch (Exception ex)
-                        {; }
+                        finally
+                        {
+                            DeleteObject(currentBitmapHandle);
+                        }
 
-
-
-
-                        //using (Bitmap bmp = (Bitmap)Bitmap.FromFile(jpgfilename))
-                        //{
-                        //    using (Bitmap bmp1 = GetReducedImage(DataModel.Settingmodel.ImageSize, DataModel.Settingmodel.ImageSize, bmp))
-                        //    {
-                        //        BitmapSource bs = Imaging.CreateBitmapSourceFromHBitmap(bmp1.GetHbitmap(), IntPtr.Zero, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
-                        //        tool.BitmapSource = null;
-                        //        tool.CurrentBitmapSource = null;
-
-                        //        tool.BitmapSource = bs;
-                        //        tool.CurrentBitmapSource = bs.Clone();
-                        //    }
-                        //}
+                        IntPtr previewBitmapHandle = bitmap.GetHbitmap();
+                        try
+                        {
+                            tool.BitmapSource = null;
+                            tool.BitmapSource = Imaging.CreateBitmapSourceFromHBitmap(previewBitmapHandle, IntPtr.Zero, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
+                        }
+                        finally
+                        {
+                            DeleteObject(previewBitmapHandle);
+                        }
                     }
-                    GC.Collect();
+                    finally
+                    {
+                        bitmap?.Dispose();
+                        reducedImage?.Dispose();
+                    }
                 }
                 catch (Exception ex)
                 {
-
+                    writeLog($"[AOI工程加载] Tool{toolIndex}.jpg 读取失败：{ex.Message}", true);
                 }
-            }
 
-            //for (int i = 0; i < DataModel.Processmodel.Tools.Count; i++)
-            //{
-            //    DataModel.Processmodel.Tools[i].Index = i + 1;
-            //}
+                GC.Collect();
+            }
         }
 
         /// <summary>
@@ -399,7 +507,7 @@ namespace BusbarCompressionSystem.ViewModel
             {
                 if (_aoiProjectLoadFailed)
                 {
-                    writeLog("[AOI工程保存] 本轮加载存在无法读取的Tool XML，已跳过保存以保留现场工程文件", true);
+                    writeLog("[AOI工程保存] AOI工程加载或工具文件操作存在失败，当前工程完整性未确认，已跳过保存以保留现场工程文件", true);
                     return false;
                 }
 
@@ -461,12 +569,20 @@ namespace BusbarCompressionSystem.ViewModel
                         periodMinutes,
                         requestedReceivers);
 
-                    // 一次保存完成后更新快照，避免重复上报同一批变更
+                }
+
+                if (!BackupCurrentAoiProjectFilesAfterSave())
+                {
+                    writeLog("[AOI工程保存] 工程快照未确认，已拒绝报告保存成功", true);
+                    return false;
+                }
+
+                if (shouldReport && toolFileIndex > 0 && newTool != null && oldTool != null)
+                {
+                    // 工程 XML 和完整快照都成功后更新审计基线，避免备份失败时吞掉下一次重试的参数差异
                     DataModel.FaraVisionDataModel.Processmodel.EditingToolSnapshot = CloneToolModelSnapshot(newTool);
                     DataModel.FaraVisionDataModel.Processmodel.EditingToolSnapshotTime = DateTime.Now;
                 }
-
-                BackupCurrentAoiProjectFilesAfterSave();
                 return true;
             }
             catch (Exception ex)
@@ -487,15 +603,29 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
-        /// 在当前 AOI 工程配方保存成功后同步单份完整工程快照。工程内容无变化时跳过复制。
-        /// 备份流程不改变工程选择、模型初始化、检测执行、参数审计、相机取图或 PLC/MES 通信。
+        /// 在模型发布、工程保存完成以及工具文件重排前同步当前 AOI 工程的单份完整快照。工程内容无变化时跳过复制。
+        /// 快照覆盖 XML、示教图和 .shm，供现场从一次工具文件操作异常中人工恢复；备份流程不改变工程选择、模型初始化、检测执行、参数审计、相机取图或 PLC/MES 通信。
         /// </summary>
-        private void BackupCurrentAoiProjectFilesAfterSave()
+        /// <returns>快照已同步或当前工程没有需要备份的文件时返回 <c>true</c>；快照目录或文件复制失败时返回 <c>false</c>。</returns>
+        internal bool BackupCurrentAoiProjectFilesAfterSave()
         {
-            string projectDir = GetCurrentProjectDirectory();
+            return BackupAoiProjectFiles(
+                GetCurrentProjectDirectory(),
+                DataModel.FaraVisionDataModel.Settingmodel.Name);
+        }
+
+        /// <summary>
+        /// 将指定 AOI 工程目录同步到按工程名归档的人工恢复快照。
+        /// 同名工程覆盖前使用该入口保留原目录内容，当前工程的模型保存和工具重排通过 <see cref="BackupCurrentAoiProjectFilesAfterSave"/> 使用相同备份口径。
+        /// </summary>
+        /// <param name="projectDir">待备份的 AOI 工程绝对目录。</param>
+        /// <param name="projectName">用于生成备份分类目录的工程名称。</param>
+        /// <returns>快照已同步或源目录没有需要备份的文件时返回 <c>true</c>；备份过程中存在文件失败时返回 <c>false</c>。</returns>
+        private bool BackupAoiProjectFiles(string projectDir, string projectName)
+        {
             string backupRoot = Path.Combine(Environment.CurrentDirectory, "配置备份");
-            string categoryName = $"AOI工程_{DataModel.FaraVisionDataModel.Settingmodel.Name}";
-            ConfigXmlSaveHelper.BackupProjectFilesIfChanged(projectDir, backupRoot, categoryName, message => writeLog(message));
+            string categoryName = $"AOI工程_{projectName}";
+            return ConfigXmlSaveHelper.BackupProjectFilesIfChanged(projectDir, backupRoot, categoryName, message => writeLog(message));
         }
 
         /// <summary>
@@ -1000,13 +1130,19 @@ namespace BusbarCompressionSystem.ViewModel
         }
         /// <summary>
         /// 删除指定索引的工具，并同步删除对应 jpg/xml/shm 文件。
-        /// 若其后仍有工具，则将后续文件整体前移保持序号连续。
+        /// 操作前保留完整工程快照；若其后仍有工具，则将后续文件整体前移保持序号连续，模型文件始终随同 XML 与示教图保持相同 Tool 序号。
         /// </summary>
         public void DeleteTool(int index)
         {
+            bool snapshotReady = false;
+            bool fileMutationStarted = false;
+            bool fileMutationCompleted = false;
+            string rollbackDirectory = null;
+            int rollbackFirstToolIndex = 0;
+            int rollbackLastToolIndex = 0;
             try
             {
-                if (index < 0)
+                if (index < 0 || index >= DataModel.FaraVisionDataModel.Processmodel.Tools.Count)
                 {
 
                     NoticeBox.Show($"请先选择需要删除的工具", "失败", MessageBoxIcon.Error, true, 5000);
@@ -1014,6 +1150,30 @@ namespace BusbarCompressionSystem.ViewModel
                 }
                 if (MessageBoxX.Show("是否确定删除工具？", "提示", System.Windows.MessageBoxButton.YesNo, MessageBoxIcon.Question, DefaultButton.NoCancel) == System.Windows.MessageBoxResult.Yes)
                 {
+                    snapshotReady = BackupCurrentAoiProjectFilesAfterSave();
+                    if (!snapshotReady)
+                    {
+                        _aoiProjectLoadFailed = true;
+                        writeLog("[AOI工具删除] 工程快照未确认，已停止文件整理并保护工程保存", true);
+                        NoticeBox.Show("工程快照未确认，工具删除未执行，工程已进入保存保护", "提示", MessageBoxIcon.Warning, true, 6000);
+                        return;
+                    }
+
+                    rollbackFirstToolIndex = index + 1;
+                    rollbackLastToolIndex = DataModel.FaraVisionDataModel.Processmodel.Tools.Count;
+                    string rollbackPrepareError;
+                    if (!TryCreateToolFileRollbackBackup(
+                        rollbackFirstToolIndex,
+                        rollbackLastToolIndex,
+                        out rollbackDirectory,
+                        out rollbackPrepareError))
+                    {
+                        writeLog($"[AOI工具删除] 文件整理准备失败，工程文件保持原样：{rollbackPrepareError}", true);
+                        NoticeBox.Show("工具删除未执行，工程文件保持原样，请检查运行日志", "提示", MessageBoxIcon.Warning, true, 7000);
+                        return;
+                    }
+
+                    fileMutationStarted = true;
 
                     string jpgsrc1 = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{index + 1}.jpg";
                     string xmlsrc1 = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{index + 1}.xml";
@@ -1029,30 +1189,57 @@ namespace BusbarCompressionSystem.ViewModel
                         // 将后续工具的 Tool{i+2}.xxx 前移到 Tool{i+1}.xxx
                         for (int i = index; i < DataModel.FaraVisionDataModel.Processmodel.Tools.Count - 1; i++)
                         {
-                            string jpgsrc = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{i + 1}.jpg";
-                            string xmlsrc = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{i + 1}.xml";
-                            string shmsrc = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{i + 1}.shm";
-
-                            string jpgdst = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{i + 2}.jpg";
-                            string xmldst = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{i + 2}.xml";
-                            string shmdst = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{i + 2}.shm";
-
-                            MoveFile(jpgdst, jpgsrc);
-                            MoveFile(xmldst, xmlsrc);
-                            MoveFile(shmdst, shmsrc);
-
-
+                            string moveError;
+                            if (!TryMoveToolFiles(i + 2, i + 1, out moveError))
+                            {
+                                HandleToolFileReorderFailure(
+                                    "AOI工具删除",
+                                    "工具删除",
+                                    moveError,
+                                    rollbackDirectory,
+                                    rollbackFirstToolIndex,
+                                    rollbackLastToolIndex);
+                                return;
+                            }
                         }
                     }
+                    fileMutationCompleted = true;
                     if (index >= 0)
                     {
+                        ReleaseToolRuntimeResources(DataModel.FaraVisionDataModel.Processmodel.Tools[index]);
                         DataModel.FaraVisionDataModel.Processmodel.Tools.RemoveAt(index);
                     }
-                    autoindex();
+                    ReindexToolsInMemory();
                 }
             }
             catch (Exception ex)
             {
+                if (fileMutationStarted && !fileMutationCompleted && !string.IsNullOrWhiteSpace(rollbackDirectory))
+                {
+                    HandleToolFileReorderFailure(
+                        "AOI工具删除",
+                        "工具删除",
+                        ex.Message,
+                        rollbackDirectory,
+                        rollbackFirstToolIndex,
+                        rollbackLastToolIndex);
+                    return;
+                }
+
+                _aoiProjectLoadFailed = true;
+                writeLog($"[AOI工具删除] 文件整理失败：{ex.Message}", true);
+                NoticeBox.Show(
+                    snapshotReady
+                        ? "工具删除未完成，工程快照已保留，工程已进入保存保护，请检查运行日志"
+                        : "工具删除未完成，工程快照未确认，工程已进入保存保护，请检查运行日志",
+                    "提示",
+                    MessageBoxIcon.Warning,
+                    true,
+                    6000);
+            }
+            finally
+            {
+                TryDeleteToolFileRollbackBackup(rollbackDirectory);
             }
         }
 
@@ -1062,6 +1249,315 @@ namespace BusbarCompressionSystem.ViewModel
             if (File.Exists(path))
             {
                 File.Delete(path);
+            }
+        }
+
+        private static readonly string[] ToolReorderFileExtensions = { "xml", "jpg", "shm" };
+
+        /// <summary>
+        /// 在工具增删、插入或复制前暂存本次会受影响的 Tool 文件。
+        /// 临时副本只服务于当前操作的自动回滚，不参与工程加载、模型初始化、生产检测或长期工程快照。
+        /// </summary>
+        /// <param name="firstToolIndex">受影响的首个 Tool 文件序号，从 1 开始。</param>
+        /// <param name="lastToolIndex">受影响的最后一个 Tool 文件序号，包含该序号。</param>
+        /// <param name="rollbackDirectory">成功时返回本次操作专用的临时回滚目录。</param>
+        /// <param name="errorMessage">准备失败时返回文件系统原因。</param>
+        /// <returns>全部现有 XML、示教图和模型文件完成暂存时返回 <c>true</c>。</returns>
+        private bool TryCreateToolFileRollbackBackup(
+            int firstToolIndex,
+            int lastToolIndex,
+            out string rollbackDirectory,
+            out string errorMessage)
+        {
+            rollbackDirectory = null;
+            errorMessage = string.Empty;
+            string temporaryDirectory = null;
+            try
+            {
+                temporaryDirectory = Path.Combine(
+                    Path.GetTempPath(),
+                    "FaraVisionToolReorder",
+                    Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(temporaryDirectory);
+
+                for (int index = firstToolIndex; index <= lastToolIndex; index++)
+                {
+                    foreach (string extension in ToolReorderFileExtensions)
+                    {
+                        string sourceFile = GetToolFilePath(index, extension);
+                        if (File.Exists(sourceFile))
+                        {
+                            File.Copy(sourceFile, Path.Combine(temporaryDirectory, Path.GetFileName(sourceFile)), true);
+                        }
+                    }
+                }
+
+                rollbackDirectory = temporaryDirectory;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                errorMessage = ex.Message;
+                TryDeleteToolFileRollbackBackup(temporaryDirectory);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 将工具文件整理前的临时副本恢复到当前工程目录。
+        /// 恢复范围只覆盖本次增删或复制涉及的 Tool 序号，其他工程文件和工具参数保持原样。
+        /// </summary>
+        /// <param name="rollbackDirectory">由 <see cref="TryCreateToolFileRollbackBackup"/> 生成的临时目录。</param>
+        /// <param name="firstToolIndex">受影响的首个 Tool 文件序号。</param>
+        /// <param name="lastToolIndex">受影响的最后一个 Tool 文件序号。</param>
+        /// <param name="errorMessage">恢复失败时返回文件系统原因。</param>
+        /// <returns>受影响范围恢复到操作前文件状态时返回 <c>true</c>。</returns>
+        private bool TryRestoreToolFilesFromRollbackBackup(
+            string rollbackDirectory,
+            int firstToolIndex,
+            int lastToolIndex,
+            out string errorMessage)
+        {
+            errorMessage = string.Empty;
+            try
+            {
+                if (string.IsNullOrWhiteSpace(rollbackDirectory) || !Directory.Exists(rollbackDirectory))
+                {
+                    errorMessage = "工具文件临时回滚副本不存在";
+                    return false;
+                }
+
+                for (int index = firstToolIndex; index <= lastToolIndex; index++)
+                {
+                    foreach (string extension in ToolReorderFileExtensions)
+                    {
+                        string targetFile = GetToolFilePath(index, extension);
+                        if (File.Exists(targetFile))
+                        {
+                            File.Delete(targetFile);
+                        }
+                    }
+                }
+
+                Directory.CreateDirectory(GetCurrentProjectDirectory());
+                foreach (string backupFile in Directory.GetFiles(rollbackDirectory))
+                {
+                    File.Copy(
+                        backupFile,
+                        Path.Combine(GetCurrentProjectDirectory(), Path.GetFileName(backupFile)),
+                        true);
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                errorMessage = ex.Message;
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 收尾单次工具文件整理使用的临时回滚目录。
+        /// 清理失败只记录诊断日志，正式工程目录和长期工程快照保持可用。
+        /// </summary>
+        /// <param name="rollbackDirectory">待清理的临时回滚目录。</param>
+        private void TryDeleteToolFileRollbackBackup(string rollbackDirectory)
+        {
+            if (string.IsNullOrWhiteSpace(rollbackDirectory) || !Directory.Exists(rollbackDirectory))
+            {
+                return;
+            }
+
+            try
+            {
+                Directory.Delete(rollbackDirectory, true);
+            }
+            catch (Exception ex)
+            {
+                writeLog($"[AOI工具整理] 临时回滚目录清理失败：{rollbackDirectory}；{ex.Message}", true);
+            }
+        }
+
+        /// <summary>
+        /// 处理工具文件整理失败并尝试恢复操作前状态。
+        /// 自动恢复成功时保持当前工程可继续保存和使用；恢复失败时进入工程保存保护，避免半整理目录继续落盘。
+        /// </summary>
+        /// <param name="logCategory">现场日志分类，例如 AOI工具删除。</param>
+        /// <param name="operationName">界面提示使用的操作名称，例如工具删除。</param>
+        /// <param name="failureDetail">触发回滚的文件系统原因。</param>
+        /// <param name="rollbackDirectory">本次操作的临时回滚目录。</param>
+        /// <param name="firstToolIndex">受影响的首个 Tool 文件序号。</param>
+        /// <param name="lastToolIndex">受影响的最后一个 Tool 文件序号。</param>
+        private void HandleToolFileReorderFailure(
+            string logCategory,
+            string operationName,
+            string failureDetail,
+            string rollbackDirectory,
+            int firstToolIndex,
+            int lastToolIndex)
+        {
+            string restoreError;
+            if (TryRestoreToolFilesFromRollbackBackup(
+                rollbackDirectory,
+                firstToolIndex,
+                lastToolIndex,
+                out restoreError))
+            {
+                writeLog($"[{logCategory}] 文件整理未完成，工程文件已自动恢复：{failureDetail}", true);
+                NoticeBox.Show($"{operationName}未完成，工程文件已自动恢复，可继续使用", "提示", MessageBoxIcon.Warning, true, 7000);
+                return;
+            }
+
+            _aoiProjectLoadFailed = true;
+            writeLog($"[{logCategory}] 文件整理失败且自动恢复未完成，工程保存已保护：{failureDetail}；恢复错误：{restoreError}", true);
+            NoticeBox.Show($"{operationName}未完成，自动恢复失败，工程已进入保存保护，请检查运行日志", "提示", MessageBoxIcon.Error, true, 9000);
+        }
+
+        /// <summary>
+        /// 生成当前工程目录下指定 Tool 序号与扩展名的文件路径。
+        /// 路径约定与现场工程目录一致，供工具重排时把 XML、示教图和模型作为同一组处理。
+        /// </summary>
+        /// <param name="toolFileIndex">工程目录中的 Tool 文件序号，从 1 开始。</param>
+        /// <param name="extension">文件扩展名，不含点，例如 xml、jpg、shm。</param>
+        /// <returns>对应 Tool 文件的绝对路径。</returns>
+        private string GetToolFilePath(int toolFileIndex, string extension)
+        {
+            return Path.Combine(
+                DataModel.FaraVisionDataModel.Settingmodel.Prjdir,
+                DataModel.FaraVisionDataModel.Settingmodel.Name,
+                $"Tool{toolFileIndex}.{extension}");
+        }
+
+        /// <summary>
+        /// 将同一 Tool 序号下的 XML、示教图和模型文件作为一组移动到目标序号。
+        /// XML 始终必需；示教图和 .shm 保持源文件的存在状态，源文件缺失时同步清理目标残留，避免后移工具继承其他工具的图片或模型。
+        /// </summary>
+        /// <param name="sourceIndex">源 Tool 文件序号。</param>
+        /// <param name="destinationIndex">目标 Tool 文件序号。</param>
+        /// <param name="errorMessage">失败时返回可供日志和弹窗使用的原因。</param>
+        /// <returns>文件组按规则全部处理完成时返回 true。</returns>
+        private bool TryMoveToolFiles(int sourceIndex, int destinationIndex, out string errorMessage)
+        {
+            return TryTransferToolFiles(sourceIndex, destinationIndex, move: true, out errorMessage);
+        }
+
+        /// <summary>
+        /// 将同一 Tool 序号下的 XML、示教图和模型文件作为一组复制到目标序号。
+        /// 校验口径与移动相同，保证复制工具后新旧序号各自仍能组成完整工具文件组。
+        /// </summary>
+        /// <param name="sourceIndex">源 Tool 文件序号。</param>
+        /// <param name="destinationIndex">目标 Tool 文件序号。</param>
+        /// <param name="errorMessage">失败时返回可供日志和弹窗使用的原因。</param>
+        /// <returns>文件组按规则全部复制完成时返回 true。</returns>
+        private bool TryCopyToolFiles(int sourceIndex, int destinationIndex, out string errorMessage)
+        {
+            return TryTransferToolFiles(sourceIndex, destinationIndex, move: false, out errorMessage);
+        }
+
+        /// <summary>
+        /// 按工程文件完整性口径迁移或复制 Tool 文件组。
+        /// XML 缺失或文件系统操作失败时立即返回；示教图和 .shm 缺失表示该工具尚未保存对应文件，目标序号同步保持缺失状态。
+        /// </summary>
+        /// <param name="sourceIndex">源 Tool 文件序号。</param>
+        /// <param name="destinationIndex">目标 Tool 文件序号。</param>
+        /// <param name="move">true 表示移动，false 表示复制。</param>
+        /// <param name="errorMessage">失败原因。</param>
+        /// <returns>文件组处理成功时返回 true。</returns>
+        private bool TryTransferToolFiles(int sourceIndex, int destinationIndex, bool move, out string errorMessage)
+        {
+            if (!TryTransferFile(GetToolFilePath(sourceIndex, "xml"), GetToolFilePath(destinationIndex, "xml"), required: true, "XML", move, out errorMessage))
+            {
+                return false;
+            }
+
+            // 示教图不是所有工具的硬门禁：缺失时跳过，存在则必须完成迁移，避免半移后序号错位。
+            if (!TryTransferFile(GetToolFilePath(sourceIndex, "jpg"), GetToolFilePath(destinationIndex, "jpg"), required: false, "示教图", move, out errorMessage))
+            {
+                return false;
+            }
+
+            return TryTransferFile(
+                GetToolFilePath(sourceIndex, "shm"),
+                GetToolFilePath(destinationIndex, "shm"),
+                required: false,
+                "模型",
+                move,
+                out errorMessage);
+        }
+
+        /// <summary>
+        /// 迁移或复制单个工程文件，并按是否必需区分缺失处理。
+        /// 必需文件缺失视为整理失败；非必需源文件缺失时清理目标残留，若源文件存在则必须完成文件系统操作。
+        /// </summary>
+        /// <param name="sourceFile">源文件绝对路径。</param>
+        /// <param name="destinationFile">目标文件绝对路径。</param>
+        /// <param name="required">true 表示该文件属于当前工具的必需组成。</param>
+        /// <param name="fileKind">用于日志的文件业务名称，例如 XML、示教图、模型。</param>
+        /// <param name="move">true 表示移动，false 表示复制。</param>
+        /// <param name="errorMessage">失败原因。</param>
+        /// <returns>按规则处理完成时返回 true。</returns>
+        private static bool TryTransferFile(
+            string sourceFile,
+            string destinationFile,
+            bool required,
+            string fileKind,
+            bool move,
+            out string errorMessage)
+        {
+            errorMessage = string.Empty;
+            if (!File.Exists(sourceFile))
+            {
+                if (required)
+                {
+                    errorMessage = $"{fileKind}文件不存在：{Path.GetFileName(sourceFile)}";
+                    return false;
+                }
+
+                try
+                {
+                    if (File.Exists(destinationFile))
+                    {
+                        File.Delete(destinationFile);
+                    }
+
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    errorMessage = $"{fileKind}目标残留清理失败：{Path.GetFileName(destinationFile)}，{ex.Message}";
+                    return false;
+                }
+            }
+
+            try
+            {
+                string directory = Path.GetDirectoryName(destinationFile);
+                if (!string.IsNullOrWhiteSpace(directory))
+                {
+                    Directory.CreateDirectory(directory);
+                }
+
+                if (move)
+                {
+                    if (File.Exists(destinationFile))
+                    {
+                        File.Delete(destinationFile);
+                    }
+
+                    File.Move(sourceFile, destinationFile);
+                }
+                else
+                {
+                    File.Copy(sourceFile, destinationFile, true);
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                errorMessage = $"{fileKind}文件{(move ? "移动" : "复制")}失败：{Path.GetFileName(sourceFile)}，{ex.Message}";
+                return false;
             }
         }
 
@@ -1077,36 +1573,70 @@ namespace BusbarCompressionSystem.ViewModel
         }
         /// <summary>
         /// 在指定位置插入工具，同时从后向前移动文件避免覆盖。
+        /// 移动前同步工程快照，XML、示教图和 .shm 以同一 Tool 序号整体迁移。
         /// </summary>
         public void InsertTool(int index, ToolModel tool = null)
         {
+            bool snapshotReady = false;
+            bool fileMutationStarted = false;
+            bool fileMutationCompleted = false;
+            string rollbackDirectory = null;
+            int rollbackFirstToolIndex = 0;
+            int rollbackLastToolIndex = 0;
             try
             {
 
-                if (DataModel.FaraVisionDataModel.Processmodel.selectedindex < 0)
+                if (DataModel.FaraVisionDataModel.Processmodel.selectedindex < 0
+                    || index < 0
+                    || index > DataModel.FaraVisionDataModel.Processmodel.Tools.Count)
                 {
 
                     NoticeBox.Show($"请先选择需要插入工具的位置", "失败", MessageBoxIcon.Error, true, 5000);
                     return;
                 }
 
+                snapshotReady = BackupCurrentAoiProjectFilesAfterSave();
+                if (!snapshotReady)
+                {
+                    _aoiProjectLoadFailed = true;
+                    writeLog("[AOI工具插入] 工程快照未确认，已停止文件整理并保护工程保存", true);
+                    NoticeBox.Show("工程快照未确认，工具插入未执行，工程已进入保存保护", "提示", MessageBoxIcon.Warning, true, 6000);
+                    return;
+                }
+
+                rollbackFirstToolIndex = index + 1;
+                rollbackLastToolIndex = DataModel.FaraVisionDataModel.Processmodel.Tools.Count + 1;
+                string rollbackPrepareError;
+                if (!TryCreateToolFileRollbackBackup(
+                    rollbackFirstToolIndex,
+                    rollbackLastToolIndex,
+                    out rollbackDirectory,
+                    out rollbackPrepareError))
+                {
+                    writeLog($"[AOI工具插入] 文件整理准备失败，工程文件保持原样：{rollbackPrepareError}", true);
+                    NoticeBox.Show("工具插入未执行，工程文件保持原样，请检查运行日志", "提示", MessageBoxIcon.Warning, true, 7000);
+                    return;
+                }
+
+                fileMutationStarted = true;
+
                 // 从后向前移动 Tool 文件，避免文件名冲突覆盖
                 for (int i = DataModel.FaraVisionDataModel.Processmodel.Tools.Count - 1; i >= index; i--)
                 {
-                    string jpgsrc = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{i + 1}.jpg";
-                    string xmlsrc = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{i + 1}.xml";
-                    string shmsrc = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{i + 1}.shm";
-
-                    string jpgdst = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{i + 2}.jpg";
-                    string xmldst = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{i + 2}.xml";
-                    string shmdst = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{i + 2}.shm";
-
-                    MoveFile(jpgsrc, jpgdst);
-                    MoveFile(xmlsrc, xmldst);
-                    MoveFile(shmsrc, shmdst);
-
-
+                    string moveError;
+                    if (!TryMoveToolFiles(i + 1, i + 2, out moveError))
+                    {
+                        HandleToolFileReorderFailure(
+                            "AOI工具插入",
+                            "工具插入",
+                            moveError,
+                            rollbackDirectory,
+                            rollbackFirstToolIndex,
+                            rollbackLastToolIndex);
+                        return;
+                    }
                 }
+                fileMutationCompleted = true;
 
                 if (tool == null)
                 {
@@ -1114,31 +1644,67 @@ namespace BusbarCompressionSystem.ViewModel
                 }
                 DataModel.FaraVisionDataModel.Processmodel.Tools.Insert(index, tool);
                 DataModel.FaraVisionDataModel.Processmodel.selectedindex = index;
-                autoindex();
+                ReindexToolsInMemory();
 
             }
-            catch (Exception ex) { }
-        }
-
-        public void MoveFile(string srcfile, string dstfilename)
-        {
-            if (File.Exists(srcfile))
+            catch (Exception ex)
             {
-                File.Move(srcfile, dstfilename);
+                if (fileMutationStarted && !fileMutationCompleted && !string.IsNullOrWhiteSpace(rollbackDirectory))
+                {
+                    HandleToolFileReorderFailure(
+                        "AOI工具插入",
+                        "工具插入",
+                        ex.Message,
+                        rollbackDirectory,
+                        rollbackFirstToolIndex,
+                        rollbackLastToolIndex);
+                    return;
+                }
+
+                _aoiProjectLoadFailed = true;
+                writeLog($"[AOI工具插入] 文件整理失败：{ex.Message}", true);
+                NoticeBox.Show(
+                    snapshotReady
+                        ? "工具插入未完成，工程快照已保留，工程已进入保存保护，请检查运行日志"
+                        : "工具插入未完成，工程快照未确认，工程已进入保存保护，请检查运行日志",
+                    "提示",
+                    MessageBoxIcon.Warning,
+                    true,
+                    6000);
+            }
+            finally
+            {
+                TryDeleteToolFileRollbackBackup(rollbackDirectory);
             }
         }
 
 
+        /// <summary>
+        /// 清空当前工程的全部工具及其 XML、示教图和 .shm 文件。
+        /// 操作员确认后先同步完整工程快照；单个文件删除失败会保留到运行日志并在界面提示，避免目录半清理被误判为完成。
+        /// </summary>
         public void ClearTool()
         {
+            bool snapshotReady = false;
             try
             {
                 if (MessageBoxX.Show("是否确定清空所有工具？", "提示", System.Windows.MessageBoxButton.YesNo, MessageBoxIcon.Question, DefaultButton.NoCancel) == System.Windows.MessageBoxResult.Yes)
                 {
+                    snapshotReady = BackupCurrentAoiProjectFilesAfterSave();
+                    if (!snapshotReady)
+                    {
+                        _aoiProjectLoadFailed = true;
+                        writeLog("[AOI工具清空] 工程快照未确认，已停止删除并保护工程保存", true);
+                        NoticeBox.Show("工程快照未确认，工具清空未执行，工程已进入保存保护", "提示", MessageBoxIcon.Warning, true, 6000);
+                        return;
+                    }
+
+                    ReleaseLoadedToolResources();
                     DataModel.FaraVisionDataModel.Processmodel.Tools.Clear();
                     #region 删除对应目录下面的工具文件
                     string dir = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}";
                     var files = Directory.GetFiles(dir);
+                    int failedCount = 0;
                     for (int i = 0; i < files.Length; i++)
                     {
                         try
@@ -1150,15 +1716,43 @@ namespace BusbarCompressionSystem.ViewModel
 
                             File.Delete(files[i]);
                         }
-                        catch (Exception ex) { continue; }
+                        catch (Exception ex)
+                        {
+                            failedCount++;
+                            writeLog($"[AOI工具清空] 删除 {Path.GetFileName(files[i])} 失败：{ex.Message}", true);
+                        }
                         #endregion
+                    }
+
+                    if (failedCount > 0)
+                    {
+                        _aoiProjectLoadFailed = true;
+                        writeLog($"[AOI工具清空] 有 {failedCount} 个工程文件删除失败，工程保存已保护", true);
+                        NoticeBox.Show($"有 {failedCount} 个工程文件保留，工程快照已保存，请检查运行日志", "提示", MessageBoxIcon.Warning, true, 6000);
                     }
                 }
             }
-            catch (Exception ex) {; }
+            catch (Exception ex)
+            {
+                _aoiProjectLoadFailed = true;
+                writeLog($"[AOI工具清空] 操作异常：{ex.Message}", true);
+                NoticeBox.Show(
+                    snapshotReady
+                        ? "工具清空未完成，工程快照已保留，工程已进入保存保护，请检查运行日志"
+                        : "工具清空未完成，工程快照未确认，工程已进入保存保护，请检查运行日志",
+                    "提示",
+                    MessageBoxIcon.Warning,
+                    true,
+                    6000);
+            }
         }
+        /// <summary>
+        /// 响应界面复制工具命令，并在创建内存副本前确认当前工程快照。
+        /// 内存副本创建失败时工程文件保持原样；文件复制阶段由内部回滚副本恢复，只有自动恢复失败才进入工程保存保护。
+        /// </summary>
         public void CopyTool()
         {
+            bool snapshotReady = false;
             try
             {
                 if (DataModel.FaraVisionDataModel.Processmodel.selectedindex < 0)
@@ -1170,62 +1764,134 @@ namespace BusbarCompressionSystem.ViewModel
 
                 if (MessageBoxX.Show("是否确定复制选中的工具？", "提示", System.Windows.MessageBoxButton.YesNo, MessageBoxIcon.Question, DefaultButton.NoCancel) == System.Windows.MessageBoxResult.Yes)
                 {
+                    snapshotReady = BackupCurrentAoiProjectFilesAfterSave();
+                    if (!snapshotReady)
+                    {
+                        _aoiProjectLoadFailed = true;
+                        writeLog("[AOI工具复制] 工程快照未确认，已停止文件整理并保护工程保存", true);
+                        NoticeBox.Show("工程快照未确认，工具复制未执行，工程已进入保存保护", "提示", MessageBoxIcon.Warning, true, 6000);
+                        return;
+                    }
 
-                    CopyTool(DataModel.FaraVisionDataModel.Processmodel.selectedindex + 1, New_Tool_Model(DataModel.FaraVisionDataModel.Processmodel.Tools[DataModel.FaraVisionDataModel.Processmodel.selectedindex]));
-
-
-
-                    autoindex();
+                    ToolModel copiedTool = New_Tool_Model(DataModel.FaraVisionDataModel.Processmodel.Tools[DataModel.FaraVisionDataModel.Processmodel.selectedindex]);
+                    if (!CopyTool(DataModel.FaraVisionDataModel.Processmodel.selectedindex + 1, copiedTool))
+                    {
+                        return;
+                    }
                 }
             }
-            catch (Exception ex) { }
+            catch (Exception ex)
+            {
+                writeLog($"[AOI工具复制] 内存副本创建失败，工程文件保持原样：{ex.Message}", true);
+                NoticeBox.Show("工具复制未完成，工程文件保持原样，请检查运行日志", "提示", MessageBoxIcon.Warning, true, 6000);
+            }
         }
         /// <summary>
         /// 在指定位置插入拷贝的工具，并自后向前复制文件避免覆盖。
+        /// 复制前同步工程快照，原工具和副本的 XML、示教图与 .shm 使用连续 Tool 序号保持一一对应。
         /// </summary>
-        public void CopyTool(int index, ToolModel tool)
+        /// <param name="index">副本插入位置，使用当前内存工具列表的零基索引。</param>
+        /// <param name="tool">已从原工具复制出的内存对象；该对象只有在文件整理和序号重排完成后才加入工具列表。</param>
+        /// <returns>文件整理、内存插入和序号重排均完成时返回 <c>true</c>；快照、文件操作或序号重排失败时返回 <c>false</c>。</returns>
+        public bool CopyTool(int index, ToolModel tool)
         {
+            bool snapshotReady = false;
+            bool fileMutationStarted = false;
+            bool fileMutationCompleted = false;
+            string rollbackDirectory = null;
+            int rollbackFirstToolIndex = 0;
+            int rollbackLastToolIndex = 0;
             try
             {
 
-                if (DataModel.FaraVisionDataModel.Processmodel.selectedindex < 0)
+                if (DataModel.FaraVisionDataModel.Processmodel.selectedindex < 0
+                    || index < 1
+                    || index > DataModel.FaraVisionDataModel.Processmodel.Tools.Count
+                    || tool == null)
                 {
 
                     NoticeBox.Show($"请先选择需要插入工具的位置", "失败", MessageBoxIcon.Error, true, 5000);
-                    return;
+                    return false;
                 }
+
+                snapshotReady = BackupCurrentAoiProjectFilesAfterSave();
+                if (!snapshotReady)
+                {
+                    _aoiProjectLoadFailed = true;
+                    writeLog("[AOI工具复制] 工程快照未确认，已停止文件整理并保护工程保存", true);
+                    NoticeBox.Show("工程快照未确认，工具复制未执行，工程已进入保存保护", "提示", MessageBoxIcon.Warning, true, 6000);
+                    return false;
+                }
+
+                rollbackFirstToolIndex = index + 1;
+                rollbackLastToolIndex = DataModel.FaraVisionDataModel.Processmodel.Tools.Count + 1;
+                string rollbackPrepareError;
+                if (!TryCreateToolFileRollbackBackup(
+                    rollbackFirstToolIndex,
+                    rollbackLastToolIndex,
+                    out rollbackDirectory,
+                    out rollbackPrepareError))
+                {
+                    writeLog($"[AOI工具复制] 文件整理准备失败，工程文件保持原样：{rollbackPrepareError}", true);
+                    NoticeBox.Show("工具复制未执行，工程文件保持原样，请检查运行日志", "提示", MessageBoxIcon.Warning, true, 7000);
+                    return false;
+                }
+
+                fileMutationStarted = true;
 
                 // 从后向前复制，避免目标文件被覆盖
                 for (int i = DataModel.FaraVisionDataModel.Processmodel.Tools.Count - 1; i >= index - 1; i--)
                 {
-                    string jpgsrc = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{i + 1}.jpg";
-                    string xmlsrc = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{i + 1}.xml";
-                    string shmsrc = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{i + 1}.shm";
-
-                    string jpgdst = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{i + 2}.jpg";
-                    string xmldst = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{i + 2}.xml";
-                    string shmdst = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{i + 2}.shm";
-
-                    CopyFile(jpgsrc, jpgdst);
-                    CopyFile(xmlsrc, xmldst);
-                    CopyFile(shmsrc, shmdst);
-
-
+                    string copyError;
+                    if (!TryCopyToolFiles(i + 1, i + 2, out copyError))
+                    {
+                        HandleToolFileReorderFailure(
+                            "AOI工具复制",
+                            "工具复制",
+                            copyError,
+                            rollbackDirectory,
+                            rollbackFirstToolIndex,
+                            rollbackLastToolIndex);
+                        return false;
+                    }
                 }
+                fileMutationCompleted = true;
 
                 DataModel.FaraVisionDataModel.Processmodel.Tools.Insert(index, tool);
                 DataModel.FaraVisionDataModel.Processmodel.selectedindex = index;
-                autoindex();
+                ReindexToolsInMemory();
 
+                return true;
             }
-            catch (Exception ex) { }
-        }
-
-        public void CopyFile(string srcfile, string dstfilename)
-        {
-            if (File.Exists(srcfile))
+            catch (Exception ex)
             {
-                File.Copy(srcfile, dstfilename, true);
+                if (fileMutationStarted && !fileMutationCompleted && !string.IsNullOrWhiteSpace(rollbackDirectory))
+                {
+                    HandleToolFileReorderFailure(
+                        "AOI工具复制",
+                        "工具复制",
+                        ex.Message,
+                        rollbackDirectory,
+                        rollbackFirstToolIndex,
+                        rollbackLastToolIndex);
+                    return false;
+                }
+
+                _aoiProjectLoadFailed = true;
+                writeLog($"[AOI工具复制] 文件整理失败：{ex.Message}", true);
+                NoticeBox.Show(
+                    snapshotReady
+                        ? "工具复制未完成，工程快照已保留，工程已进入保存保护，请检查运行日志"
+                        : "工具复制未完成，工程快照未确认，工程已进入保存保护，请检查运行日志",
+                    "提示",
+                    MessageBoxIcon.Warning,
+                    true,
+                    6000);
+                return false;
+            }
+            finally
+            {
+                TryDeleteToolFileRollbackBackup(rollbackDirectory);
             }
         }
 
@@ -1356,61 +2022,14 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
-        /// 重新计算并设置工具的连续序号，并重命名磁盘文件保持一致。
+        /// 在工具文件整理完成后，按界面顺序刷新内存工具序号。
+        /// 磁盘 XML、示教图和 .shm 已由增删复制流程一次性处理，此处只更新运行期索引，避免同一批文件被重复重命名。
         /// </summary>
-        public string autoindex()
+        private void ReindexToolsInMemory()
         {
-            string error = string.Empty;
             for (int i = 0; i < DataModel.FaraVisionDataModel.Processmodel.Tools.Count; i++)
             {
-                int initindex = DataModel.FaraVisionDataModel.Processmodel.Tools[i].Index;
-                int newindex = i + 1;
-
-                if (initindex != newindex)
-                {
-                    DataModel.FaraVisionDataModel.Processmodel.Tools[i].Index = i + 1;
-
-                    // 将 xml/shm/jpg 文件名中的序号重命名为新的序号
-                    string s1 = ChangeToolIndex(initindex, newindex, "xml");
-                    string s2 = ChangeToolIndex(initindex, newindex, "shm");
-                    string s3 = ChangeToolIndex(initindex, newindex, "jpg");
-
-                    if (!string.IsNullOrEmpty(s1))
-                    {
-                        error += $"工具{initindex}修改序号错误:{s1}";
-                    }
-                    if (!string.IsNullOrEmpty(s2))
-                    {
-                        error += $"工具{initindex}修改序号错误:{s2}";
-                    }
-                    if (!string.IsNullOrEmpty(s3))
-                    {
-                        error += $"工具{initindex}修改序号错误:{s3}";
-                    }
-                }
-            }
-            return error;
-        }
-
-        /// <summary>
-        /// 将 Tool{InitIndex}.type 重命名为 Tool{NewIndex}.type。
-        /// </summary>
-        public string ChangeToolIndex(int InitIndex, int NewIndex, string type)
-        {
-            try
-            {
-                string initfilename = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{InitIndex}.{type}";
-                string newfilename = $"{DataModel.FaraVisionDataModel.Settingmodel.Prjdir}\\{DataModel.FaraVisionDataModel.Settingmodel.Name}\\Tool{NewIndex}.{type}";
-
-                if (File.Exists(initfilename))
-                {
-                    File.Move(initfilename, newfilename);
-                }
-                return string.Empty;
-            }
-            catch (Exception e)
-            {
-                return e.Message;
+                DataModel.FaraVisionDataModel.Processmodel.Tools[i].Index = i + 1;
             }
         }
 
@@ -1420,6 +2039,10 @@ namespace BusbarCompressionSystem.ViewModel
         #region 界面menuitem
         public RelayCommand NEW_PRJCMD { set; get; } = null;
 
+        /// <summary>
+        /// 创建 AOI 工程目录并切换当前编辑上下文。
+        /// 同名工程覆盖前同步原工程快照；当前进程中的模板句柄在清空工具列表前释放，工程目录与 HALCON 内存资源分别按确认流程收尾。
+        /// </summary>
         public void NEW_PRJCMD_process()
         {
             try
@@ -1437,6 +2060,12 @@ namespace BusbarCompressionSystem.ViewModel
                             {
                                 if (MessageBoxX.Show("工程已经存在，是否删除旧工程?", "提示", MessageBoxButton.YesNo, MessageBoxIcon.Question, DefaultButton.NoCancel) == MessageBoxResult.Yes)
                                 {
+                                    if (!BackupAoiProjectFiles(prjdir, prjname))
+                                    {
+                                        writeLog($"[AOI工程新建] 同名工程快照未确认，已停止删除：{prjdir}", true);
+                                        NoticeBox.Show("同名工程快照未确认，未删除原工程", "提示", MessageBoxIcon.Warning, true, 6000);
+                                        return;
+                                    }
                                     Directory.Delete(prjdir, true);
                                 }
                                 else
@@ -1453,6 +2082,7 @@ namespace BusbarCompressionSystem.ViewModel
                             #region 新建工程
                             Directory.CreateDirectory(prjdir);
                             DataModel.FaraVisionDataModel.Settingmodel.Name = prjname;
+                            ReleaseLoadedToolResources();
                             DataModel.FaraVisionDataModel.Processmodel.Tools.Clear();
                             //ClearToolStatus();
                             #endregion

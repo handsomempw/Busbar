@@ -244,72 +244,140 @@ namespace BusbarCompressionSystem.Utils
 
         /// <summary>
         /// 在 AOI 工程配方成功保存后同步单份完整工程快照。每个工程名对应固定备份目录，内容无变化时跳过复制。
+        /// <para>快照先写入临时目录并完成文件校验，再整体替换正式目录；任一步失败都保留原正式快照，避免恢复副本出现跨版本混装。</para>
         /// <para>该快照供人工整批恢复工具 XML、示教图片和视觉模型，不参与运行时加载、检测判定或设备通信。</para>
         /// </summary>
         /// <param name="sourceDir">当前 AOI 工程绝对目录。</param>
         /// <param name="backupRoot">exe 目录下的配置备份根目录。</param>
         /// <param name="categoryName">包含 AOI 工程名称的备份分类。</param>
         /// <param name="log">诊断日志入口，用于记录跳过、同步数量和单文件失败原因。</param>
-        public static void BackupProjectFilesIfChanged(string sourceDir, string backupRoot, string categoryName, Action<string> log = null)
+        /// <returns>快照内容已同步、源目录不存在或当前工程没有需要备份的文件时返回 <c>true</c>；临时目录复制、校验或目录替换失败时返回 <c>false</c>。</returns>
+        public static bool BackupProjectFilesIfChanged(string sourceDir, string backupRoot, string categoryName, Action<string> log = null)
         {
+            string stagingDir = null;
+            string retiredDir = null;
             try
             {
                 PrepareBackupRoot(backupRoot, log);
 
                 if (string.IsNullOrWhiteSpace(sourceDir) || !Directory.Exists(sourceDir))
                 {
-                    return;
+                    return true;
                 }
 
                 string[] sourceFiles = Directory.GetFiles(sourceDir, "*", SearchOption.AllDirectories);
                 if (sourceFiles.Length == 0)
                 {
-                    return;
+                    return true;
                 }
 
-                string targetDir = Path.Combine(backupRoot, SanitizeDirectoryName(categoryName));
+                string safeCategory = SanitizeDirectoryName(categoryName);
+                string targetDir = Path.Combine(backupRoot, safeCategory);
                 if (!ProjectBackupNeedsRefresh(sourceDir, targetDir, sourceFiles))
                 {
-                    log?.Invoke($"[配置备份] AOI工程内容未变化，跳过备份：{SanitizeDirectoryName(categoryName)}");
-                    return;
+                    log?.Invoke($"[配置备份] AOI工程内容未变化，跳过备份：{safeCategory}");
+                    return true;
                 }
 
-                Directory.CreateDirectory(targetDir);
+                stagingDir = Path.Combine(backupRoot, safeCategory + ".staging");
+                retiredDir = Path.Combine(backupRoot, safeCategory + ".retired");
+                TryDeleteDirectory(stagingDir, log);
+                TryDeleteDirectory(retiredDir, log);
+                Directory.CreateDirectory(stagingDir);
 
-                var retainedRelativePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                int copiedCount = 0;
                 foreach (string sourceFile in sourceFiles)
                 {
-                    try
-                    {
-                        string relativePath = GetRelativePath(sourceDir, sourceFile);
-                        retainedRelativePaths.Add(relativePath);
-                        string targetFile = Path.Combine(targetDir, relativePath);
-                        if (File.Exists(targetFile) && FilesHaveSameContent(sourceFile, targetFile))
-                        {
-                            continue;
-                        }
-
-                        EnsureDirectory(targetFile);
-                        File.Copy(sourceFile, targetFile, true);
-                        copiedCount++;
-                    }
-                    catch (Exception ex)
-                    {
-                        log?.Invoke($"[配置备份] AOI工程文件备份失败：{Path.GetFileName(sourceFile)}，{ex.Message}");
-                    }
+                    string relativePath = GetRelativePath(sourceDir, sourceFile);
+                    string stagingFile = Path.Combine(stagingDir, relativePath);
+                    EnsureDirectory(stagingFile);
+                    File.Copy(sourceFile, stagingFile, true);
                 }
 
-                RemoveObsoleteProjectBackupFiles(targetDir, retainedRelativePaths, log);
-
-                if (copiedCount > 0)
+                foreach (string sourceFile in sourceFiles)
                 {
-                    log?.Invoke($"[配置备份] 已同步{copiedCount}个AOI工程文件到：{targetDir}");
+                    string relativePath = GetRelativePath(sourceDir, sourceFile);
+                    string stagingFile = Path.Combine(stagingDir, relativePath);
+                    if (!File.Exists(stagingFile) || !FilesHaveSameContent(sourceFile, stagingFile))
+                    {
+                        log?.Invoke($"[配置备份] AOI工程临时快照校验失败：{relativePath}");
+                        TryDeleteDirectory(stagingDir, log);
+                        stagingDir = null;
+                        return false;
+                    }
                 }
+
+                if (Directory.Exists(targetDir))
+                {
+                    Directory.Move(targetDir, retiredDir);
+                }
+
+                try
+                {
+                    Directory.Move(stagingDir, targetDir);
+                    stagingDir = null;
+                }
+                catch (Exception ex)
+                {
+                    log?.Invoke($"[配置备份] AOI工程正式快照替换失败：{safeCategory}，{ex.Message}");
+                    if (!Directory.Exists(targetDir) && Directory.Exists(retiredDir))
+                    {
+                        Directory.Move(retiredDir, targetDir);
+                        retiredDir = null;
+                    }
+
+                    TryDeleteDirectory(stagingDir, log);
+                    stagingDir = null;
+                    return false;
+                }
+
+                TryDeleteDirectory(retiredDir, log);
+                retiredDir = null;
+                log?.Invoke($"[配置备份] 已同步{sourceFiles.Length}个AOI工程文件到：{targetDir}");
+                return true;
             }
             catch (Exception ex)
             {
                 log?.Invoke($"[配置备份] AOI工程备份失败：{sourceDir}，{ex.Message}");
+                TryDeleteDirectory(stagingDir, log);
+                if (!string.IsNullOrWhiteSpace(retiredDir)
+                    && Directory.Exists(retiredDir)
+                    && (string.IsNullOrWhiteSpace(categoryName)
+                        || !Directory.Exists(Path.Combine(backupRoot, SanitizeDirectoryName(categoryName)))))
+                {
+                    try
+                    {
+                        Directory.Move(retiredDir, Path.Combine(backupRoot, SanitizeDirectoryName(categoryName)));
+                    }
+                    catch (Exception restoreEx)
+                    {
+                        log?.Invoke($"[配置备份] AOI工程正式快照回退失败：{restoreEx.Message}");
+                    }
+                }
+
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 删除临时或已退役的 AOI 工程快照目录。
+        /// 仅用于快照发布过程中的 staging/retired 收尾；正式快照目录由目录整体替换接管，避免复制中途清理造成混版。
+        /// </summary>
+        /// <param name="directory">待删除的快照临时目录或退役目录。</param>
+        /// <param name="log">诊断日志入口，记录删除失败原因供现场排查磁盘占用。</param>
+        private static void TryDeleteDirectory(string directory, Action<string> log = null)
+        {
+            if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory))
+            {
+                return;
+            }
+
+            try
+            {
+                Directory.Delete(directory, true);
+            }
+            catch (Exception ex)
+            {
+                log?.Invoke($"[配置备份] 临时快照目录删除失败：{directory}，{ex.Message}");
             }
         }
 

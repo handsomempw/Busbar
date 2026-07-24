@@ -37,9 +37,16 @@ namespace BusbarCompressionSystem.ViewModel
         private bool _faraVisionRecordConfigLoadFailed;
 
         /// <summary>
-        /// AOI 工程工具 XML 本轮加载状态。任一 <c>Tool*.xml</c> 无法读取时，工程保存会停止，防止工具顺序压缩后误删现场配方。
+        /// AOI 工程配方结构完整性。工具 XML 加载失败，或 XML、示教图、SHM 文件重排中断且自动恢复失败时置位，工程保存会停止，防止半残配方覆盖现场目录。
+        /// 模板匹配/定位工具的 .shm 未就绪使用 <see cref="_aoiShapeModelNotReady"/>，不进入本保护位，以免挡住修模型和生产检测。
         /// </summary>
         private bool _aoiProjectLoadFailed;
+
+        /// <summary>
+        /// 当前 AOI 工程中模板匹配或模板定位工具的形状模型未就绪。
+        /// 由工程加载时的 <c>InitShm</c> 置位；仅阻止工程切换成功后写入视觉配置中的工程名称，不阻止工程保存、生产检测和单工具执行前的模型门禁。
+        /// </summary>
+        private bool _aoiShapeModelNotReady;
 
         /// <summary>
         /// 系统配置 XML 统一保存入口。调用方传入本轮加载状态，首装默认对象可落盘，已有文件损坏时保护现场 XML。

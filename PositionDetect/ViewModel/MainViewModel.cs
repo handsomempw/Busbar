@@ -229,6 +229,11 @@ namespace PositionDetect.ViewModel
             }
         }
 
+        /// <summary>
+        /// 将已预览的 HALCON 形状模型发布到工程目录。
+        /// 模型先写入同目录临时文件并读回校验，再替换正式 .shm；工程切换、软件异常退出或存储介质写入异常发生在保存过程时，原有正式模型保持可用。
+        /// </summary>
+        /// <returns>正式 .shm 完成发布返回 true；特征、预览模型、目标路径或文件校验异常时返回 false。</returns>
         public bool OutputModel()
         {
             if (!DATA.HasTemplateFeatures)
@@ -237,36 +242,170 @@ namespace PositionDetect.ViewModel
                 return false;
             }
 
-            if (DATA.modelID == null)
+            if (DATA.modelID == null || DATA.modelID.Length == 0)
             {
                 MessageBoxX.Show("请先预览再保存模型");
                 return false;
             }
 
-            if (string.IsNullOrEmpty(DATA.modelfilename))
+            string filename = DATA.modelfilename;
+            if (string.IsNullOrWhiteSpace(filename))
             {
                 SaveFileDialog saveFileDialog = new SaveFileDialog();
                 saveFileDialog.Filter = "*.shm|*.shm";
-                if (saveFileDialog.ShowDialog() == true)
+                if (saveFileDialog.ShowDialog() != true)
                 {
-                    string filename = saveFileDialog.FileName;
-                    HOperatorSet.WriteShapeModel(DATA.modelID, filename);
-                    DATA.modelfilename = filename;
-                    NoticeBox.Show($"{filename}", $"模型导出成功",  MessageBoxIcon.Success, true, 3000);
-                    return true;
+                    return false;
                 }
+
+                filename = saveFileDialog.FileName;
+            }
+
+            string errorMessage;
+            if (!TryWriteShapeModelAtomically(DATA.modelID, filename, out errorMessage))
+            {
+                MessageBoxX.Show($"模型文件保存失败：{errorMessage}", "提示", MessageBoxButton.OK, MessageBoxIcon.Warning);
                 return false;
             }
-            else
+
+            DATA.modelfilename = filename;
+            NoticeBox.Show($"{filename}", "模型导出成功", MessageBoxIcon.Success, true, 3000);
+            return true;
+        }
+
+        /// <summary>
+        /// 将形状模型安全发布到指定文件。
+        /// 临时模型通过 HALCON 读回验证后才覆盖正式文件，避免半写入文件在工程重启或切换后被当作有效模板读取。
+        /// </summary>
+        /// <param name="modelId">预览生成成功的 HALCON 形状模型句柄。</param>
+        /// <param name="filename">目标 .shm 完整路径，通常对应当前工程的 Tool 序号。</param>
+        /// <param name="errorMessage">保存或验证失败时返回的可追溯原因。</param>
+        /// <returns>正式模型完成替换或首次落盘时返回 true。</returns>
+        private static bool TryWriteShapeModelAtomically(HTuple modelId, string filename, out string errorMessage)
+        {
+            errorMessage = string.Empty;
+            if (modelId == null || modelId.Length == 0)
             {
-                string dir = Path.GetDirectoryName(DATA.modelfilename);
-                if (!Directory.Exists(dir))
+                errorMessage = "当前没有可保存的预览模型";
+                return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(filename))
+            {
+                errorMessage = "模型文件路径为空";
+                return false;
+            }
+
+            string targetFile = System.IO.Path.GetFullPath(filename);
+            string tempFile = targetFile + "." + Guid.NewGuid().ToString("N") + ".tmp";
+            try
+            {
+                string directory = System.IO.Path.GetDirectoryName(targetFile);
+                if (!string.IsNullOrWhiteSpace(directory))
                 {
-                    Directory.CreateDirectory(dir);
+                    Directory.CreateDirectory(directory);
                 }
-                HOperatorSet.WriteShapeModel(DATA.modelID, DATA.modelfilename);
-                NoticeBox.Show($"{DATA.modelfilename}", $"模型导出成功",  MessageBoxIcon.Success, true, 3000);
+
+                HOperatorSet.WriteShapeModel(modelId, tempFile);
+                if (!TryValidateShapeModelFile(tempFile, out errorMessage))
+                {
+                    return false;
+                }
+
+                if (File.Exists(targetFile))
+                {
+                    ReplaceExistingShapeModel(tempFile, targetFile);
+                }
+                else
+                {
+                    File.Move(tempFile, targetFile);
+                }
+
                 return true;
+            }
+            catch (Exception ex)
+            {
+                errorMessage = ex.Message;
+                return false;
+            }
+            finally
+            {
+                TryDeleteFile(tempFile);
+            }
+        }
+
+        /// <summary>
+        /// 验证临时 .shm 是否能由 HALCON 重新读取。
+        /// 该校验只使用临时句柄，完成后立即释放，不影响模型设置窗口内用于预览和保存的原始句柄。
+        /// </summary>
+        /// <param name="filename">待验证的临时模型文件完整路径。</param>
+        /// <param name="errorMessage">读取失败时的 HALCON 或文件系统原因。</param>
+        /// <returns>文件可被 HALCON 读取且模型句柄有效时返回 true。</returns>
+        private static bool TryValidateShapeModelFile(string filename, out string errorMessage)
+        {
+            errorMessage = string.Empty;
+            HTuple validationModelId = null;
+            try
+            {
+                HOperatorSet.ReadShapeModel(filename, out validationModelId);
+                if (validationModelId == null || validationModelId.Length == 0)
+                {
+                    errorMessage = "HALCON 未返回有效模型句柄";
+                    return false;
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                errorMessage = ex.Message;
+                return false;
+            }
+            finally
+            {
+                if (validationModelId != null && validationModelId.Length > 0)
+                {
+                    try
+                    {
+                        HOperatorSet.ClearShapeModel(validationModelId);
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// 使用文件系统替换语义发布已校验的模型文件。
+        /// 替换过程产生的系统级临时备份只服务本次事务；工程级人工恢复由 AOI 工程快照负责。
+        /// </summary>
+        /// <param name="sourceFile">已完成 HALCON 读回校验的临时模型文件。</param>
+        /// <param name="destinationFile">当前工程内正式生效的 .shm 文件。</param>
+        private static void ReplaceExistingShapeModel(string sourceFile, string destinationFile)
+        {
+            string replaceBackupFile = destinationFile + ".replacebak";
+            TryDeleteFile(replaceBackupFile);
+            File.Replace(sourceFile, destinationFile, replaceBackupFile);
+            TryDeleteFile(replaceBackupFile);
+        }
+
+        /// <summary>
+        /// 清理形状模型保存过程的临时文件。
+        /// 清理失败保留文件供现场诊断，正式模型文件和已发布模型句柄保持当前状态。
+        /// </summary>
+        /// <param name="filename">待清理的临时文件完整路径。</param>
+        private static void TryDeleteFile(string filename)
+        {
+            try
+            {
+                if (File.Exists(filename))
+                {
+                    File.Delete(filename);
+                }
+            }
+            catch
+            {
             }
         }
 
