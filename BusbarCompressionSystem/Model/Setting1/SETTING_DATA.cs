@@ -66,6 +66,13 @@ namespace BusbarCompressionSystem.Model.Setting1
         public bool IrDownloadDebugLog { get; set; } = false;
 
         /// <summary>
+        /// 本地开发调试授权开关，随通用配置保存到配置 XML。
+        /// 该节点仅由 DEBUG 构建读取；开启后开发包使用本地 AOI 编辑会话，发布构建继续固定走生产动态密码认证。
+        /// </summary>
+        [XmlElement("开发调试授权")]
+        public bool DeveloperLocalAuthEnabled { get; set; } = false;
+
+        /// <summary>
         /// 报工失败报警使能：为 true 时写 M3045 禁止进站线圈并弹窗提示；为 false 时仅记日志，不写 PLC、不弹窗。
         /// </summary>
         [XmlElement("报工失败报警使能")]

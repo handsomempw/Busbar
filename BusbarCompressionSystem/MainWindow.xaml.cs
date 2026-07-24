@@ -527,8 +527,8 @@ namespace BusbarCompressionSystem
 
         /// <summary>
         /// 处理标题栏权限按钮的动态密码授权和手动锁定流程。
-        /// 已授权时先执行权限关闭前保存，再回收编辑权限和授权上下文；未授权时打开动态密码验证窗口，
-        /// 验证通过后保存本次授权人信息，供后续工程保存时生成 AOI 参数差异审计。
+        /// 已授权时先执行权限关闭前保存，再回收编辑权限和授权上下文；开发配置开启本地调试授权时进入本地会话，
+        /// 其他构建路径打开动态密码验证窗口。正式验证通过后保存授权人信息，供后续工程保存时生成 AOI 参数差异审计。
         /// </summary>
         /// <param name="sender">权限按钮实例，用于在动态密码验证期间临时禁用重复点击。</param>
         /// <param name="e">WPF 点击事件参数，当前流程不读取附加事件数据。</param>
@@ -551,6 +551,13 @@ namespace BusbarCompressionSystem
                 }
                 return;
             }
+
+#if DEBUG
+            if (TryEnableDebugPermission())
+            {
+                return;
+            }
+#endif
 
             // 将固定口令改为动态密码（通过 Faratronic.EquipUtils.Authentication 接入）
             var authSetting = vml.Main.DataModel.Settingmodel.SETTING_DATA.DynamicPasswordAuth;
@@ -665,6 +672,35 @@ namespace BusbarCompressionSystem
                 }
             }
         }
+
+#if DEBUG
+        /// <summary>
+        /// 在开发配置开启本地授权的 DEBUG 构建中建立当前进程的本地 AOI 编辑会话。
+        /// 本地会话沿用现有编辑权限、工程保存和手动锁定流程；发布构建不包含该入口。
+        /// </summary>
+        /// <returns>开发配置开启本地授权时返回 <c>true</c>，表示权限已在本地开启。</returns>
+        private bool TryEnableDebugPermission()
+        {
+            if (!vml.Main.DataModel.Settingmodel.SETTING_DATA.DeveloperLocalAuthEnabled)
+            {
+                return false;
+            }
+
+            var settingModel = vml.Main.DataModel.FaraVisionDataModel.Settingmodel;
+            settingModel.PermissionGrantedAt = DateTime.Now;
+            settingModel.PermissionAuthorizerName = "开发调试";
+            settingModel.PermissionAuthorizerNo = string.Empty;
+            settingModel.PermissionPrivilegeLevel = 0;
+            settingModel.PermissionPeriodMinutes = 0;
+            settingModel.PermissionReason = "本地开发调试";
+            settingModel.PermissionRequestedReceivers = string.Empty;
+            settingModel.permission = true;
+
+            vml.Main.writeLog("[动态密码][开发调试] 已启用本地 AOI 编辑权限：开发配置已开启，当前 DEBUG 会话使用本地授权", true);
+            NoticeBox.Show("Debug 调试会话已启用本地编辑权限", "提示", MessageBoxIcon.Info, true, 4000);
+            return true;
+        }
+#endif
 
         private void CaptureEditingToolSnapshotForAudit()
         {
