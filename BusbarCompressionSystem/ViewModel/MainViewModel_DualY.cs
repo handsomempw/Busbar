@@ -1,3 +1,4 @@
+using BusbarCompressionSystem.Model;
 using BusbarCompressionSystem.Model.Record;
 using SQLITEDATABASE;
 using System;
@@ -163,6 +164,33 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
+        /// 在 WPF 线程刷新指定双Y工位的操作员展示状态。该入口负责界面摘要，
+        /// 原业务流程继续负责 PLC 反馈、SQLite 数据和 MES 报工。
+        /// </summary>
+        /// <param name="stationIndex">双Y物理工位号，取值 1 或 2。</param>
+        /// <param name="update">针对工位展示状态执行的刷新动作。</param>
+        private void UpdateDualYStationDisplay(int stationIndex, Action<DualYStationDisplayState> update)
+        {
+            if (update == null || DataModel?.Processmodel == null)
+            {
+                return;
+            }
+
+            DualYStationDisplayState display = stationIndex == 1
+                ? DataModel.Processmodel.DualYStation1Display
+                : DataModel.Processmodel.DualYStation2Display;
+
+            Action apply = () => update(display);
+            if (App.Current?.Dispatcher != null && !App.Current.Dispatcher.CheckAccess())
+            {
+                App.Current.Dispatcher.BeginInvoke(apply);
+                return;
+            }
+
+            apply();
+        }
+
+        /// <summary>
         /// D1020/D1021 流程结束：读 SN/压力、电测校验、ACW/DCW 各一条 MES 过程数据、报工一次。
         /// </summary>
         /// <param name="stationIndex">1 或 2。</param>
@@ -179,6 +207,8 @@ namespace BusbarCompressionSystem.ViewModel
                 return;
             }
 
+            UpdateDualYStationDisplay(stationIndex, display => display.UpdateWorkflow("归档处理中"));
+
             try
             {
                 int snAddress = stationIndex == 1
@@ -191,8 +221,15 @@ namespace BusbarCompressionSystem.ViewModel
                 if (!TryReadProductCodeFromPlc(snAddress, $"双Y-工位{stationIndex}流程结束", out snCode, out woCode, out rawCode, 3, 500))
                 {
                     writeLog($"[双Y-工位{stationIndex}流程结束] 产品编码读取失败，已中止归档。原始值=[{rawCode}]", true);
+                    UpdateDualYStationDisplay(stationIndex, display => display.UpdateWorkflow("归档失败", "产品码读取失败"));
                     return;
                 }
+
+                UpdateDualYStationDisplay(stationIndex, display =>
+                {
+                    display.BeginProduct(snCode, woCode);
+                    display.UpdateWorkflow("归档处理中");
+                });
 
                 string partnoid = DataModel.Processmodel.PartNOID;
                 bool requireAcw;
@@ -237,12 +274,16 @@ namespace BusbarCompressionSystem.ViewModel
                     writeLog($"[双Y归档] 报工失败，工位={stationIndex}, SN={snCode}, WO={woCode}, 结果={resultstr}", true);
                 }
 
+                string archiveState = mesOk && reportOk ? "归档完成" : "归档异常";
+                string archiveResult = $"{resultstr} / MES:{(mesOk ? "成功" : "失败")} / 报工:{(reportOk ? "成功" : "失败")}";
+                UpdateDualYStationDisplay(stationIndex, display => display.UpdateWorkflow(archiveState, archiveResult));
                 writeLog($"[双Y归档] 完成，工位={stationIndex}, SN={snCode}, 结果={resultstr}, MES过程数据={(mesOk ? "成功" : "失败")}, 报工={(reportOk ? "成功" : "失败")}");
             }
             catch (Exception ex)
             {
                 writeLog($"[双Y归档] 异常，工位={stationIndex}, {ex.Message}", true);
                 sqlite.WriteErrorLog("[双Y流程结束异常]归档失败", ex.Message, string.Empty, string.Empty);
+                UpdateDualYStationDisplay(stationIndex, display => display.UpdateWorkflow("归档异常", "请查看运行日志"));
             }
             finally
             {
@@ -251,8 +292,13 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
-        /// 扫码成功后建立 UI 过程行，替代拍照留底 <see cref="newline"/> 在双Y模式下的角色。
+        /// 双Y扫码成功后刷新对应工位卡片并建立 UI 过程行，替代拍照留底 <see cref="newline"/> 在双Y模式下的角色。
+        /// 同一 SN 在 Y1/Y2 分别保留占位行；升级前未标记工位的占位行可由当前工位认领一次。
         /// </summary>
+        /// <param name="sn">MES 解码和工单校验通过的产品 SN。</param>
+        /// <param name="wocode">与当前产品对应的工单号，用于工位卡片和过程记录显示。</param>
+        /// <param name="partnoid">当前产品规格；为空时沿用运行中的产品规格。</param>
+        /// <param name="dualYStationIndex">扫码来源的双Y物理工位号，取值 1 或 2。</param>
         internal void EnsureProductInfoRecord(string sn, string wocode, string partnoid, int dualYStationIndex)
         {
             if (string.IsNullOrWhiteSpace(sn))
@@ -265,13 +311,21 @@ namespace BusbarCompressionSystem.ViewModel
             {
                 try
                 {
+                    UpdateDualYStationDisplay(dualYStationIndex, display => display.BeginProduct(sn, wocode));
+
                     foreach (var existing in DataModel.Recordmodel.ProductInfoRecords)
                     {
                         if (existing?.Productinfo?.SN == sn
+                            && (existing.DualYStationIndex == dualYStationIndex || existing.DualYStationIndex == 0)
                             && string.IsNullOrWhiteSpace(existing.TVInfo)
                             && existing.TVMaxVoltage == 0
                             && string.IsNullOrWhiteSpace(existing.TVMeterID))
                         {
+                            if (existing.DualYStationIndex == 0)
+                            {
+                                existing.DualYStationIndex = dualYStationIndex;
+                            }
+
                             return;
                         }
                     }
@@ -280,6 +334,7 @@ namespace BusbarCompressionSystem.ViewModel
                     {
                         StationCode = stationCode,
                         EQUIPMENTID = DataModel.Settingmodel.SETTING_DATA.MachineID,
+                        DualYStationIndex = dualYStationIndex,
                         Productinfo = new Productinfo
                         {
                             SN = sn,

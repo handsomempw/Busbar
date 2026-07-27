@@ -79,7 +79,8 @@ namespace BusbarCompressionSystem.Model.Setting1
         public bool ReportFailAlarmEnabled { get; set; } = true;
 
         /// <summary>
-        /// 双Y电测部署标志：为 true 时启动阶段跳过机器人/AOI 相机初始化；运行时仍以 PLC M3050 作为模式判定。
+        /// 双Y电测部署标志。配置数据 XML 保存该值；为 true 时启动双Y小屏生产界面并跳过机器人/AOI 相机初始化，
+        /// 为 false 时保留标准生产界面和完整硬件初始化。界面选型在软件启动时生效，运行中的产品流向仍以 PLC M3050 为准。
         /// </summary>
         [XmlElement("双Y电测部署")]
         public bool DualYElectricalTestDeployment { get; set; } = false;

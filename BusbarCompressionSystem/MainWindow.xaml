@@ -35,11 +35,13 @@
                 </Grid.ColumnDefinitions>
                 <!--<TextBlock VerticalAlignment="Center" Margin="30,0" FontSize="20">法拉电子-母排压合系统</TextBlock>-->
                 <Menu p:WindowX.IsDragMoveArea="False" FontSize="20"   VerticalAlignment="Center" Margin="20,0,0,0" Background="Transparent" BorderThickness="0">
-                    <MenuItem Header="{Binding RelativeSource={RelativeSource AncestorType={x:Type p:WindowX}}, Path=Title, StringFormat={}{0} ▼}"
+                    <MenuItem x:Name="ProjectOperationsMenuItem"
+                              Header="{Binding RelativeSource={RelativeSource AncestorType={x:Type p:WindowX}}, Path=Title, StringFormat={}{0} ▼}"
                               p:MenuItemHelper.HoverBackground="Transparent"
                               Background="Transparent"
                               Foreground="WhiteSmoke"
                               BorderThickness="0"
+                              IsHitTestVisible="{Binding RelativeSource={RelativeSource AncestorType={x:Type p:WindowX}}, Path=StandardProductionCommandsAvailable}"
                               ToolTip="点击标题打开工程操作菜单">
                         <MenuItem Header="新建工程" FontSize="12" Padding="20,0" Background="WhiteSmoke" Foreground="#010101" p:MenuItemHelper.HoverForeground="WhiteSmoke" p:MenuItemHelper.HoverBackground="Orange"  Visibility="{Binding  Source={StaticResource Locator},Path=Main.DataModel.FaraVisionDataModel.Settingmodel.permission,Converter={StaticResource Bool2Visible_Converter}}" Command="{Binding Source={StaticResource Locator},Path=Main.NEW_PRJCMD}"/>
                         <!-- 保存工程属于工程操作，需解锁后才能执行；如有AOI参数变更，将在保存时做审计上报 -->
@@ -80,6 +82,7 @@
                 <Button p:WindowX.IsDragMoveArea="False" Grid.Column="8" Margin="5" p:ButtonHelper.CornerRadius="50" 
                         Background="{Binding Source={StaticResource Locator},Path=Main.DataModel.FaraVisionDataModel.Settingmodel.permission,Converter={StaticResource Bool2SolidColor_Converter}}" 
                    Foreground="WhiteSmoke"  Name="permissionbtn" Click="permissionbtn_Click"
+                   Visibility="{Binding RelativeSource={RelativeSource AncestorType={x:Type p:WindowX}}, Path=StandardProductionCommandsAvailable, Converter={StaticResource Bool2Visible_Converter}}"
                    Height="30" Width="30" FontSize="18"
                    FontFamily="{StaticResource PanuonIconFont}"
                    Content="{Binding Source={StaticResource Locator},Path=Main.DataModel.FaraVisionDataModel.Settingmodel.permission,Converter={StaticResource permission2lockorunlock_Converter }}" 
@@ -91,7 +94,8 @@
     </p:WindowXCaption.HeaderTemplate>
 
 
-    <Grid Margin="2">
+    <Grid>
+    <Grid x:Name="StandardProductionLayout" Margin="2" Visibility="Collapsed" d:Visibility="Visible">
         <Grid.RowDefinitions>
             <RowDefinition Height="auto"/>
             <RowDefinition/>
@@ -647,5 +651,7 @@
                 </DataGrid.Columns>
             </DataGrid>
         </Grid>
+    </Grid>
+    <control:DualYProductionView x:Name="DualYProductionLayout" Visibility="Collapsed"/>
     </Grid>
 </p:WindowX>

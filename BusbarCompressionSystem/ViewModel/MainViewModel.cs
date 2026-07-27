@@ -2825,6 +2825,7 @@ namespace BusbarCompressionSystem.ViewModel
                         {
                             StationCode = firstSnRecord.StationCode,
                             EQUIPMENTID = firstSnRecord.EQUIPMENTID,
+                            DualYStationIndex = firstSnRecord.DualYStationIndex,
                             Productinfo = firstSnRecord.Productinfo,
                             TakePhoto1 = firstSnRecord.TakePhoto1,
                             AppearanceInspection = firstSnRecord.AppearanceInspection,
@@ -2911,11 +2912,13 @@ namespace BusbarCompressionSystem.ViewModel
             {
                 try
                 {
-                    foreach (var p in DataModel.Recordmodel.ProductInfoRecords)
+                    for (int index = 0; index < DataModel.Recordmodel.ProductInfoRecords.Count; index++)
                     {
+                        var p = DataModel.Recordmodel.ProductInfoRecords[index];
                         if (p.Productinfo.SN == SN)
                         {
                             p.Res = res;
+                            DataModel.Recordmodel.ProductInfoRecords[index] = p;
                             break;
                         }
                     }
@@ -2940,14 +2943,16 @@ namespace BusbarCompressionSystem.ViewModel
             {
                 try
                 {
-                    foreach (var p in DataModel.Recordmodel.ProductInfoRecords)
+                    for (int index = 0; index < DataModel.Recordmodel.ProductInfoRecords.Count; index++)
                     {
+                        var p = DataModel.Recordmodel.ProductInfoRecords[index];
                         if (p.Productinfo.SN == SN)
                         {
                             p.Pressure_Average = Pressure_Average;
                             p.Pressure_Max = Pressure_Max;
                             p.Pressure_Min = Pressure_Min;
                             p.Pressure_Result = Pressure_Result;
+                            DataModel.Recordmodel.ProductInfoRecords[index] = p;
 
                             // 不对同SN历史记录做“全量同步刷新”，仅更新第一条匹配记录（通常是列表中最新的一条）。
                             // 双测的另一条记录允许不包含压力信息，以避免点检SN/重复SN场景下污染历史显示。

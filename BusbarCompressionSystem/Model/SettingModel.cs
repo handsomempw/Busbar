@@ -740,6 +740,7 @@ namespace BusbarCompressionSystem.Model
             set
             {
                 _IOstatus = value;
+                RaisePropertyChanged(() => IOstatus);
                 RaisePropertyChanged(() => IOstatusBackGround);
                 RaisePropertyChanged(() => IOStatusForeGround);
             }

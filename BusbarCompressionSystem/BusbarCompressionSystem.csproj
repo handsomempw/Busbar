@@ -189,6 +189,9 @@
     <Compile Include="ViewModel\MainViewModel_ReportFailBlock.cs" />
     <Compile Include="ViewModel\MainViewModel_RobotExterior.cs" />
     <Compile Include="ViewModel\ViewModelLocator.cs" />
+    <Compile Include="View\DualYProductionView.xaml.cs">
+      <DependentUpon>DualYProductionView.xaml</DependentUpon>
+    </Compile>
     <Compile Include="View\TVTestControl.xaml.cs">
       <DependentUpon>TVTestControl.xaml</DependentUpon>
     </Compile>
@@ -236,6 +239,10 @@
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Include="SettingForm.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="View\DualYProductionView.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>

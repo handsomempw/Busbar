@@ -242,11 +242,51 @@ namespace BusbarCompressionSystem.Model
         [XmlIgnore]
         public IO DualYStation2FlowEnd_Trig_IO { get; set; } = new IO();
 
+        private bool _dualYElectricalTestModeActive;
+
         /// <summary>
-        /// PLC M3050 双Y电测模式：true 时走仅电测分支，false 时走原 CHECK/机器人分支。
+        /// PLC M3050 双Y电测模式。该状态决定运行中的产品流程，并向双Y生产界面提供实时模式提示；
+        /// 机台启动时选择标准界面或双Y界面仍由配置 XML 中的部署标志负责。
         /// </summary>
         [XmlIgnore]
-        public bool DualYElectricalTestModeActive { get; set; } = false;
+        public bool DualYElectricalTestModeActive
+        {
+            get { return _dualYElectricalTestModeActive; }
+            set
+            {
+                if (_dualYElectricalTestModeActive == value)
+                {
+                    return;
+                }
+
+                _dualYElectricalTestModeActive = value;
+                RaisePropertyChanged(() => DualYElectricalTestModeActive);
+                RaisePropertyChanged(() => DualYElectricalTestModeDisplay);
+            }
+        }
+
+        /// <summary>
+        /// 双Y生产界面显示的 PLC 流程模式。M3050 接通后显示双Y仅电测，断开或通讯尚未刷新时提示等待 PLC 模式。
+        /// </summary>
+        [XmlIgnore]
+        public string DualYElectricalTestModeDisplay
+        {
+            get { return DualYElectricalTestModeActive ? "双Y仅电测" : "等待 PLC M3050"; }
+        }
+
+        /// <summary>
+        /// 双Y工位1的当前产品与归档状态，生产界面使用该状态展示当前节拍；
+        /// 过程数据 XML、PLC、MES 和 SQLite 继续使用各自正式业务模型。
+        /// </summary>
+        [XmlIgnore]
+        public DualYStationDisplayState DualYStation1Display { get; private set; } = new DualYStationDisplayState(1);
+
+        /// <summary>
+        /// 双Y工位2的当前产品与归档状态，生产界面使用该状态展示当前节拍；
+        /// 过程数据 XML、PLC、MES 和 SQLite 继续使用各自正式业务模型。
+        /// </summary>
+        [XmlIgnore]
+        public DualYStationDisplayState DualYStation2Display { get; private set; } = new DualYStationDisplayState(2);
 
         #endregion
 
@@ -261,6 +301,115 @@ namespace BusbarCompressionSystem.Model
         /// </summary>
         public AT6835FL.IRParameter IRParameter { set; get; } = new AT6835FL.IRParameter();
 
+    }
+
+    /// <summary>
+    /// 双Y单工位的操作员展示状态。该模型汇总扫码产品和流程结束归档结果，
+    /// 帮助小屏界面区分 Y1/Y2 当前节拍；正式测试结果仍以 SQLite、MES 和 PLC 反馈为准。
+    /// </summary>
+    public class DualYStationDisplayState : ObservableObject
+    {
+        private string _currentSn = "--";
+        private string _currentWoCode = "--";
+        private string _workflowState = "等待扫码";
+        private string _lastResult = "--";
+
+        /// <summary>
+        /// 创建指定双Y工位的界面状态容器。
+        /// </summary>
+        /// <param name="stationIndex">双Y物理工位号，取值 1 或 2，用于界面标识和诊断。</param>
+        public DualYStationDisplayState(int stationIndex)
+        {
+            StationIndex = stationIndex;
+        }
+
+        /// <summary>
+        /// 双Y物理工位号，界面显示为 Y1 或 Y2。
+        /// </summary>
+        public int StationIndex { get; private set; }
+
+        /// <summary>
+        /// 当前工位最近一次业务扫码成功的产品 SN。
+        /// </summary>
+        public string CurrentSn
+        {
+            get { return _currentSn; }
+            private set
+            {
+                if (_currentSn == value) return;
+                _currentSn = value;
+                RaisePropertyChanged(() => CurrentSn);
+            }
+        }
+
+        /// <summary>
+        /// 当前工位最近一次业务扫码成功的工单号。
+        /// </summary>
+        public string CurrentWoCode
+        {
+            get { return _currentWoCode; }
+            private set
+            {
+                if (_currentWoCode == value) return;
+                _currentWoCode = value;
+                RaisePropertyChanged(() => CurrentWoCode);
+            }
+        }
+
+        /// <summary>
+        /// 当前工位面向操作员的流程状态，例如等待电测、归档处理中或归档完成。
+        /// </summary>
+        public string WorkflowState
+        {
+            get { return _workflowState; }
+            private set
+            {
+                if (_workflowState == value) return;
+                _workflowState = value;
+                RaisePropertyChanged(() => WorkflowState);
+            }
+        }
+
+        /// <summary>
+        /// 当前工位最近一次综合判定及 MES/报工状态摘要，便于现场快速定位归档结果。
+        /// </summary>
+        public string LastResult
+        {
+            get { return _lastResult; }
+            private set
+            {
+                if (_lastResult == value) return;
+                _lastResult = value;
+                RaisePropertyChanged(() => LastResult);
+            }
+        }
+
+        /// <summary>
+        /// 扫码业务完成后刷新工位产品，进入等待电测状态并清空上一笔结果显示。
+        /// </summary>
+        /// <param name="sn">MES 解码和工单校验通过的产品 SN。</param>
+        /// <param name="woCode">与当前产品对应的工单号。</param>
+        public void BeginProduct(string sn, string woCode)
+        {
+            CurrentSn = string.IsNullOrWhiteSpace(sn) ? "--" : sn;
+            CurrentWoCode = string.IsNullOrWhiteSpace(woCode) ? "--" : woCode;
+            WorkflowState = "等待电测";
+            LastResult = "--";
+        }
+
+        /// <summary>
+        /// 刷新工位流程阶段与结果摘要。该状态服务于界面提示；正式报工结果和设备联锁继续以业务流程返回值为准。
+        /// </summary>
+        /// <param name="workflowState">操作员可识别的当前流程阶段。</param>
+        /// <param name="lastResult">综合判定、MES 和报工摘要；传空值时保留现有结果。</param>
+        public void UpdateWorkflow(string workflowState, string lastResult = null)
+        {
+            WorkflowState = string.IsNullOrWhiteSpace(workflowState) ? "状态未知" : workflowState;
+            if (lastResult != null)
+            {
+                LastResult = lastResult;
+            }
+        }
     }
 
 

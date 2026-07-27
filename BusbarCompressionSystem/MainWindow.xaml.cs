@@ -57,6 +57,31 @@ namespace BusbarCompressionSystem
         private EventHandler aoiPermissionExpiredHandler;
         private CancellationTokenSource aoiPermissionCts;
 
+        /// <summary>
+        /// 本次启动从配置数据读取的双Y专用部署选择。该值限定 AOI、HALCON、相机和机器人资源的生命周期，
+        /// 启动后保持稳定，产品运行时的双Y流向继续由 PLC M3050 决定。
+        /// </summary>
+        private bool _dualYElectricalTestDeployment;
+
+        /// <summary>
+        /// 标准生产命令可用状态的依赖属性，供标题栏模板同步控制 AOI 工程菜单和权限入口。
+        /// </summary>
+        public static readonly DependencyProperty StandardProductionCommandsAvailableProperty =
+            DependencyProperty.Register(
+                nameof(StandardProductionCommandsAvailable),
+                typeof(bool),
+                typeof(MainWindow),
+                new PropertyMetadata(false));
+
+        /// <summary>
+        /// 标准生产部署允许操作 AOI 工程和编辑权限；双Y专用部署隐藏权限入口并阻止工程菜单交互。
+        /// </summary>
+        public bool StandardProductionCommandsAvailable
+        {
+            get { return (bool)GetValue(StandardProductionCommandsAvailableProperty); }
+            private set { SetValue(StandardProductionCommandsAvailableProperty, value); }
+        }
+
         public MainWindow()
         {
             InitializeComponent();
@@ -100,33 +125,56 @@ namespace BusbarCompressionSystem
             vml.Main.LoadRecordModel();
             vml.Main.LoadProcessmodel();
             ApplyProductInfoRecordsSort();
-            bool dualYElectricalTestDeployment = vml.Main.IsDualYElectricalTestDeployment();
+            _dualYElectricalTestDeployment = vml.Main.IsDualYElectricalTestDeployment();
+            ApplyProductionLayout(_dualYElectricalTestDeployment);
 
-            vml.Main.Faravision_LoadSettingModel();
-            vml.Main.Load_Prj();
-
+            if (!_dualYElectricalTestDeployment)
+            {
+                vml.Main.Faravision_LoadSettingModel();
+                vml.Main.Load_Prj();
+            }
 
             inittvparameter();
             vml.Main.InitAt9620();
             vml.Main.InitAT6835FL();
             vml.Main.PLC_shankhand();
             vml.Main.PLC_Start();
-            InitHwindow();
-            if (!dualYElectricalTestDeployment)
+            if (!_dualYElectricalTestDeployment)
             {
+                InitHwindow();
                 vml.Main.InitCamera();
                 vml.Main.InitRobotServer();
+                vml.Main.InitHwindow(Hwindow4.HalconWindow);
+                InitFaraVisionCamera();
             }
             else
             {
-                vml.Main.writeLog("[双Y电测] 部署模式跳过相机初始化和机器人TCP监听");
+                vml.Main.writeLog("[双Y电测] 部署模式跳过 FaraVision 配置、AOI 工程、HALCON 窗口、相机硬件、机器人 TCP 监听和 FaraVision 相机列表初始化");
             }
+        }
 
-            vml.Main.InitHwindow(Hwindow4.HalconWindow);
+        /// <summary>
+        /// 根据配置数据 XML 的双Y部署标志选择本次启动使用的生产界面。
+        /// 该选择与物理机台和显示器长期对应，启动后保持稳定；PLC M3050 负责产品业务流向和界面实时状态。
+        /// </summary>
+        /// <param name="dualYElectricalTestDeployment">
+        /// 配置数据.xml 中的“双Y电测部署”值；true 使用双Y小屏视图，false 使用标准相机/AOI生产视图。
+        /// </param>
+        private void ApplyProductionLayout(bool dualYElectricalTestDeployment)
+        {
+            DataContext = vml.Main.DataModel;
+            StandardProductionCommandsAvailable = !dualYElectricalTestDeployment;
+            StandardProductionLayout.Visibility = dualYElectricalTestDeployment ? Visibility.Collapsed : Visibility.Visible;
+            DualYProductionLayout.Visibility = dualYElectricalTestDeployment ? Visibility.Visible : Visibility.Collapsed;
 
-            if (!dualYElectricalTestDeployment)
+            if (dualYElectricalTestDeployment)
             {
-                InitFaraVisionCamera();
+                Title = string.Format("{0} · 双Y小屏", Title);
+                vml.Main.writeLog("[界面配置] 已按配置数据.xml启用双Y小屏生产界面");
+            }
+            else
+            {
+                vml.Main.writeLog("[界面配置] 已按配置数据.xml启用标准生产界面");
             }
         }
 
@@ -170,8 +218,8 @@ namespace BusbarCompressionSystem
 
         /// <summary>
         /// 处理操作员确认后的软件关闭流程。
-        /// 关闭前保存运行配置、过程数据和工程 XML；若 AOI 编辑权限仍处于授权会话内，
-        /// 工程保存必须先于动态密码资源释放执行，以保留参数审计需要的授权人上下文。
+        /// 两种部署均保存系统配置、界面过程记录和生产过程参数；标准部署继续保存 FaraVision 配置与 AOI 工程并关闭相机，
+        /// 双Y专用部署只处理电测运行数据和扫码器连接。标准部署的工程保存先于动态密码资源释放，以保留参数审计需要的授权人上下文。
         /// </summary>
         /// <param name="sender">WPF 关闭事件来源，当前流程不依赖具体控件实例。</param>
         /// <param name="e">关闭控制参数；操作员取消关闭时设置为取消，避免中断现场运行界面。</param>
@@ -183,22 +231,25 @@ namespace BusbarCompressionSystem
                 vml.Main.SaveRecordModel();
                 vml.Main.SaveProcessmodel();
 
-                vml.Main.Faravision_SaveSettingModel();
-
-                bool projectSaved = vml.Main.SavePrjXmls();
-                if (!projectSaved)
+                if (!_dualYElectricalTestDeployment)
                 {
-                    if (MessageBoxX.Show("AOI 工具配置保存失败，是否仍关闭软件?", "提示", MessageBoxButton.YesNo, MessageBoxIcon.Warning) != MessageBoxResult.Yes)
+                    vml.Main.Faravision_SaveSettingModel();
+
+                    bool projectSaved = vml.Main.SavePrjXmls();
+                    if (!projectSaved)
                     {
-                        e.Cancel = true;
-                        return;
+                        if (MessageBoxX.Show("AOI 工具配置保存失败，是否仍关闭软件?", "提示", MessageBoxButton.YesNo, MessageBoxIcon.Warning) != MessageBoxResult.Yes)
+                        {
+                            e.Cancel = true;
+                            return;
+                        }
                     }
+
+                    // 工程保存完成后再释放动态密码授权，保留保存审计需要的授权人上下文。
+                    DisposeAoiPermissionAuthService();
+
+                    vml.Main.CloseCamera();
                 }
-
-                // 工程保存完成后再释放动态密码授权，保留保存审计需要的授权人上下文。
-                DisposeAoiPermissionAuthService();
-
-                vml.Main.CloseCamera();
                 
                 // 关闭扫码器连接，防止资源残留
                 try
