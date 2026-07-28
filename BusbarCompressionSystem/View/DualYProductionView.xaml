@@ -40,40 +40,31 @@
             <Setter Property="RowHeight" Value="30"/>
             <Setter Property="ColumnHeaderHeight" Value="32"/>
         </Style>
+        <Style TargetType="DataGridColumnHeader">
+            <Setter Property="Background" Value="#E2E7EB"/>
+            <Setter Property="Foreground" Value="#1F2D33"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Padding" Value="4,0"/>
+            <Setter Property="BorderBrush" Value="#AEB8BF"/>
+            <Setter Property="BorderThickness" Value="0,0,1,1"/>
+        </Style>
+        <Style TargetType="DataGridCell">
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Padding" Value="4,0"/>
+        </Style>
     </UserControl.Resources>
 
     <Grid Margin="8">
         <Grid.RowDefinitions>
-            <RowDefinition Height="52"/>
             <RowDefinition Height="170"/>
             <RowDefinition Height="*"/>
-            <RowDefinition Height="138"/>
-            <RowDefinition Height="30"/>
+            <RowDefinition Height="112"/>
+            <RowDefinition Height="26"/>
         </Grid.RowDefinitions>
 
-        <Border Grid.Row="0" Background="#263238" CornerRadius="6" Padding="14,6" Margin="0,0,0,8">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Text="双Y并行电测" Foreground="White" FontSize="20" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                <TextBlock Grid.Column="1" Margin="18,0" Foreground="#CFD8DC" VerticalAlignment="Center"
-                           Text="两工位生产监控"/>
-                <Border Grid.Column="2" Margin="6,0" Padding="12,5" CornerRadius="4"
-                        Background="{Binding Processmodel.DualYElectricalTestModeActive, Converter={StaticResource Bool2SolidColor_Converter}}">
-                    <TextBlock Foreground="White" FontWeight="SemiBold"
-                               Text="{Binding Processmodel.DualYElectricalTestModeDisplay}"/>
-                </Border>
-                <Border Grid.Column="3" Margin="6,0,0,0" Padding="12,5" CornerRadius="4" Background="#455A64">
-                    <TextBlock Foreground="White" Text="界面配置：双Y小屏"/>
-                </Border>
-            </Grid>
-        </Border>
-
-        <Grid Grid.Row="1" Margin="0,0,0,8">
+        <Grid Grid.Row="0" Margin="0,0,0,8">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="8"/>
@@ -93,10 +84,44 @@
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
                         <TextBlock Grid.Column="0" Text="Y1 工位" FontSize="18" FontWeight="Bold" Foreground="#1565C0"/>
-                        <TextBlock Grid.Column="2" VerticalAlignment="Center" FontWeight="SemiBold" Foreground="#37474F"
+                        <Button x:Name="Y1ManualScanButton" Grid.Column="2" Tag="1" Width="30" Height="28" Margin="8,0"
+                                Background="#ECEFF1" BorderBrush="#B0BEC5" FontFamily="Segoe UI Symbol" FontSize="16"
+                                Content="&#x2328;" ToolTip="Y1手动扫码" Click="ManualScanToggle_Click"/>
+                        <TextBlock Grid.Column="3" VerticalAlignment="Center" FontWeight="SemiBold" Foreground="#37474F"
                                    Text="{Binding Processmodel.DualYStation1Display.WorkflowState}"/>
+                        <Popup x:Name="Y1ManualScanPopup" Placement="Bottom" PlacementTarget="{Binding ElementName=Y1ManualScanButton}"
+                               HorizontalOffset="-350" VerticalOffset="4" StaysOpen="False" AllowsTransparency="True" PopupAnimation="Fade">
+                            <Border Width="390" Style="{StaticResource SurfaceBorder}">
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
+                                    <TextBlock Grid.Row="0" Text="Y1 手动扫码" FontWeight="SemiBold" Foreground="#1565C0" Margin="0,0,0,8"/>
+                                    <Grid Grid.Row="1">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="36"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="产品编号" VerticalAlignment="Center" Foreground="#455A64"/>
+                                        <TextBox x:Name="Y1ManualScanTextBox" Grid.Column="1" Tag="1" Height="34" Margin="8,0"
+                                                 MaxLength="80" VerticalContentAlignment="Center" Padding="8,0"
+                                                 ToolTip="输入或扫描Y1产品编号" PreviewKeyDown="ManualScanTextBox_PreviewKeyDown"/>
+                                        <Button x:Name="Y1ManualScanSubmitButton" Grid.Column="2" Tag="1" Height="34"
+                                                Background="#1565C0" Foreground="White" BorderBrush="#1565C0"
+                                                FontFamily="Segoe UI Symbol" FontSize="17" Content="&#x2713;"
+                                                ToolTip="提交Y1扫码" Click="ManualScanSubmit_Click"/>
+                                    </Grid>
+                                    <TextBlock x:Name="Y1ManualScanMessage" Grid.Row="2" Margin="0,7,0,0" Foreground="#C62828"
+                                               TextWrapping="Wrap"/>
+                                </Grid>
+                            </Border>
+                        </Popup>
                     </Grid>
                     <Grid Grid.Row="1">
                         <Grid.ColumnDefinitions>
@@ -160,10 +185,44 @@
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
                         <TextBlock Grid.Column="0" Text="Y2 工位" FontSize="18" FontWeight="Bold" Foreground="#7B1FA2"/>
-                        <TextBlock Grid.Column="2" VerticalAlignment="Center" FontWeight="SemiBold" Foreground="#37474F"
+                        <Button x:Name="Y2ManualScanButton" Grid.Column="2" Tag="2" Width="30" Height="28" Margin="8,0"
+                                Background="#F3E5F5" BorderBrush="#CE93D8" FontFamily="Segoe UI Symbol" FontSize="16"
+                                Content="&#x2328;" ToolTip="Y2手动扫码" Click="ManualScanToggle_Click"/>
+                        <TextBlock Grid.Column="3" VerticalAlignment="Center" FontWeight="SemiBold" Foreground="#37474F"
                                    Text="{Binding Processmodel.DualYStation2Display.WorkflowState}"/>
+                        <Popup x:Name="Y2ManualScanPopup" Placement="Bottom" PlacementTarget="{Binding ElementName=Y2ManualScanButton}"
+                               HorizontalOffset="-350" VerticalOffset="4" StaysOpen="False" AllowsTransparency="True" PopupAnimation="Fade">
+                            <Border Width="390" Style="{StaticResource SurfaceBorder}">
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
+                                    <TextBlock Grid.Row="0" Text="Y2 手动扫码" FontWeight="SemiBold" Foreground="#7B1FA2" Margin="0,0,0,8"/>
+                                    <Grid Grid.Row="1">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="36"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="产品编号" VerticalAlignment="Center" Foreground="#455A64"/>
+                                        <TextBox x:Name="Y2ManualScanTextBox" Grid.Column="1" Tag="2" Height="34" Margin="8,0"
+                                                 MaxLength="80" VerticalContentAlignment="Center" Padding="8,0"
+                                                 ToolTip="输入或扫描Y2产品编号" PreviewKeyDown="ManualScanTextBox_PreviewKeyDown"/>
+                                        <Button x:Name="Y2ManualScanSubmitButton" Grid.Column="2" Tag="2" Height="34"
+                                                Background="#7B1FA2" Foreground="White" BorderBrush="#7B1FA2"
+                                                FontFamily="Segoe UI Symbol" FontSize="17" Content="&#x2713;"
+                                                ToolTip="提交Y2扫码" Click="ManualScanSubmit_Click"/>
+                                    </Grid>
+                                    <TextBlock x:Name="Y2ManualScanMessage" Grid.Row="2" Margin="0,7,0,0" Foreground="#C62828"
+                                               TextWrapping="Wrap"/>
+                                </Grid>
+                            </Border>
+                        </Popup>
                     </Grid>
                     <Grid Grid.Row="1">
                         <Grid.ColumnDefinitions>
@@ -215,32 +274,32 @@
             </Border>
         </Grid>
 
-        <Grid Grid.Row="2" Margin="0,0,0,8">
+        <Grid Grid.Row="1" Margin="0,0,0,8">
             <Grid.RowDefinitions>
                 <RowDefinition Height="30"/>
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
             <TextBlock Grid.Row="0" Text="双Y产品过程记录" FontSize="15" FontWeight="SemiBold" Foreground="#263238" VerticalAlignment="Center"/>
-            <DataGrid Grid.Row="1" ItemsSource="{Binding Recordmodel.ProductInfoRecords}" FrozenColumnCount="3">
+            <DataGrid Grid.Row="1" ItemsSource="{Binding Recordmodel.ProductInfoRecords}" FrozenColumnCount="2"
+                      HorizontalScrollBarVisibility="Auto">
                 <DataGrid.Columns>
-                    <DataGridTextColumn Header="工位" Binding="{Binding StationDisplay}" Width="54"/>
-                    <DataGridTextColumn Header="编号" Binding="{Binding Productinfo.SN}" Width="135"/>
-                    <DataGridTextColumn Header="批号" Binding="{Binding Productinfo.WOCODE}" Width="110"/>
-                    <DataGridTextColumn Header="规格" Binding="{Binding Productinfo.PartNOID}" Width="100"/>
-                    <DataGridTextColumn Header="模式" Binding="{Binding TestMode}" Width="64"/>
-                    <DataGridCheckBoxColumn Header="耐压" Binding="{Binding TVResult}" Width="58"/>
-                    <DataGridTextColumn Header="最大电压" Binding="{Binding TVMaxVoltage, StringFormat={}{0:0.###}}" Width="82"/>
-                    <DataGridTextColumn Header="最大电流" Binding="{Binding TVMaxCurrent, StringFormat={}{0:0.###}}" Width="82"/>
-                    <DataGridTextColumn Header="阻值" Binding="{Binding Res, StringFormat={}{0:0.###}}" Width="72"/>
-                    <DataGridTextColumn Header="压力均值" Binding="{Binding Pressure_Average}" Width="76"/>
-                    <DataGridCheckBoxColumn Header="压力" Binding="{Binding Pressure_Result}" Width="58"/>
-                    <DataGridTextColumn Header="仪器编号" Binding="{Binding TVMeterID}" Width="92"/>
-                    <DataGridTextColumn Header="时间" Binding="{Binding DateTime, StringFormat={}{0:MM-dd HH:mm:ss}}" Width="120"/>
+                    <DataGridTextColumn Header="工位" Binding="{Binding StationDisplay}" Width="46"/>
+                    <DataGridTextColumn Header="产品编号" Binding="{Binding Productinfo.SN}" Width="150"/>
+                    <DataGridTextColumn Header="批号" Binding="{Binding Productinfo.WOCODE}" Width="96"/>
+                    <DataGridTextColumn Header="模式" Binding="{Binding TestMode}" Width="50"/>
+                    <DataGridTextColumn Header="耐压结果" Binding="{Binding TVResultDisplay}" Width="64"/>
+                    <DataGridTextColumn Header="电压(V)" Binding="{Binding TVMaxVoltageDisplay}" Width="70"/>
+                    <DataGridTextColumn Header="电流(mA)" Binding="{Binding TVMaxCurrentDisplay}" Width="74"/>
+                    <DataGridTextColumn Header="阻值" Binding="{Binding ResDisplay}" Width="62"/>
+                    <DataGridTextColumn Header="压力均值" Binding="{Binding PressureAverageDisplay}" Width="72"/>
+                    <DataGridTextColumn Header="压力结果" Binding="{Binding PressureResultDisplay}" Width="68"/>
+                    <DataGridTextColumn Header="仪器" Binding="{Binding TVMeterID}" Width="78"/>
+                    <DataGridTextColumn Header="测试时间" Binding="{Binding DateTime, StringFormat={}{0:MM-dd HH:mm:ss}}" Width="108"/>
                 </DataGrid.Columns>
             </DataGrid>
         </Grid>
 
-        <Grid Grid.Row="3" Margin="0,0,0,8">
+        <Grid Grid.Row="2" Margin="0,0,0,8">
             <Grid.RowDefinitions>
                 <RowDefinition Height="28"/>
                 <RowDefinition Height="*"/>
@@ -249,12 +308,12 @@
             <DataGrid Grid.Row="1" ItemsSource="{Binding Recordmodel.workLog}" RowHeight="26" ColumnHeaderHeight="28">
                 <DataGrid.Columns>
                     <DataGridTextColumn Header="时间" Binding="{Binding DateTime, StringFormat={}{0:HH:mm:ss.fff}}" Width="115"/>
-                    <DataGridTextColumn Header="信息" Binding="{Binding log}" Width="820" MinWidth="400"/>
+                    <DataGridTextColumn Header="信息" Binding="{Binding log}" Width="*" MinWidth="400"/>
                 </DataGrid.Columns>
             </DataGrid>
         </Grid>
 
-        <Grid Grid.Row="4">
+        <Grid Grid.Row="3">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="Auto"/>
@@ -269,7 +328,7 @@
             <TextBlock Grid.Column="2" VerticalAlignment="Center"
                        Text="{Binding Settingmodel.CurrentTestModeDisplay, StringFormat=工艺模式：{0}}"/>
             <TextBlock Grid.Column="4" Margin="18,0,4,0" Foreground="#607D8B" VerticalAlignment="Center"
-                       Text="界面选型来源：配置数据.xml / 双Y电测部署"/>
+                       Text="界面配置：双Y电测配置.xml"/>
         </Grid>
     </Grid>
 </UserControl>

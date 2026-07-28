@@ -122,6 +122,24 @@ namespace BusbarCompressionSystem.ViewModel
 
         public DataModel DataModel { get; set; } = new DataModel();
 
+        /// <summary>
+        /// 将当前过程参数绑定到三台耐压仪，并把各工位运行态初始化为交流测试。
+        /// 标准窗口和双Y专用窗口在设备连接前共用该入口；后续 PLC 触发仍可按产品测试模式切换 ACW/DCW 参数。
+        /// </summary>
+        public void InitializeElectricalRuntimeParameters()
+        {
+            DataModel.Processmodel.ACWParameter.TestMode = AT9620.TestMode.ACW;
+            DataModel.Processmodel.DCWParameter.TestMode = AT9620.TestMode.DCW;
+
+            DataModel.Settingmodel.AT9620_1.TVParameter = DataModel.Processmodel.ACWParameter;
+            DataModel.Settingmodel.AT9620_2.TVParameter = DataModel.Processmodel.ACWParameter;
+            DataModel.Settingmodel.AT9620_3.TVParameter = DataModel.Processmodel.ACWParameter;
+
+            DataModel.Processmodel.LastTV1TestMode = AT9620.TestMode.ACW;
+            DataModel.Processmodel.LastTV2TestMode = AT9620.TestMode.ACW;
+            DataModel.Processmodel.LastTV3TestMode = AT9620.TestMode.ACW;
+        }
+
         #region 操作
         /// <summary>
         /// 处理扫码数据，完成产品SN的解码、验证和数据库记录创建
@@ -153,7 +171,7 @@ namespace BusbarCompressionSystem.ViewModel
         {
             if (IsDualYElectricalTestModeActive())
             {
-                return ProcessScanSnToPlc(snstr, DataModel.Settingmodel.AddressSN, 1, true, true, "双Y-工位1扫码");
+                return ProcessScanSnToPlc(snstr, DataModel.DualYConfiguration.Station1ScanSnAddress, 1, true, true, "双Y-工位1扫码");
             }
 
             return ProcessScanSnToPlc(snstr, DataModel.Settingmodel.AddressSN, 1, false, false, "扫码");
@@ -512,24 +530,24 @@ namespace BusbarCompressionSystem.ViewModel
         internal string ScanDualYStationSn(string snstr, int dualYStationIndex)
         {
             int plcSnAddress = dualYStationIndex == 2
-                ? DataModel.Settingmodel.DualYStation2ScanSnAddress
-                : DataModel.Settingmodel.AddressSN;
+                ? DataModel.DualYConfiguration.Station2ScanSnAddress
+                : DataModel.DualYConfiguration.Station1ScanSnAddress;
 
             return ProcessScanSnToPlc(snstr, plcSnAddress, dualYStationIndex, true, true, $"双Y-工位{dualYStationIndex}扫码");
         }
 
         /// <summary>
         /// 扫码进站共用业务链。
-        /// 该方法负责 MES 解码、工单与规格校验、本地 SQLite 建账、PLC 产品码写入；双Y模式在同一链路上按工位选择 D800/D950，并补齐界面过程行。
+        /// 该方法负责 MES 解码、工单与规格校验、本地 SQLite 建账、PLC 产品码写入；双Y模式在同一链路上按工位选择产品码地址并开始独立测试会话。
         /// </summary>
         /// <param name="snstr">扫码器读取到的原始条码。</param>
         /// <param name="plcSnAddress">扫码成功后写入 PLC 的 D 寄存器地址，内容格式为 SN;WOCODE。</param>
         /// <param name="stationIndex">调用方所属工位，用于日志和双Y界面行归属。</param>
-        /// <param name="createDualYProductRecord">双Y仅电测模式扫码成功后创建界面占位行，承担原拍照留底建行角色。</param>
+        /// <param name="beginDualYProductSession">双Y仅电测模式扫码成功后开始工位测试会话并刷新工位卡片。</param>
         /// <param name="plcWriteRequired">PLC 写码作为扫码放行条件时传 true，适用于 D950 等双Y进站链路。</param>
         /// <param name="contextTag">日志中的流程名称。</param>
         /// <returns>业务失败原因；空字符串表示扫码业务已完成。</returns>
-        private string ProcessScanSnToPlc(string snstr, int plcSnAddress, int stationIndex, bool createDualYProductRecord, bool plcWriteRequired, string contextTag)
+        private string ProcessScanSnToPlc(string snstr, int plcSnAddress, int stationIndex, bool beginDualYProductSession, bool plcWriteRequired, string contextTag)
         {
             // 点检标准件跳过普通产品的工单一致性和混批校验，仍从 MES 取得工单、料号用于 PLC 移位和 SQLite 追溯。
             int inspectionMatchCount = GetInspectionSnMatchCount(snstr);
@@ -574,20 +592,21 @@ namespace BusbarCompressionSystem.ViewModel
                     }
                 }
 
-                bool dbResult = sqlite.CREATENEWLINE(wocode, partnoid, inspectionSn, DataModel.Settingmodel.SETTING_DATA.StationCode, DataModel.Settingmodel.SETTING_DATA.MachineID, DateTime.Now);
-                writeLog($"[{contextTag}] 创建数据库记录: wocode={wocode}, partnoid={partnoid}, SN={inspectionSn}, 工位={DataModel.Settingmodel.SETTING_DATA.StationCode}, 设备={DataModel.Settingmodel.SETTING_DATA.MachineID}");
+                bool dbResult = PrepareScanPersistence(wocode, partnoid, inspectionSn, beginDualYProductSession, DateTime.Now);
+                string persistenceAction = beginDualYProductSession ? "初始化本地测试数据库" : "创建数据库记录";
+                writeLog($"[{contextTag}] {persistenceAction}: wocode={wocode}, partnoid={partnoid}, SN={inspectionSn}, 工位={DataModel.Settingmodel.SETTING_DATA.StationCode}, 设备={DataModel.Settingmodel.SETTING_DATA.MachineID}");
                 if (!dbResult)
                 {
-                    writeLog($"[{contextTag}] 数据库记录创建失败，wocode={wocode}, SN={inspectionSn}", true);
-                    if (createDualYProductRecord)
+                    writeLog($"[{contextTag}] 本地数据准备失败，wocode={wocode}, SN={inspectionSn}", true);
+                    if (beginDualYProductSession)
                     {
-                        return "数据库记录创建失败";
+                        return "本地测试数据库初始化失败";
                     }
                 }
 
-                if (createDualYProductRecord)
+                if (beginDualYProductSession)
                 {
-                    EnsureProductInfoRecord(inspectionSn, wocode, partnoid, stationIndex);
+                        BeginDualYProductSession(inspectionSn, wocode, partnoid, stationIndex);
                 }
 
                 writeLog($"[{contextTag}] 点检扫码处理成功");
@@ -653,21 +672,22 @@ namespace BusbarCompressionSystem.ViewModel
                     }
                 }
                 
-                writeLog($"[{contextTag}] 创建数据库记录: wocode={wocode}, partnoid={partnoid}, SN={sn}, 工位={DataModel.Settingmodel.SETTING_DATA.StationCode}, 设备={DataModel.Settingmodel.SETTING_DATA.MachineID}");
-                bool dbResult = sqlite.CREATENEWLINE(wocode, partnoid, sn, DataModel.Settingmodel.SETTING_DATA.StationCode, DataModel.Settingmodel.SETTING_DATA.MachineID, DateTime.Now);
-                
+                string persistenceAction = beginDualYProductSession ? "初始化本地测试数据库" : "创建数据库记录";
+                writeLog($"[{contextTag}] {persistenceAction}: wocode={wocode}, partnoid={partnoid}, SN={sn}, 工位={DataModel.Settingmodel.SETTING_DATA.StationCode}, 设备={DataModel.Settingmodel.SETTING_DATA.MachineID}");
+                bool dbResult = PrepareScanPersistence(wocode, partnoid, sn, beginDualYProductSession, DateTime.Now);
+
                 if (!dbResult)
                 {
-                    writeLog($"[{contextTag}] 数据库记录创建失败，wocode={wocode}, SN={sn}", true);
-                    if (createDualYProductRecord)
+                    writeLog($"[{contextTag}] 本地数据准备失败，wocode={wocode}, SN={sn}", true);
+                    if (beginDualYProductSession)
                     {
-                        return "数据库记录创建失败";
+                        return "本地测试数据库初始化失败";
                     }
                 }
 
-                if (createDualYProductRecord)
+                if (beginDualYProductSession)
                 {
-                    EnsureProductInfoRecord(sn, wocode, partnoid, stationIndex);
+                    BeginDualYProductSession(sn, wocode, partnoid, stationIndex);
                 }
                 
                 writeLog($"[{contextTag}] 扫码处理成功");
@@ -683,6 +703,33 @@ namespace BusbarCompressionSystem.ViewModel
             //{
             //    return "拍照位已经有产品编号，请勿重复扫码";
             //}
+        }
+
+        /// <summary>
+        /// 准备扫码进站后的本地数据存储。
+        /// 标准产线继续创建供拍照、电测和 CHECK 阶段逐步补齐的占位行；双Y只创建并校验工单数据库结构，
+        /// 每次实际 ACW/DCW 测试完成后再独立插入过程行，保证数据库中的双Y电测行与仪器测试次数一一对应。
+        /// </summary>
+        /// <param name="wocode">MES 返回的当前产品工单号，用于定位本地工单数据库。</param>
+        /// <param name="partnoid">MES 返回的当前产品规格编码。</param>
+        /// <param name="sn">扫码确认后的产品序列号。</param>
+        /// <param name="dualYSession">true 表示双Y仅电测会话；false 表示标准产线扫码流程。</param>
+        /// <param name="scannedAt">标准产线占位行时间；双Y会话只用于保持统一调用口径。</param>
+        /// <returns>工单数据库可用且对应模式的扫码持久化准备完成时返回 true。</returns>
+        private bool PrepareScanPersistence(string wocode, string partnoid, string sn, bool dualYSession, DateTime scannedAt)
+        {
+            if (dualYSession)
+            {
+                return !string.IsNullOrWhiteSpace(sqlite.CheckDataBase(wocode, partnoid, sn));
+            }
+
+            return sqlite.CREATENEWLINE(
+                wocode,
+                partnoid,
+                sn,
+                DataModel.Settingmodel.SETTING_DATA.StationCode,
+                DataModel.Settingmodel.SETTING_DATA.MachineID,
+                scannedAt);
         }
 
         /// <summary>
@@ -1119,58 +1166,117 @@ namespace BusbarCompressionSystem.ViewModel
         #region PLC通讯
 
         /// <summary>
-        /// 用于跟踪PLC连接状态，避免重复记录日志
-        /// true表示上次循环时PLC已连接，false表示上次循环时PLC未连接
+        /// 处理标准上料扫码器的 PLC 触发。标准产线沿用原扫码输入和结果反馈；
+        /// 双Y模式将该设备固定为 Y1，并与 Y1 手动扫码及归档共享工位互斥和完整业务链。
         /// </summary>
         public void ScannerProcess()
         {
+            bool dualYModeActive = IsDualYElectricalTestModeActive();
+            bool dualYScanAcquired = false;
+            if (dualYModeActive)
+            {
+                string busyReason;
+                if (!TryBeginDualYScanProcessing(1, out busyReason))
+                {
+                    writeLog($"[双Y-工位1自动扫码] {busyReason}，忽略重复触发。", true);
+                    return;
+                }
+
+                dualYScanAcquired = true;
+            }
+
             try
             {
-                if (DataModel.Settingmodel.ScannerMode == "HF800")
+                string scannerMode = dualYModeActive
+                    ? DataModel.DualYConfiguration.Station1ScannerMode
+                    : DataModel.Settingmodel.ScannerMode;
+                if (scannerMode == "HF800")
                 {
-                    var r = DataModel.Settingmodel.HF800.Scanner();
+                    var scanner = dualYModeActive
+                        ? DataModel.DualYConfiguration.Station1HF800
+                        : DataModel.Settingmodel.HF800;
+                    var r = scanner.Scanner();
                     // 添加空值检查，防止r.value为null时崩溃
                     if (r.Status == Honeywell.Status.OK && !string.IsNullOrEmpty(r.value))
                     {
                         string s = r.value.Replace("\r", "").Replace("\n", "").Trim();
-                        DataModel.Processmodel.sninputstr = s;
-                        //SQLITEDATABASE.sqlite.CREATENEWLINE("1", "1", s);
-                        //PLC_write((DataModel.Settingmodel.AddressStart + 1).ToString(), (UInt16)1);
-                        var R = ScanSN();
-                        PLC_write((DataModel.Settingmodel.AddressStart + 1).ToString(), (UInt16)(R ? 1 : 2));
+                        if (dualYModeActive)
+                        {
+                            ExecuteDualYStationScan(s, 1, "自动");
+                        }
+                        else
+                        {
+                            DataModel.Processmodel.sninputstr = s;
+                            var businessOk = ScanSN();
+                            PLC_write((DataModel.Settingmodel.AddressStart + 1).ToString(), (UInt16)(businessOk ? 1 : 2));
+                        }
                     }
                     else
                     {
-                        // 扫码失败，写入PLC失败状态
-                        PLC_write((DataModel.Settingmodel.AddressStart + 1).ToString(), (UInt16)2);
+                        if (dualYModeActive)
+                        {
+                            CompleteDualYScanReadFailure(1, "自动", "扫码器未读取到有效产品编号");
+                        }
+                        else
+                        {
+                            PLC_write((DataModel.Settingmodel.AddressStart + 1).ToString(), (UInt16)2);
+                        }
                     }
                 }
                 else
                 {
-                    var r = DataModel.Settingmodel.ScannerModel.Scanner();
+                    var scanner = dualYModeActive
+                        ? DataModel.DualYConfiguration.Station1ScannerModel
+                        : DataModel.Settingmodel.ScannerModel;
+                    var r = scanner.Scanner();
                     string s = r.receivestring?.Replace("\r", "").Replace("\n", "").Trim() ?? "";
-                    if (!String.IsNullOrEmpty(s))
+                    if (dualYModeActive)
                     {
-                        //s = "7Y00000000" + ((byte)(new Random().NextDouble() * 10)).ToString();
-                        //s = $"7Y0000{DateTime.Now.ToString("MMss")}";
-                        DataModel.Processmodel.sninputstr = s;
-                        var R = ScanSN();
-                        PLC_write((DataModel.Settingmodel.AddressStart + 1).ToString(), (UInt16)(r.IsSuccess && R ? 1 : 2));
+                        if (r.IsSuccess && !string.IsNullOrEmpty(s))
+                        {
+                            ExecuteDualYStationScan(s, 1, "自动");
+                        }
+                        else
+                        {
+                            CompleteDualYScanReadFailure(1, "自动", "扫码器未读取到有效产品编号");
+                        }
                     }
                     else
                     {
-                        PLC_write((DataModel.Settingmodel.AddressStart + 1).ToString(), (UInt16)2);
+                        if (!string.IsNullOrEmpty(s))
+                        {
+                            DataModel.Processmodel.sninputstr = s;
+                            var businessOk = ScanSN();
+                            PLC_write((DataModel.Settingmodel.AddressStart + 1).ToString(), (UInt16)(r.IsSuccess && businessOk ? 1 : 2));
+                        }
+                        else
+                        {
+                            PLC_write((DataModel.Settingmodel.AddressStart + 1).ToString(), (UInt16)2);
+                        }
                     }
                 }
             }
             catch (Exception ex)
             {
-                // 异常处理，防止崩溃，写入PLC失败状态
-                try
+                if (dualYModeActive)
                 {
-                    PLC_write((DataModel.Settingmodel.AddressStart + 1).ToString(), (UInt16)2);
+                    CompleteDualYScanReadFailure(1, "自动", $"扫码处理异常：{ex.Message}");
                 }
-                catch { }
+                else
+                {
+                    try
+                    {
+                        PLC_write((DataModel.Settingmodel.AddressStart + 1).ToString(), (UInt16)2);
+                    }
+                    catch { }
+                }
+            }
+            finally
+            {
+                if (dualYScanAcquired)
+                {
+                    EndDualYScanProcessing(1);
+                }
             }
         }
 
@@ -1709,48 +1815,59 @@ namespace BusbarCompressionSystem.ViewModel
             string partnoid = DataModel.Processmodel.TVTestTestModel1.Productinfo.PartNOID;
             string sn = DataModel.Processmodel.TVTestTestModel1.Productinfo.SN;
 
-            // 判断是否为双测模式的第二次测试
-            bool isSecondTest = CheckIsSecondTest(wocode, partnoid, sn, isACW, testType);
-
             bool updateTvResult;
-            if (isSecondTest)
+            if (IsDualYElectricalTestModeActive())
             {
-                // 双测模式第二次测试：插入新记录
-                updateTvResult = sqlite.InsertTV_SecondTest(wocode, partnoid, sn,
-                    DataModel.Settingmodel.SETTING_DATA.StationCode,
-                    DataModel.Settingmodel.SETTING_DATA.MachineID,
-                    res,
+                updateTvResult = PersistDualYTestAttempt(
+                    1, sn, wocode, partnoid, res,
                     DataModel.Processmodel.TVTestTestModel1.TVMaxVoltage,
                     r.Success,
                     DataModel.Processmodel.TVTestTestModel1.TVMaxCurrent,
                     localizedTvInfo1,
-                    DataModel.Settingmodel.SETTING_DATA.TVMeterID1);
-                writeLog($"[耐压1-{testType}] 双测模式第二次测试，插入新记录");
+                    DataModel.Settingmodel.SETTING_DATA.TVMeterID1,
+                    testType);
             }
             else
             {
-                // 单测模式或双测模式第一次测试：更新现有记录
-                updateTvResult = sqlite.UpdateTV(wocode, partnoid, sn,
-                    res,
+                // 标准产线保持占位行加双模式行的历史存储口径。
+                bool isSecondTest = CheckIsSecondTest(wocode, partnoid, sn, isACW, testType);
+                if (isSecondTest)
+                {
+                    updateTvResult = sqlite.InsertTV_SecondTest(wocode, partnoid, sn,
+                        DataModel.Settingmodel.SETTING_DATA.StationCode,
+                        DataModel.Settingmodel.SETTING_DATA.MachineID,
+                        res,
+                        DataModel.Processmodel.TVTestTestModel1.TVMaxVoltage,
+                        r.Success,
+                        DataModel.Processmodel.TVTestTestModel1.TVMaxCurrent,
+                        localizedTvInfo1,
+                        DataModel.Settingmodel.SETTING_DATA.TVMeterID1);
+                    writeLog($"[耐压1-{testType}] 双测模式第二次测试，插入新记录");
+                }
+                else
+                {
+                    updateTvResult = sqlite.UpdateTV(wocode, partnoid, sn,
+                        res,
+                        DataModel.Processmodel.TVTestTestModel1.TVMaxVoltage,
+                        r.Success,
+                        DataModel.Processmodel.TVTestTestModel1.TVMaxCurrent,
+                        localizedTvInfo1,
+                        DataModel.Settingmodel.SETTING_DATA.TVMeterID1);
+                }
+
+                updatetv(sn, res,
                     DataModel.Processmodel.TVTestTestModel1.TVMaxVoltage,
                     r.Success,
                     DataModel.Processmodel.TVTestTestModel1.TVMaxCurrent,
                     localizedTvInfo1,
-                    DataModel.Settingmodel.SETTING_DATA.TVMeterID1);
+                    DataModel.Settingmodel.SETTING_DATA.TVMeterID1,
+                    testType);
             }
             
             if (!updateTvResult)
             {
                 writeLog($"[耐压1-{testType}] ⚠ 数据库更新失败! SN={sn}, RES={res}", true);
             }
-
-            updatetv(sn, res,
-                DataModel.Processmodel.TVTestTestModel1.TVMaxVoltage,
-                r.Success,
-                DataModel.Processmodel.TVTestTestModel1.TVMaxCurrent,
-                localizedTvInfo1,
-                DataModel.Settingmodel.SETTING_DATA.TVMeterID1,
-                testType);
 
             if (!r.Success)
             {
@@ -2080,48 +2197,59 @@ namespace BusbarCompressionSystem.ViewModel
             string partnoid = DataModel.Processmodel.TVTestTestModel2.Productinfo.PartNOID;
             string sn = DataModel.Processmodel.TVTestTestModel2.Productinfo.SN;
 
-            // 判断是否为双测模式的第二次测试
-            bool isSecondTest = CheckIsSecondTest(wocode, partnoid, sn, isACW, testType);
-
             bool updateTvResult;
-            if (isSecondTest)
+            if (IsDualYElectricalTestModeActive())
             {
-                // 双测模式第二次测试：插入新记录
-                updateTvResult = sqlite.InsertTV_SecondTest(wocode, partnoid, sn,
-                    DataModel.Settingmodel.SETTING_DATA.StationCode,
-                    DataModel.Settingmodel.SETTING_DATA.MachineID,
-                    res,
+                updateTvResult = PersistDualYTestAttempt(
+                    2, sn, wocode, partnoid, res,
                     DataModel.Processmodel.TVTestTestModel2.TVMaxVoltage,
                     r.Success,
                     DataModel.Processmodel.TVTestTestModel2.TVMaxCurrent,
                     localizedTvInfo2,
-                    DataModel.Settingmodel.SETTING_DATA.TVMeterID2);
-                writeLog($"[耐压2-{testType}] 双测模式第二次测试，插入新记录");
+                    DataModel.Settingmodel.SETTING_DATA.TVMeterID2,
+                    testType);
             }
             else
             {
-                // 单测模式或双测模式第一次测试：更新现有记录
-                updateTvResult = sqlite.UpdateTV(wocode, partnoid, sn,
-                    res,
+                // 标准产线保持占位行加双模式行的历史存储口径。
+                bool isSecondTest = CheckIsSecondTest(wocode, partnoid, sn, isACW, testType);
+                if (isSecondTest)
+                {
+                    updateTvResult = sqlite.InsertTV_SecondTest(wocode, partnoid, sn,
+                        DataModel.Settingmodel.SETTING_DATA.StationCode,
+                        DataModel.Settingmodel.SETTING_DATA.MachineID,
+                        res,
+                        DataModel.Processmodel.TVTestTestModel2.TVMaxVoltage,
+                        r.Success,
+                        DataModel.Processmodel.TVTestTestModel2.TVMaxCurrent,
+                        localizedTvInfo2,
+                        DataModel.Settingmodel.SETTING_DATA.TVMeterID2);
+                    writeLog($"[耐压2-{testType}] 双测模式第二次测试，插入新记录");
+                }
+                else
+                {
+                    updateTvResult = sqlite.UpdateTV(wocode, partnoid, sn,
+                        res,
+                        DataModel.Processmodel.TVTestTestModel2.TVMaxVoltage,
+                        r.Success,
+                        DataModel.Processmodel.TVTestTestModel2.TVMaxCurrent,
+                        localizedTvInfo2,
+                        DataModel.Settingmodel.SETTING_DATA.TVMeterID2);
+                }
+
+                updatetv(sn, res,
                     DataModel.Processmodel.TVTestTestModel2.TVMaxVoltage,
                     r.Success,
                     DataModel.Processmodel.TVTestTestModel2.TVMaxCurrent,
                     localizedTvInfo2,
-                    DataModel.Settingmodel.SETTING_DATA.TVMeterID2);
+                    DataModel.Settingmodel.SETTING_DATA.TVMeterID2,
+                    testType);
             }
             
             if (!updateTvResult)
             {
                 writeLog($"[耐压2-{testType}] ⚠ 数据库更新失败! SN={sn}, RES={res}", true);
             }
-
-            updatetv(sn, res,
-                DataModel.Processmodel.TVTestTestModel2.TVMaxVoltage,
-                r.Success,
-                DataModel.Processmodel.TVTestTestModel2.TVMaxCurrent,
-                localizedTvInfo2,
-                DataModel.Settingmodel.SETTING_DATA.TVMeterID2,
-                testType);
 
             if (!r.Success)
             {

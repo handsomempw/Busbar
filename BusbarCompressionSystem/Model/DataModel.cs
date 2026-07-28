@@ -11,6 +11,7 @@
  */
 
 using BusbarCompressionSystem.FaraVision;
+using BusbarCompressionSystem.Model.Setting1;
 using GalaSoft.MvvmLight;
 using System;
 using System.Collections.Generic;
@@ -33,7 +34,23 @@ namespace BusbarCompressionSystem.Model
         [XmlElement("配置模型")]
         public SettingModel Settingmodel { get; set; } = new SettingModel();
 
-        public FaraVisionDataModel FaraVisionDataModel { set; get; } = new FaraVisionDataModel();
+        private FaraVisionDataModel _faraVisionDataModel;
+
+        /// <summary>
+        /// 标准产线的 FaraVision 运行模型。双Y专用窗口不会访问该属性，视觉模型和相机对象只在标准产线实际使用时创建。
+        /// </summary>
+        public FaraVisionDataModel FaraVisionDataModel
+        {
+            get { return _faraVisionDataModel ?? (_faraVisionDataModel = new FaraVisionDataModel()); }
+            set { _faraVisionDataModel = value; }
+        }
+
+        /// <summary>
+        /// 双Y机台专用配置，独立保存到“配置\双Y电测配置.xml”。
+        /// 普通扫码、标准视觉和机器人配置继续由 <see cref="Settingmodel"/> 管理。
+        /// </summary>
+        [XmlIgnore]
+        public DualYElectricalTestConfiguration DualYConfiguration { get; set; } = new DualYElectricalTestConfiguration();
 
 
         #endregion

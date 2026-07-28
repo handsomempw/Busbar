@@ -41,6 +41,11 @@ namespace AT6835FL
         public bool stop { get; set; } = false;
 
         /// <summary>
+        /// Start 会话占用计数。软件退出时据此等待测试线程先完成 STAT:DISC，再关闭串口。
+        /// </summary>
+        private int _testSessionActive;
+
+        /// <summary>
         /// 串口连接状态，仅作为运行时状态标记
         /// </summary>
         [XmlIgnore]
@@ -402,6 +407,34 @@ namespace AT6835FL
                 isconnected = false;
                 _serialDebugSessionFile = null;
             }
+        }
+
+        /// <summary>
+        /// 软件退出时中止绝缘电阻测试并关闭串口。
+        /// 先置位 stop，等待测试线程在串口仍打开时发送 STAT:DISC 放电；超时后若连接仍在则补发一次放电，再关闭串口。
+        /// </summary>
+        public void Shutdown()
+        {
+            stop = true;
+
+            int deadline = Environment.TickCount + 3000;
+            while (Volatile.Read(ref _testSessionActive) != 0 && unchecked(Environment.TickCount - deadline) < 0)
+            {
+                Thread.Sleep(50);
+            }
+
+            if (isconnected)
+            {
+                try
+                {
+                    Send("STAT:DISC");
+                }
+                catch
+                {
+                }
+            }
+
+            Disconnect();
         }
 
         /// <summary>
@@ -846,12 +879,14 @@ namespace AT6835FL
                 return result;
             }
 
+            Interlocked.Exchange(ref _testSessionActive, 1);
             try
             {
                 result = _Start();
             }
             finally
             {
+                Interlocked.Exchange(ref _testSessionActive, 0);
                 Disconnect();
             }
 

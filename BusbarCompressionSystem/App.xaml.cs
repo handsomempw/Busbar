@@ -17,6 +17,7 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
+using BusbarCompressionSystem.Utils;
 
 namespace BusbarCompressionSystem
 {
@@ -26,15 +27,23 @@ namespace BusbarCompressionSystem
     public partial class App : Application
     {
         /// <summary>
-        /// 应用程序启动时的初始化
+        /// 应用程序启动时先读取双Y部署配置，再创建对应主窗口。
+        /// 双Y部署直接进入纯电测窗口，标准部署进入包含 AOI、HALCON 和相机控件的主窗口。
         /// </summary>
-        /// <param name="e">启动参数</param>
+        /// <param name="e">应用程序启动参数，当前窗口选型不依赖命令行参数。</param>
         protected override void OnStartup(StartupEventArgs e)
         {
             base.OnStartup(e);
 
             // 注册全局异常处理器，防止应用程序闪退
             this.DispatcherUnhandledException += App_DispatcherUnhandledException;
+
+            Window startupWindow = DualYDeploymentBootstrap.ShouldUseDualYWindow()
+                ? (Window)new DualYMainWindow()
+                : new MainWindow();
+            MainWindow = startupWindow;
+            ShutdownMode = ShutdownMode.OnMainWindowClose;
+            startupWindow.Show();
         }
 
         /// <summary>

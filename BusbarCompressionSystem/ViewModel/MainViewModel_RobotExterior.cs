@@ -95,7 +95,7 @@ namespace BusbarCompressionSystem.ViewModel
             DataModel.Settingmodel.TcpServerRobot.ClientConnected += RobotTcpServer_ClientConnected;
             DataModel.Settingmodel.TcpServerRobot.ClientDisconnected += RobotTcpServer_ClientDisconnected;
             DataModel.Settingmodel.TcpServerRobot.MessageReceived += RobotTcpServer_MessageReceived;
-            new Thread(() =>
+            var listenerThread = new Thread(() =>
             {
                 try
                 {
@@ -106,7 +106,12 @@ namespace BusbarCompressionSystem.ViewModel
                 {
                     writeError(ex2.Message + Environment.NewLine + ex2.StackTrace);
                 }
-            }).Start(); ;
+            })
+            {
+                IsBackground = true,
+                Name = "机器人TCP监听启动"
+            };
+            listenerThread.Start();
 
         }
         /// <summary>
@@ -191,13 +196,13 @@ namespace BusbarCompressionSystem.ViewModel
         /// 压力判定 NG3 时写入数据库追踪日志。
         /// </summary>
         /// <param name="stageTag">流程阶段标识，如 CHECK1、点检CHECK1。</param>
-        /// <param name="maxPressure">PLC 读取的最大压力。</param>
-        /// <param name="minPressure">PLC 读取的最小压力。</param>
-        /// <param name="averagePressure">PLC 读取的平均压力。</param>
+        /// <param name="maxPressure">PLC 读取的最大压力；双Y为 uint32，标准流程的 uint16 值按同一单位提升。</param>
+        /// <param name="minPressure">PLC 读取的最小压力；双Y为 uint32，标准流程的 uint16 值按同一单位提升。</param>
+        /// <param name="averagePressure">PLC 读取的平均压力；双Y为 uint32，标准流程的 uint16 值按同一单位提升。</param>
         /// <param name="pressureResult">当前判定的压力合格标志。</param>
         /// <param name="sn">产品 SN。</param>
         /// <param name="wocode">批次号。</param>
-        private void TracePressureNg3IfFailed(string stageTag, UInt16 maxPressure, UInt16 minPressure, UInt16 averagePressure, bool pressureResult, string sn, string wocode)
+        private void TracePressureNg3IfFailed(string stageTag, UInt32 maxPressure, UInt32 minPressure, UInt32 averagePressure, bool pressureResult, string sn, string wocode)
         {
             if (pressureResult)
             {

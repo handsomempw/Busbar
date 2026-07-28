@@ -42,7 +42,9 @@
 
                 <CheckBox Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" IsChecked="{Binding  Processmodel.TVAvailable.TV1Available}">仪器1:</CheckBox>
                 <CheckBox Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" IsChecked="{Binding  Processmodel.TVAvailable.TV2Available}">仪器2:</CheckBox>
-                <CheckBox Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" IsChecked="{Binding  Processmodel.TVAvailable.TV3Available}" ToolTip="耐压3启用状态，来源M3032，与IR(M3033)按产品节拍互斥">仪器3:</CheckBox>
+                <CheckBox x:Name="TV3AvailableCb" Grid.Row="2" Grid.Column="0" VerticalAlignment="Center"
+                          IsChecked="{Binding Processmodel.TVAvailable.TV3Available}"
+                          ToolTip="耐压3启用状态，来源M3032，与IR(M3033)按产品节拍互斥">仪器3:</CheckBox>
                 
                 <TextBox x:Name="TV1Tb" Grid.Row="0" Grid.Column="1" Margin="5" Text="{Binding Settingmodel.SETTING_DATA.TVMeterID1}" KeyDown="TV1Tb_KeyDown"/>
                 <TextBox x:Name="TV2Tb" Grid.Row="1" Grid.Column="1" Margin="5" Text="{Binding Settingmodel.SETTING_DATA.TVMeterID2}" KeyDown="TV2Tb_KeyDown"/>

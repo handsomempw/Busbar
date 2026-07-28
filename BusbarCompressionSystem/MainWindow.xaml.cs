@@ -58,29 +58,9 @@ namespace BusbarCompressionSystem
         private CancellationTokenSource aoiPermissionCts;
 
         /// <summary>
-        /// 本次启动从配置数据读取的双Y专用部署选择。该值限定 AOI、HALCON、相机和机器人资源的生命周期，
-        /// 启动后保持稳定，产品运行时的双Y流向继续由 PLC M3050 决定。
+        /// 标准窗口关闭流程门闩。操作员确认关闭后保持为 true，避免重复保存 AOI 工程或释放设备连接。
         /// </summary>
-        private bool _dualYElectricalTestDeployment;
-
-        /// <summary>
-        /// 标准生产命令可用状态的依赖属性，供标题栏模板同步控制 AOI 工程菜单和权限入口。
-        /// </summary>
-        public static readonly DependencyProperty StandardProductionCommandsAvailableProperty =
-            DependencyProperty.Register(
-                nameof(StandardProductionCommandsAvailable),
-                typeof(bool),
-                typeof(MainWindow),
-                new PropertyMetadata(false));
-
-        /// <summary>
-        /// 标准生产部署允许操作 AOI 工程和编辑权限；双Y专用部署隐藏权限入口并阻止工程菜单交互。
-        /// </summary>
-        public bool StandardProductionCommandsAvailable
-        {
-            get { return (bool)GetValue(StandardProductionCommandsAvailableProperty); }
-            private set { SetValue(StandardProductionCommandsAvailableProperty, value); }
-        }
+        private bool _shutdownStarted;
 
         public MainWindow()
         {
@@ -115,6 +95,12 @@ namespace BusbarCompressionSystem
                 : string.Format("{0} v{1}", productTitle, versionText);
         }
 
+        /// <summary>
+        /// 加载标准生产窗口所需的系统配置、AOI 工程、HALCON 窗口、相机、机器人、电测仪和 PLC 轮询。
+        /// 双Y专用部署由应用启动入口创建 <see cref="DualYMainWindow" />，因此该窗口始终执行完整标准产线初始化。
+        /// </summary>
+        /// <param name="sender">标准主窗口加载事件来源。</param>
+        /// <param name="e">窗口加载事件参数，业务流程不读取附加状态。</param>
         private void WindowX_Loaded(object sender, RoutedEventArgs e)
         {
 
@@ -125,57 +111,19 @@ namespace BusbarCompressionSystem
             vml.Main.LoadRecordModel();
             vml.Main.LoadProcessmodel();
             ApplyProductInfoRecordsSort();
-            _dualYElectricalTestDeployment = vml.Main.IsDualYElectricalTestDeployment();
-            ApplyProductionLayout(_dualYElectricalTestDeployment);
-
-            if (!_dualYElectricalTestDeployment)
-            {
-                vml.Main.Faravision_LoadSettingModel();
-                vml.Main.Load_Prj();
-            }
+            vml.Main.Faravision_LoadSettingModel();
+            vml.Main.Load_Prj();
 
             inittvparameter();
             vml.Main.InitAt9620();
             vml.Main.InitAT6835FL();
             vml.Main.PLC_shankhand();
             vml.Main.PLC_Start();
-            if (!_dualYElectricalTestDeployment)
-            {
-                InitHwindow();
-                vml.Main.InitCamera();
-                vml.Main.InitRobotServer();
-                vml.Main.InitHwindow(Hwindow4.HalconWindow);
-                InitFaraVisionCamera();
-            }
-            else
-            {
-                vml.Main.writeLog("[双Y电测] 部署模式跳过 FaraVision 配置、AOI 工程、HALCON 窗口、相机硬件、机器人 TCP 监听和 FaraVision 相机列表初始化");
-            }
-        }
-
-        /// <summary>
-        /// 根据配置数据 XML 的双Y部署标志选择本次启动使用的生产界面。
-        /// 该选择与物理机台和显示器长期对应，启动后保持稳定；PLC M3050 负责产品业务流向和界面实时状态。
-        /// </summary>
-        /// <param name="dualYElectricalTestDeployment">
-        /// 配置数据.xml 中的“双Y电测部署”值；true 使用双Y小屏视图，false 使用标准相机/AOI生产视图。
-        /// </param>
-        private void ApplyProductionLayout(bool dualYElectricalTestDeployment)
-        {
-            DataContext = vml.Main.DataModel;
-            StandardProductionCommandsAvailable = !dualYElectricalTestDeployment;
-            StandardProductionLayout.Visibility = dualYElectricalTestDeployment ? Visibility.Collapsed : Visibility.Visible;
-            DualYProductionLayout.Visibility = dualYElectricalTestDeployment ? Visibility.Visible : Visibility.Collapsed;
-
-            if (dualYElectricalTestDeployment)
-            {
-                Title = string.Format("{0} · 双Y小屏", Title);
-                vml.Main.writeLog("[界面配置] 已按配置数据.xml启用双Y小屏生产界面");
-            }
-            else
-            {
-                vml.Main.writeLog("[界面配置] 已按配置数据.xml启用标准生产界面");
-            }
+            InitHwindow();
+            vml.Main.InitCamera();
+            vml.Main.InitRobotServer();
+            vml.Main.InitHwindow(Hwindow4.HalconWindow);
+            InitFaraVisionCamera();
         }
 
         private void ApplyProductInfoRecordsSort()
@@ -218,54 +166,71 @@ namespace BusbarCompressionSystem
 
         /// <summary>
         /// 处理操作员确认后的软件关闭流程。
-        /// 两种部署均保存系统配置、界面过程记录和生产过程参数；标准部署继续保存 FaraVision 配置与 AOI 工程并关闭相机，
-        /// 双Y专用部署只处理电测运行数据和扫码器连接。标准部署的工程保存先于动态密码资源释放，以保留参数审计需要的授权人上下文。
+        /// 标准生产窗口保存系统配置、过程记录、FaraVision 配置和 AOI 工程，再关闭相机并释放标准通信。
+        /// 工程保存先于动态密码资源释放，以保留参数审计需要的授权人上下文。
         /// </summary>
         /// <param name="sender">WPF 关闭事件来源，当前流程不依赖具体控件实例。</param>
         /// <param name="e">关闭控制参数；操作员取消关闭时设置为取消，避免中断现场运行界面。</param>
         private void WindowX_Closing(object sender, System.ComponentModel.CancelEventArgs e)
         {
-            if (MessageBoxX.Show("是否确定关闭运行软件?", "提示", MessageBoxButton.YesNo, MessageBoxIcon.Question) == MessageBoxResult.Yes)
+            if (_shutdownStarted)
+            {
+                return;
+            }
+
+            if (MessageBox.Show(
+                    this,
+                    "是否确定关闭运行软件?",
+                    "提示",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Question) != MessageBoxResult.Yes)
+            {
+                e.Cancel = true;
+                return;
+            }
+
+            _shutdownStarted = true;
+            ShutdownWatchdog shutdownWatchdog = ShutdownWatchdog.Start(TimeSpan.FromSeconds(20));
+            try
             {
                 vml.Main.SaveSettingModel();
                 vml.Main.SaveRecordModel();
                 vml.Main.SaveProcessmodel();
 
-                if (!_dualYElectricalTestDeployment)
+                vml.Main.Faravision_SaveSettingModel();
+
+                bool projectSaved = vml.Main.SavePrjXmls();
+                if (!projectSaved)
                 {
-                    vml.Main.Faravision_SaveSettingModel();
-
-                    bool projectSaved = vml.Main.SavePrjXmls();
-                    if (!projectSaved)
+                    if (MessageBox.Show(
+                            this,
+                            "AOI 工具配置保存失败，是否仍关闭软件?",
+                            "提示",
+                            MessageBoxButton.YesNo,
+                            MessageBoxImage.Warning) != MessageBoxResult.Yes)
                     {
-                        if (MessageBoxX.Show("AOI 工具配置保存失败，是否仍关闭软件?", "提示", MessageBoxButton.YesNo, MessageBoxIcon.Warning) != MessageBoxResult.Yes)
-                        {
-                            e.Cancel = true;
-                            return;
-                        }
-                    }
-
-                    // 工程保存完成后再释放动态密码授权，保留保存审计需要的授权人上下文。
-                    DisposeAoiPermissionAuthService();
-
-                    vml.Main.CloseCamera();
-                }
-                
-                // 关闭扫码器连接，防止资源残留
-                try
-                {
-                    if (vml.Main.DataModel.Settingmodel.ScannerMode == "HF800")
-                    {
-                        vml.Main.DataModel.Settingmodel.HF800.disconnect();
+                        shutdownWatchdog.Cancel();
+                        _shutdownStarted = false;
+                        e.Cancel = true;
+                        return;
                     }
                 }
-                catch { }
 
-                Environment.Exit(0);
+                // 工程保存完成后再释放动态密码授权，保留保存审计需要的授权人上下文。
+                DisposeAoiPermissionAuthService();
+
+                vml.Main.CloseCamera();
             }
-            else
+            catch (Exception ex)
             {
-                e.Cancel = true;
+                vml.Main.writeLog($"[软件退出] 保存或视觉资源释放异常：{ex}", true);
+            }
+            finally
+            {
+                if (!e.Cancel)
+                {
+                    vml.Main.ShutdownRuntimeConnections(true);
+                }
             }
         }
 
@@ -284,39 +249,13 @@ namespace BusbarCompressionSystem
 
         private void inittvparameter()
         {
-            // 初始化ACW参数（默认使用TVParameter的值）
-            vml.Main.DataModel.Processmodel.ACWParameter.TestMode = AT9620.TestMode.ACW;
-            
-            // 初始化DCW参数（默认使用TVParameter的值，TestMode设为DCW）
-            vml.Main.DataModel.Processmodel.DCWParameter.TestMode = AT9620.TestMode.DCW;
-            
-            // 默认使用ACW参数关联到AT9620设备
-            // 实际测试时会根据TV1Trig/TV2Trig的值动态切换
-            vml.Main.DataModel.Settingmodel.AT9620_1.TVParameter = vml.Main.DataModel.Processmodel.ACWParameter;
-            vml.Main.DataModel.Settingmodel.AT9620_2.TVParameter = vml.Main.DataModel.Processmodel.ACWParameter;
-            vml.Main.DataModel.Settingmodel.AT9620_3.TVParameter = vml.Main.DataModel.Processmodel.ACWParameter;
-            
-            // 初始化上次测试模式为ACW
-            vml.Main.DataModel.Processmodel.LastTV1TestMode = AT9620.TestMode.ACW;
-            vml.Main.DataModel.Processmodel.LastTV2TestMode = AT9620.TestMode.ACW;
-            vml.Main.DataModel.Processmodel.LastTV3TestMode = AT9620.TestMode.ACW;
-
-            //vml.Main.DataModel.Processmodel.TVParameter.RiseTime = 5;
-            //vml.Main.DataModel.Processmodel.TVParameter.FallTime = 5;
-            //vml.Main.DataModel.Processmodel.TVParameter.TestTime = 20;
-            //vml.Main.DataModel.Processmodel.TVParameter.Voltage = 50;
-            //vml.Main.DataModel.Processmodel.TVParameter.High = 10;
-            //vml.Main.DataModel.Processmodel.TVParameter.Low = 0;
-            // 旧逻辑
-            // vml.Main.DataModel.Settingmodel.AT9620_1.TVParameter = vml.Main.DataModel.Processmodel.TVParameter;
-            // vml.Main.DataModel.Settingmodel.AT9620_2.TVParameter = vml.Main.DataModel.Processmodel.TVParameter;
-            // vml.Main.DataModel.Settingmodel.AT9620_3.TVParameter = vml.Main.DataModel.Processmodel.TVParameter;
+            vml.Main.InitializeElectricalRuntimeParameters();
         }
 
         private void Button_Click_1(object sender, RoutedEventArgs e)
         {
 
-            new Thread(() =>
+            var testThread = new Thread(() =>
             {
                 vml.Main.DataModel.Settingmodel.AT9620_1.Start();
                 vml.Main.DataModel.Processmodel.TVTestTestModel1.TVMaxVoltage = 0;
@@ -331,7 +270,12 @@ namespace BusbarCompressionSystem
                 vml.Main.DataModel.Processmodel.TVTestTestModel3.TVMaxVoltage = 0;
                 vml.Main.DataModel.Processmodel.TVTestTestModel3.TVMaxCurrent = 0;
 
-            }).Start();
+            })
+            {
+                IsBackground = true,
+                Name = "手动耐压测试"
+            };
+            testThread.Start();
 
 
 
@@ -339,7 +283,7 @@ namespace BusbarCompressionSystem
 
         private void Button_Click_2(object sender, RoutedEventArgs e)
         {
-            new Thread(() =>
+            var downloadThread = new Thread(() =>
             {
                 // 【日志】记录参数下发开始，包含当前耐压参数详细信息
                 var tvParam = vml.Main.DataModel.Processmodel.TVParameter;
@@ -404,7 +348,12 @@ namespace BusbarCompressionSystem
                 {
                     vml.Main.writeLog($"==========参数下发存在失败项==========", true);
                 }
-            }).Start();
+            })
+            {
+                IsBackground = true,
+                Name = "手动耐压参数下发"
+            };
+            downloadThread.Start();
         }
 
         private void MenuItem_Click(object sender, RoutedEventArgs e)

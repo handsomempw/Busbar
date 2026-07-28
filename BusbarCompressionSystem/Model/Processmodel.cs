@@ -243,10 +243,12 @@ namespace BusbarCompressionSystem.Model
         public IO DualYStation2FlowEnd_Trig_IO { get; set; } = new IO();
 
         private bool _dualYElectricalTestModeActive;
+        private bool _dualYElectricalTestModeKnown;
 
         /// <summary>
         /// PLC M3050 双Y电测模式。该状态决定运行中的产品流程，并向双Y生产界面提供实时模式提示；
         /// 机台启动时选择标准界面或双Y界面仍由配置 XML 中的部署标志负责。
+        /// 仅在 <see cref="DualYElectricalTestModeKnown"/> 为 true 时表示线圈已成功读取；读取失败时不得据此切换标准/双Y流程。
         /// </summary>
         [XmlIgnore]
         public bool DualYElectricalTestModeActive
@@ -266,12 +268,41 @@ namespace BusbarCompressionSystem.Model
         }
 
         /// <summary>
-        /// 双Y生产界面显示的 PLC 流程模式。M3050 接通后显示双Y仅电测，断开或通讯尚未刷新时提示等待 PLC 模式。
+        /// M3050 模式线圈是否已成功读取。false 时上位机暂停模式相关触发，避免读失败被当成标准流程。
+        /// </summary>
+        [XmlIgnore]
+        public bool DualYElectricalTestModeKnown
+        {
+            get { return _dualYElectricalTestModeKnown; }
+            set
+            {
+                if (_dualYElectricalTestModeKnown == value)
+                {
+                    return;
+                }
+
+                _dualYElectricalTestModeKnown = value;
+                RaisePropertyChanged(() => DualYElectricalTestModeKnown);
+                RaisePropertyChanged(() => DualYElectricalTestModeDisplay);
+            }
+        }
+
+        /// <summary>
+        /// 双Y生产界面显示的 PLC 流程模式。
+        /// 线圈读取失败显示模式未知；接通后显示双Y仅电测；断开且读取成功时显示标准产线。
         /// </summary>
         [XmlIgnore]
         public string DualYElectricalTestModeDisplay
         {
-            get { return DualYElectricalTestModeActive ? "双Y仅电测" : "等待 PLC M3050"; }
+            get
+            {
+                if (!DualYElectricalTestModeKnown)
+                {
+                    return "模式未知/暂停触发";
+                }
+
+                return DualYElectricalTestModeActive ? "双Y仅电测" : "标准产线";
+            }
         }
 
         /// <summary>
@@ -463,6 +494,7 @@ namespace BusbarCompressionSystem.Model
         /// <summary>
         /// 耐压3可用标志，由M3032周期刷新。
         /// 现场线圈口径为1=不可用、0=可用，上位机取反后用于TV3触发、参数下发和界面启用。
+        /// 双Y专用部署强制为 false（本机无 AT9620_3），不受 M3032 镜像影响。
         /// </summary>
         public bool TV3Available { set; get; } = true;
 

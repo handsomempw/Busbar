@@ -118,6 +118,8 @@ namespace BusbarCompressionSystem
 
         private void WindowX_Loaded(object sender, RoutedEventArgs e)
         {
+            ApplyDualYTv3UiPolicy();
+
             double H = (DateTime.Now - vml.Main.DataModel.Processmodel.CheckData.TVMeterCheckTime).TotalHours;
 
             if (H > 12)
@@ -142,6 +144,22 @@ namespace BusbarCompressionSystem
                 }
             }
 
+        }
+
+        /// <summary>
+        /// 双Y专用部署机台无第三台耐压仪：固定取消仪器3勾选并禁用，避免操作员以为可手改；标准产线保持 M3032 镜像可编辑外观。
+        /// </summary>
+        private void ApplyDualYTv3UiPolicy()
+        {
+            if (vml?.Main == null || !vml.Main.IsDualYElectricalTestDeployment())
+            {
+                return;
+            }
+
+            vml.Main.DataModel.Processmodel.TVAvailable.TV3Available = false;
+            TV3AvailableCb.IsEnabled = false;
+            TV3AvailableCb.ToolTip = "双Y专用部署无耐压工位3仪器，软件强制忽略；参数下发与触发均不走 AT9620_3";
+            TV3Tb.IsEnabled = false;
         }
 
         private void WindowX_Closing(object sender, System.ComponentModel.CancelEventArgs e)

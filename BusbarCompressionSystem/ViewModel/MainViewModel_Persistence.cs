@@ -22,6 +22,11 @@ namespace BusbarCompressionSystem.ViewModel
         private bool _settingConfigLoadFailed;
 
         /// <summary>
+        /// 双Y专用配置本轮启动时的加载状态。已有文件损坏且无法恢复时，运行态从旧配置兼容值创建，关闭时保留损坏文件供维护排查。
+        /// </summary>
+        private bool _dualYConfigLoadFailed;
+
+        /// <summary>
         /// 系统记录数据本轮启动时的加载状态。已有 XML 损坏且无法恢复时，自动保存会跳过该文件，避免清空现场追溯数据。
         /// </summary>
         private bool _recordConfigLoadFailed;
@@ -142,6 +147,7 @@ namespace BusbarCompressionSystem.ViewModel
         {
             string filename = GetConfigPath("配置数据.xml");
             SaveXmlSafely(filename, DataModel.Settingmodel, _settingConfigLoadFailed);
+            SaveDualYConfiguration();
         }
         public void LoadSettingModel()
         {
@@ -180,11 +186,94 @@ namespace BusbarCompressionSystem.ViewModel
                 LoadTvStatusMappings();
                 LoadHipotCommParameters();
             }
+
+            LoadDualYConfiguration();
             
             // 订阅AT9620日志事件，将设备日志转发到应用日志
             DataModel.Settingmodel.AT9620_1.LogMessage += (s, e) => writeLog($"[耐压1] {e.Message}");
             DataModel.Settingmodel.AT9620_2.LogMessage += (s, e) => writeLog($"[耐压2] {e.Message}");
             DataModel.Settingmodel.AT9620_3.LogMessage += (s, e) => writeLog($"[耐压3] {e.Message}");
+        }
+
+        /// <summary>
+        /// 保存双Y专用部署、Y1/Y2扫码器和 PLC 地址到独立 XML。
+        /// 普通扫码器继续随“配置数据.xml”保存，两个部署可分别维护现场设备参数。
+        /// </summary>
+        public void SaveDualYConfiguration()
+        {
+            string filename = GetConfigPath("双Y电测配置.xml");
+            if (DataModel.DualYConfiguration == null)
+            {
+                DataModel.DualYConfiguration = new DualYElectricalTestConfiguration();
+            }
+
+            DataModel.DualYConfiguration.EnsureDefaults();
+            SaveXmlSafely(filename, DataModel.DualYConfiguration, _dualYConfigLoadFailed);
+        }
+
+        /// <summary>
+        /// 加载“配置\双Y电测配置.xml”。首次升级缺少该文件时，从旧“配置数据.xml”复制部署、扫码器和地址并立即生成模板；
+        /// 已有文件损坏时使用旧配置兼容值维持本轮运行，同时禁止默认对象覆盖损坏样本。
+        /// </summary>
+        private void LoadDualYConfiguration()
+        {
+            string filename = GetConfigPath("双Y电测配置.xml");
+            bool dedicatedFileExists = File.Exists(filename);
+
+            try
+            {
+                ConfigLoadResult<DualYElectricalTestConfiguration> result = ConfigXmlSaveHelper.TryLoad(
+                    filename,
+                    () => DualYElectricalTestConfiguration.CreateFromLegacy(DataModel.Settingmodel),
+                    message => writeLog(message));
+
+                if (!dedicatedFileExists && !result.RestoredFromBackup && !result.LoadFailed)
+                {
+                    DataModel.DualYConfiguration = DualYElectricalTestConfiguration.CreateFromLegacy(DataModel.Settingmodel);
+                    _dualYConfigLoadFailed = false;
+                    SaveDualYConfiguration();
+                    writeLog("[双Y配置] 已从配置数据.xml迁移并生成双Y电测配置.xml；普通扫码配置继续保留在原文件");
+                    return;
+                }
+
+                if (result.LoadFailed)
+                {
+                    DataModel.DualYConfiguration = DualYElectricalTestConfiguration.CreateFromLegacy(DataModel.Settingmodel);
+                    _dualYConfigLoadFailed = true;
+                    MessageBox.Show(
+                        "双Y电测配置.xml 无法读取，软件本轮使用配置数据.xml中的兼容参数。\r\n" +
+                        "关闭软件时会保留原文件，请联系设备维护人员检查配置备份。",
+                        "双Y配置异常",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Warning);
+                    return;
+                }
+
+                DataModel.DualYConfiguration = result.Data ?? new DualYElectricalTestConfiguration();
+                DataModel.DualYConfiguration.EnsureDefaults();
+                _dualYConfigLoadFailed = false;
+
+                if (result.RestoredFromBackup)
+                {
+                    writeLog($"[双Y配置] 已从备份恢复：{Path.GetFileName(result.RestoredFrom)}");
+                }
+                else
+                {
+                    writeLog("[双Y配置] 已加载双Y电测配置.xml");
+                }
+            }
+            catch (Exception ex)
+            {
+                DataModel.DualYConfiguration = DualYElectricalTestConfiguration.CreateFromLegacy(DataModel.Settingmodel);
+                _dualYConfigLoadFailed = true;
+                writeLog($"[双Y配置] 加载异常，使用旧配置兼容参数：{ex}", true);
+                MessageBox.Show(
+                    "双Y电测配置加载异常，软件本轮使用兼容参数。\r\n" +
+                    "详细原因已写入运行日志，请联系设备维护人员处理。",
+                    "双Y配置异常",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+            }
         }
         #endregion
 

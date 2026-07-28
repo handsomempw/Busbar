@@ -81,22 +81,41 @@ namespace BusbarCompressionSystem
             }
         }
 
+        /// <summary>
+        /// 按生产批号从 MES 获取规格和电测工艺参数，完成测试模式、交流/直流必填项校验后下发到可用设备。
+        /// 普通部署与双Y部署共用该入口；校验失败时保留当前运行参数，并向操作员提示具体缺项和维护责任人。
+        /// </summary>
+        /// <param name="sender">参数下发按钮。</param>
+        /// <param name="e">按钮点击事件参数。</param>
         private void Button_Click(object sender, RoutedEventArgs e)
         {
-
-
             try
             {
-                string partnoid = MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.Get_PARTNOID_BY_WOCODE(vml.Main.DataModel.Processmodel.wocodeinputstr);
+                string batchNo = (vml.Main.DataModel.Processmodel.wocodeinputstr ?? string.Empty).Trim();
+                if (string.IsNullOrWhiteSpace(batchNo))
+                {
+                    MessageBoxX.Show(
+                        "请先输入生产批号，再点击“参数下发”。",
+                        "请输入批号",
+                        MessageBoxIcon.Warning);
+                    return;
+                }
+
+                vml.Main.DataModel.Processmodel.wocodeinputstr = batchNo;
+                string partnoid = MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.Get_PARTNOID_BY_WOCODE(batchNo);
                 if (string.IsNullOrEmpty(partnoid))
                 {
-                    MessageBoxX.Show("未获取到规格信息，请检查批号是否正确");
+                    vml.Main.writeLog($"[参数下发] 批号 {batchNo} 未查询到规格信息", true);
+                    MessageBoxX.Show(
+                        $"MES 未找到批号“{batchNo}”对应的规格。\r\n\r\n请核对批号；批号正确时，请联系工艺或 MES 人员确认工单状态。",
+                        "未找到批号规格",
+                        MessageBoxIcon.Warning);
                     return;
                 }
 
                 var ps = MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.Get_Parameters(
                     vml.Main.DataModel.Settingmodel.SETTING_DATA.MachineID,
-                    vml.Main.DataModel.Processmodel.wocodeinputstr,
+                    batchNo,
                     vml.Main.DataModel.Settingmodel.SETTING_DATA.StandardCode
                     );
 
@@ -104,7 +123,7 @@ namespace BusbarCompressionSystem
                 try
                 {
                     vml.Main.writeLog($"========== MES参数获取 ==========");
-                    vml.Main.writeLog($"批号: {vml.Main.DataModel.Processmodel.wocodeinputstr}");
+                    vml.Main.writeLog($"批号: {batchNo}");
                     vml.Main.writeLog($"规格: {partnoid}");
                     //vml.Main.writeLog($"设备ID: {vml.Main.DataModel.Settingmodel.SETTING_DATA.MachineID}");
                     //vml.Main.writeLog($"标准代码: {vml.Main.DataModel.Settingmodel.SETTING_DATA.StandardCode}");
@@ -121,7 +140,17 @@ namespace BusbarCompressionSystem
                     vml.Main.writeLog($"[MES参数日志] 序列化异常: {logEx.Message}");
                 }
 
-                    // ACW交流参数
+                if (ps == null || ps.Count == 0)
+                {
+                    vml.Main.writeLog($"[参数下发] MES 已识别批号 {batchNo}、规格 {partnoid}，返回工艺参数数量为 0", true);
+                    MessageBoxX.Show(
+                        $"MES 已识别批号“{batchNo}”，但没有返回电测工艺参数。\r\n\r\n请联系工艺人员确认该批号已经维护并发布工艺参数，再重新下发。",
+                        "工艺参数为空",
+                        MessageBoxIcon.Warning);
+                    return;
+                }
+
+                // ACW交流参数
                 var r1 = ps.Where(p => p.ParameterName == "测试电压");
                 var r2 = ps.Where(p => p.ParameterName == "测试模式");
                 var r3 = ps.Where(p => p.ParameterName == "上升时间");
@@ -170,16 +199,32 @@ namespace BusbarCompressionSystem
                 // 首先检查测试模式参数是否存在
                 if (r2.Count() == 0)
                 {
-                    MessageBoxX.Show("缺少测试模式参数，无法继续", MessageBoxIcon.Error);
+                    vml.Main.writeLog($"[参数下发] 批号 {batchNo} 缺少“测试模式”参数", true);
+                    MessageBoxX.Show(
+                        "MES 工艺参数中缺少“测试模式”，软件无法判断需要下发交流或直流参数。\r\n\r\n请联系工艺人员维护测试模式（0=交流、1=直流、2=先交后直、3=先直后交）。",
+                        "测试模式缺失",
+                        MessageBoxIcon.Error);
                     return;
                 }
 
                 // 解析测试模式，决定需要检查哪些参数
-                int testModeValue = Convert.ToInt16(r2.First().TargetValue);
+                int testModeValue;
+                string testModeRaw = Convert.ToString(r2.First().TargetValue)?.Trim();
+                if (!int.TryParse(testModeRaw, out testModeValue) || testModeValue < 0 || testModeValue > 3)
+                {
+                    vml.Main.writeLog($"[参数下发] 批号 {batchNo} 的测试模式值无效：{testModeRaw}", true);
+                    MessageBoxX.Show(
+                        $"MES 返回的测试模式“{testModeRaw}”无法识别。\r\n\r\n有效值为 0、1、2、3，请联系工艺人员修正后重新下发。",
+                        "测试模式无效",
+                        MessageBoxIcon.Error);
+                    return;
+                }
+
                 bool needACW = (testModeValue == 0 || testModeValue == 2 || testModeValue == 3); // 只测交流、先交后直、先直后交
                 bool needDCW = (testModeValue == 1 || testModeValue == 2 || testModeValue == 3); // 只测直流、先交后直、先直后交
 
-                string error = "缺少以下工艺参数:\r\n";
+                string modeDisplay = GetTestModeDisplayName((AT9620.ElectricalTestMode)testModeValue);
+                string error = $"批号“{batchNo}”的{modeDisplay}工艺参数不完整：\r\n\r\n";
                 bool r = true;
                 
                 // 根据测试模式检查ACW交流参数
@@ -480,7 +525,7 @@ namespace BusbarCompressionSystem
                             vml.Main.writeLog($"[耐压2] ❌ ACW参数下发失败: {rd2.Error}", false);
                         }
                         
-                        if (vml.Main.DataModel.Processmodel.TVAvailable.TV3Available)
+                        if (ShouldDownloadTv3(out string tv3AcwSkipReason))
                         {
                             vml.Main.writeLog($"[耐压3] 开始下发ACW参数...", false);
                             rd3 = vml.Main.DataModel.Settingmodel.AT9620_3.Download();
@@ -495,7 +540,7 @@ namespace BusbarCompressionSystem
                         }
                         else
                         {
-                            vml.Main.writeLog($"[耐压3] M{vml.Main.DataModel.Settingmodel.Meter3AvailableAddress}显示不可用，跳过ACW参数下发", false);
+                            vml.Main.writeLog($"{tv3AcwSkipReason}（ACW）", false);
                         }
                     }
                     else if (testModeValue == 1 || testModeValue == 3) // 只测直流 或 先直后交
@@ -540,7 +585,7 @@ namespace BusbarCompressionSystem
                             vml.Main.writeLog($"[耐压2] ❌ DCW参数下发失败: {rd2.Error}", false);
                         }
                         
-                        if (vml.Main.DataModel.Processmodel.TVAvailable.TV3Available)
+                        if (ShouldDownloadTv3(out string tv3DcwSkipReason))
                         {
                             vml.Main.writeLog($"[耐压3] 开始下发DCW参数...", false);
                             rd3 = vml.Main.DataModel.Settingmodel.AT9620_3.Download();
@@ -555,7 +600,7 @@ namespace BusbarCompressionSystem
                         }
                         else
                         {
-                            vml.Main.writeLog($"[耐压3] M{vml.Main.DataModel.Settingmodel.Meter3AvailableAddress}显示不可用，跳过DCW参数下发", false);
+                            vml.Main.writeLog($"{tv3DcwSkipReason}（DCW）", false);
                         }
                     }
                     
@@ -642,7 +687,11 @@ namespace BusbarCompressionSystem
                 }
                 else
                 {
-                    MessageBoxX.Show(error, MessageBoxIcon.Error);
+                    vml.Main.writeLog($"[参数下发] {error.Replace("\r\n", "；")}", true);
+                    MessageBoxX.Show(
+                        error + "\r\n请联系工艺人员在 MES 中补齐以上参数，再重新下发。",
+                        "工艺参数不完整",
+                        MessageBoxIcon.Error);
 
                 }
 
@@ -652,8 +701,12 @@ namespace BusbarCompressionSystem
             }
             catch (Exception ex)
             {
-
-                MessageBoxX.Show(ex.ToString(), "错误", MessageBoxIcon.Error);
+                string batchNo = (vml.Main.DataModel.Processmodel.wocodeinputstr ?? string.Empty).Trim();
+                vml.Main.writeLog($"[参数下发] 批号 {batchNo} 处理异常：{ex}", true);
+                MessageBoxX.Show(
+                    "参数读取或下发过程中发生异常，部分设备可能尚未完成下发。\r\n\r\n请暂停当前产品，检查运行日志和 MES 参数后重新下发。",
+                    "参数下发异常",
+                    MessageBoxIcon.Error);
             }
 
         }
@@ -732,13 +785,13 @@ namespace BusbarCompressionSystem
                     var rd1 = vml.Main.DataModel.Settingmodel.AT9620_1.Download();
                     var rd2 = vml.Main.DataModel.Settingmodel.AT9620_2.Download();
                     var rd3 = new AT9620.Result() { Success = true };
-                    if (vml.Main.DataModel.Processmodel.TVAvailable.TV3Available)
+                    if (ShouldDownloadTv3(out string tv3ManualSkipReason))
                     {
                         rd3 = vml.Main.DataModel.Settingmodel.AT9620_3.Download();
                     }
                     else
                     {
-                        vml.Main.writeLog($"[耐压3] M{vml.Main.DataModel.Settingmodel.Meter3AvailableAddress}显示不可用，手动配置下发跳过AT9620_3");
+                        vml.Main.writeLog($"{tv3ManualSkipReason}（手动配置）");
                     }
                     var rd4 = vml.Main.Download_PressureParameter();
 
@@ -814,6 +867,30 @@ namespace BusbarCompressionSystem
             {
                 MessageBoxX.Show($"加载配置文件失败：{ex.Message}", MessageBoxIcon.Error);
             }
+        }
+
+        /// <summary>
+        /// 判断本次参数下发是否应对耐压工位3执行 Download。
+        /// 双Y专用部署本机无 AT9620_3，直接跳过；标准产线仍以 TV3Available（M3032）为准。
+        /// </summary>
+        /// <param name="skipReason">跳过时的日志说明，供调用方写入运行日志；需要下发时为空。</param>
+        /// <returns>需要下发工位3时返回 true；双Y部署或 PLC 显示工位3不可用时返回 false。</returns>
+        private bool ShouldDownloadTv3(out string skipReason)
+        {
+            if (vml.Main.IsDualYElectricalTestDeployment())
+            {
+                skipReason = "[耐压3] 双Y部署跳过耐压3参数下发";
+                return false;
+            }
+
+            if (!vml.Main.DataModel.Processmodel.TVAvailable.TV3Available)
+            {
+                skipReason = $"[耐压3] M{vml.Main.DataModel.Settingmodel.Meter3AvailableAddress}显示不可用，跳过参数下发";
+                return false;
+            }
+
+            skipReason = string.Empty;
+            return true;
         }
 
         private static string GetMesParameterUnit(object mesParam)
@@ -913,8 +990,10 @@ namespace BusbarCompressionSystem
         }
 
         /// <summary>
-        /// 获取测试模式的中文显示名称
+        /// 将 PLC/MES 共用的电测模式枚举转换为操作员可识别的中文名称，用于参数缺失提示和运行日志。
         /// </summary>
+        /// <param name="mode">MES 返回并完成 0-3 合法性校验的电测模式。</param>
+        /// <returns>只测交流、只测直流、先交后直、先直后交或未知模式。</returns>
         private string GetTestModeDisplayName(AT9620.ElectricalTestMode mode)
         {
             switch (mode)

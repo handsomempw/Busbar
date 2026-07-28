@@ -1,5 +1,6 @@
 using GalaSoft.MvvmLight;
 using HslCommunication.ModBus;
+using System.Collections.Generic;
 using System.Threading;
 using System;
 
@@ -20,8 +21,23 @@ namespace BusbarCompressionSystem.ViewModel
         private int? _lastIrStartSkipReasonLoggedForTrig = null;
         private bool? _lastTv3IrBothAvailable = null;
 
+        /// <summary>
+        /// 双Y部署强制忽略工位3后的 TV3Available 快照；仅在状态变化时记日志，避免周期刷屏。
+        /// </summary>
+        private bool? _lastDualYForcedTv3Unavailable = null;
+
         // 联动扫码线程保护：同一 M3046 高电平周期只允许一个业务处理线程运行
         private int _linkedScanProcessing = 0;
+
+        /// <summary>
+        /// 应用退出停止信号。PLC 轮询与可用状态刷新共用该信号，窗口关闭后停止接受新的设备触发。
+        /// </summary>
+        private readonly ManualResetEventSlim _runtimeStopSignal = new ManualResetEventSlim(false);
+        private readonly object _runtimeWorkerSync = new object();
+        private readonly List<Thread> _runtimeBusinessWorkers = new List<Thread>();
+        private volatile bool _runtimeStopRequested;
+        private Thread _plcProcessThread;
+        private Thread _plcHandshakeThread;
 
         /// <summary>
         /// AOI-only模式判定：当TV1、TV2、TV3与IR电测路径均不可用时，视为仅走AOI流程。
@@ -44,18 +60,32 @@ namespace BusbarCompressionSystem.ViewModel
             }
         }
 
+        /// <summary>
+        /// 启动 PLC 生产信号轮询线程。该线程使用后台线程并支持统一停止，重复调用时沿用已经运行的实例。
+        /// </summary>
         public void PLC_Start()
         {
-            Thread t = new Thread(PLC_Process);
-            t.Start();
+            lock (_runtimeWorkerSync)
+            {
+                if (_plcProcessThread != null && _plcProcessThread.IsAlive)
+                {
+                    return;
+                }
 
-            //Thread t2 = new Thread(shakehand2);
-            //t2.Start();
+                _runtimeStopRequested = false;
+                _runtimeStopSignal.Reset();
+                _plcProcessThread = new Thread(PLC_Process)
+                {
+                    IsBackground = true,
+                    Name = "PLC生产信号轮询"
+                };
+                _plcProcessThread.Start();
+            }
         }
         private void PLC_Process()
         {
 
-            while (true)
+            while (!_runtimeStopRequested)
             {
                 ModbusTcpNet modbusTcp = new ModbusTcpNet();
                 try
@@ -82,10 +112,11 @@ namespace BusbarCompressionSystem.ViewModel
                         var readresult = modbusTcp.ReadUInt16(DataModel.Settingmodel.AddressStart.ToString(), 20);
                         var secondScanResult = modbusTcp.ReadUInt16(DataModel.Settingmodel.SecondScanTrigAddress.ToString(), 1);
                         var linkedScanResult = modbusTcp.ReadCoil(DataModel.Settingmodel.LinkedScanTrigAddress.ToString(), 1);
-                        var dualYModeResult = modbusTcp.ReadCoil(DataModel.Settingmodel.DualYElectricalTestModeCoilAddress.ToString(), 1);
-                        var dualYStation2ScanResult = modbusTcp.ReadUInt16(DataModel.Settingmodel.DualYStation2ScanTrigAddress.ToString(), 1);
-                        var dualYStation1FlowEndResult = modbusTcp.ReadUInt16(DataModel.Settingmodel.DualYStation1FlowEndAddress.ToString(), 1);
-                        var dualYStation2FlowEndResult = modbusTcp.ReadUInt16(DataModel.Settingmodel.DualYStation2FlowEndAddress.ToString(), 1);
+                        var dualYModeResult = modbusTcp.ReadCoil(DataModel.DualYConfiguration.ElectricalTestModeCoilAddress.ToString(), 1);
+                        var dualYStation1ScanResult = modbusTcp.ReadUInt16(DataModel.DualYConfiguration.Station1ScanTriggerAddress.ToString(), 1);
+                        var dualYStation2ScanResult = modbusTcp.ReadUInt16(DataModel.DualYConfiguration.Station2ScanTriggerAddress.ToString(), 1);
+                        var dualYStation1FlowEndResult = modbusTcp.ReadUInt16(DataModel.DualYConfiguration.Station1FlowEndAddress.ToString(), 1);
+                        var dualYStation2FlowEndResult = modbusTcp.ReadUInt16(DataModel.DualYConfiguration.Station2FlowEndAddress.ToString(), 1);
 
                         if (readresult.IsSuccess)
                         {
@@ -99,23 +130,38 @@ namespace BusbarCompressionSystem.ViewModel
 
                             int SecondScanTrig = secondScanResult.IsSuccess ? secondScanResult.Content[0] : 0;
                             int LinkedScanTrig = linkedScanResult.IsSuccess && linkedScanResult.Content[0] ? 1 : 0;
-                            bool DualYModeActive = dualYModeResult.IsSuccess && dualYModeResult.Content[0];
+                            bool DualYModeKnown = dualYModeResult.IsSuccess;
+                            bool DualYModeCoil = DualYModeKnown && dualYModeResult.Content[0];
+                            int DualYStation1ScanTrig = dualYStation1ScanResult.IsSuccess ? dualYStation1ScanResult.Content[0] : 0;
                             int DualYStation2ScanTrig = dualYStation2ScanResult.IsSuccess ? dualYStation2ScanResult.Content[0] : 0;
                             int DualYStation1FlowEndTrig = dualYStation1FlowEndResult.IsSuccess ? dualYStation1FlowEndResult.Content[0] : 0;
                             int DualYStation2FlowEndTrig = dualYStation2FlowEndResult.IsSuccess ? dualYStation2FlowEndResult.Content[0] : 0;
 
-                            RefreshDualYModeFromPlc(DualYModeActive);
-                            bool StandardFlowActive = !DualYModeActive;
+                            RefreshDualYModeFromPlc(DualYModeKnown, DualYModeCoil);
+
+                            // 部署约束：双Y专用窗口没有相机/机器人资源，即使线圈为标准模式也不进入标准流程。
+                            // 模式未知时双侧模式相关触发全部暂停，避免读失败被当成标准流程。
+                            bool dualYDeployment = IsDualYElectricalTestDeployment();
+                            bool DualYModeActive = DualYModeKnown && DualYModeCoil;
+                            bool StandardFlowActive = DualYModeKnown && !DualYModeCoil && !dualYDeployment;
+                            bool ModeTriggersPaused = !DualYModeKnown || (dualYDeployment && !DualYModeCoil);
+
+                            if (DualYModeActive)
+                            {
+                                ScanTrig = DualYStation1ScanTrig;
+                            }
+                            else if (ModeTriggersPaused)
+                            {
+                                // 保持扫码沿判定不前进，恢复模式后再识别 0→1。
+                                ScanTrig = DataModel.Processmodel.Scan_Trig_IO.IOstatus;
+                            }
 
                             #region 扫码触发
                             try
                             {
                                 if (ScanTrig == 1 & DataModel.Processmodel.Scan_Trig_IO.IOstatus == 0)
                                 {
-                                    new Thread(() =>
-                                    {
-                                        ScannerProcess();
-                                    }).Start();
+                                    StartRuntimeWorker(ScannerProcess, "扫码处理");
                                 }
                             }
                             catch {; }
@@ -128,12 +174,9 @@ namespace BusbarCompressionSystem.ViewModel
                                 {
                                     writeLog($"[双Y电测] 忽略下料扫码触发 D{DataModel.Settingmodel.SecondScanTrigAddress}=1");
                                 }
-                                else if (SecondScanTrig == 1 & DataModel.Processmodel.SecondScan_Trig_IO.IOstatus == 0)
+                                else if (StandardFlowActive && SecondScanTrig == 1 & DataModel.Processmodel.SecondScan_Trig_IO.IOstatus == 0)
                                 {
-                                    new Thread(() =>
-                                    {
-                                        SecondScannerProcess();
-                                    }).Start();
+                                    StartRuntimeWorker(SecondScannerProcess, "下料扫码处理");
                                 }
                             }
                             catch {; }
@@ -146,15 +189,12 @@ namespace BusbarCompressionSystem.ViewModel
                                     DualYStation2ScanTrig == 1 &&
                                     DataModel.Processmodel.DualYStation2Scan_Trig_IO.IOstatus == 0)
                                 {
-                                    new Thread(() =>
-                                    {
-                                        DualYStation2ScannerProcess();
-                                    }).Start();
+                                    StartRuntimeWorker(DualYStation2ScannerProcess, "双Y-Y2扫码处理");
                                 }
                             }
                             catch (Exception ex)
                             {
-                                writeLog($"[双Y-2工位扫码] D{DataModel.Settingmodel.DualYStation2ScanTrigAddress}触发处理异常: {ex.Message}", true);
+                                writeLog($"[双Y-2工位扫码] D{DataModel.DualYConfiguration.Station2ScanTriggerAddress}触发处理异常: {ex.Message}", true);
                             }
                             #endregion
 
@@ -165,20 +205,14 @@ namespace BusbarCompressionSystem.ViewModel
                                     DualYStation1FlowEndTrig == 1 &&
                                     DataModel.Processmodel.DualYStation1FlowEnd_Trig_IO.IOstatus == 0)
                                 {
-                                    new Thread(() =>
-                                    {
-                                        DualYFlowEndProcess(1);
-                                    }).Start();
+                                    StartRuntimeWorker(() => DualYFlowEndProcess(1), "双Y-Y1归档");
                                 }
 
                                 if (DualYModeActive &&
                                     DualYStation2FlowEndTrig == 1 &&
                                     DataModel.Processmodel.DualYStation2FlowEnd_Trig_IO.IOstatus == 0)
                                 {
-                                    new Thread(() =>
-                                    {
-                                        DualYFlowEndProcess(2);
-                                    }).Start();
+                                    StartRuntimeWorker(() => DualYFlowEndProcess(2), "双Y-Y2归档");
                                 }
                             }
                             catch (Exception ex)
@@ -194,12 +228,9 @@ namespace BusbarCompressionSystem.ViewModel
                                 {
                                     writeLog($"[双Y电测] 忽略联动扫码触发 M{DataModel.Settingmodel.LinkedScanTrigAddress}=1");
                                 }
-                                else if (LinkedScanTrig == 1 & DataModel.Processmodel.LinkedScan_Trig_IO.IOstatus == 0)
+                                else if (StandardFlowActive && LinkedScanTrig == 1 & DataModel.Processmodel.LinkedScan_Trig_IO.IOstatus == 0)
                                 {
-                                    new Thread(() =>
-                                    {
-                                        LinkedScannerProcess();
-                                    }).Start();
+                                    StartRuntimeWorker(LinkedScannerProcess, "联动扫码处理");
                                 }
                             }
                             catch (Exception ex)
@@ -215,12 +246,9 @@ namespace BusbarCompressionSystem.ViewModel
                                 {
                                     writeLog($"[双Y电测] 忽略拍照留底触发 D{DataModel.Settingmodel.AddressStart + 2}=1");
                                 }
-                                else if (TakePhoto1Trig == 1 & DataModel.Processmodel.TakePhoto1_Trig_IO.IOstatus == 0)
+                                else if (StandardFlowActive && TakePhoto1Trig == 1 & DataModel.Processmodel.TakePhoto1_Trig_IO.IOstatus == 0)
                                 {
-                                    new Thread(() =>
-                                    {
-                                        TakePhoto1Process();
-                                    }).Start();
+                                    StartRuntimeWorker(TakePhoto1Process, "拍照留底处理");
                                 }
                             }
                             catch {; }
@@ -234,17 +262,11 @@ namespace BusbarCompressionSystem.ViewModel
                                 // TV1Trig=3: 停止测试
                                 if (TV1Trig == 1 & DataModel.Processmodel.TV1_Trig_IO.IOstatus == 0)
                                 {
-                                    new Thread(() =>
-                                    {
-                                        TV1Process_ACW();
-                                    }).Start();
+                                    StartRuntimeWorker(TV1Process_ACW, "耐压1-ACW");
                                 }
                                 else if (TV1Trig == 2 & DataModel.Processmodel.TV1_Trig_IO.IOstatus == 0)
                                 {
-                                    new Thread(() =>
-                                    {
-                                        TV1Process_DCW();
-                                    }).Start();
+                                    StartRuntimeWorker(TV1Process_DCW, "耐压1-DCW");
                                 }
                                 if ((TV1Trig == 3) & DataModel.Processmodel.TV1_Trig_IO.IOstatus != TV1Trig)
                                 {
@@ -262,17 +284,11 @@ namespace BusbarCompressionSystem.ViewModel
                                 // TV2Trig=3: 停止测试
                                 if (TV2Trig == 1 & DataModel.Processmodel.TV2_Trig_IO.IOstatus == 0)
                                 {
-                                    new Thread(() =>
-                                    {
-                                        TV2Process_ACW();
-                                    }).Start();
+                                    StartRuntimeWorker(TV2Process_ACW, "耐压2-ACW");
                                 }
                                 else if (TV2Trig == 2 & DataModel.Processmodel.TV2_Trig_IO.IOstatus == 0)
                                 {
-                                    new Thread(() =>
-                                    {
-                                        TV2Process_DCW();
-                                    }).Start();
+                                    StartRuntimeWorker(TV2Process_DCW, "耐压2-DCW");
                                 }
                                 if ((TV2Trig == 3) & DataModel.Processmodel.TV2_Trig_IO.IOstatus != TV2Trig)
                                 {
@@ -301,7 +317,7 @@ namespace BusbarCompressionSystem.ViewModel
                                         if (IRTrig == 1 & DataModel.Processmodel.IR_Trig_IO.IOstatus == 0)
                                         {
                                             writeLog("[IR触发] ✅ 条件满足，启动IRProcess线程");
-                                            new Thread(() => { IRProcess(); }).Start();
+                                            StartRuntimeWorker(IRProcess, "绝缘电阻测试");
                                         }
                                         else if (IRTrig == 1)
                                         {
@@ -352,24 +368,18 @@ namespace BusbarCompressionSystem.ViewModel
                                 {
                                     writeLog($"[双Y电测] 忽略耐压3触发 D{DataModel.Settingmodel.AddressStart + 10}={TV3Trig}");
                                 }
-                                else if (DataModel.Processmodel.TVAvailable.TV3Available)
+                                else if (StandardFlowActive && DataModel.Processmodel.TVAvailable.TV3Available)
                                 {
                                     if (TV3Trig == 1 & DataModel.Processmodel.TV3_Trig_IO.IOstatus == 0)
                                     {
-                                        new Thread(() =>
-                                        {
-                                            TV3Process_ACW();
-                                        }).Start();
+                                        StartRuntimeWorker(TV3Process_ACW, "耐压3-ACW");
                                     }
                                     else if (TV3Trig == 2 & DataModel.Processmodel.TV3_Trig_IO.IOstatus == 0)
                                     {
-                                        new Thread(() =>
-                                        {
-                                            TV3Process_DCW();
-                                        }).Start();
+                                        StartRuntimeWorker(TV3Process_DCW, "耐压3-DCW");
                                     }
                                 }
-                                else if ((TV3Trig == 1 || TV3Trig == 2) & DataModel.Processmodel.TV3_Trig_IO.IOstatus != TV3Trig)
+                                else if (StandardFlowActive && (TV3Trig == 1 || TV3Trig == 2) & DataModel.Processmodel.TV3_Trig_IO.IOstatus != TV3Trig)
                                 {
                                     writeLog($"[耐压3触发] D{DataModel.Settingmodel.AddressStart + 10}={TV3Trig}，但TV3Available=false，忽略本次启动。请检查M{DataModel.Settingmodel.Meter3AvailableAddress}可用状态。");
                                 }
@@ -432,7 +442,7 @@ namespace BusbarCompressionSystem.ViewModel
                                     if (Res1Trig == 1 & DataModel.Processmodel.Res1_Trig_IO.IOstatus == 0)
                                     {
                                         writeLog($"阻值1触发=1(M{DataModel.Settingmodel.Res1TrigAddress}), 准备读取阻值地址D{DataModel.Settingmodel.AddressRes}");
-                                        new Thread(() => { Res1Process(); }).Start();
+                                        StartRuntimeWorker(Res1Process, "阻值1处理");
                                     }
                                 }
                                 catch {; }
@@ -443,7 +453,7 @@ namespace BusbarCompressionSystem.ViewModel
                                     if (Res2Trig == 1 & DataModel.Processmodel.Res2_Trig_IO.IOstatus == 0)
                                     {
                                         writeLog($"阻值2触发=1(M{DataModel.Settingmodel.Res2TrigAddress}), 准备读取阻值地址D{DataModel.Settingmodel.AddressRes + 2}");
-                                        new Thread(() => { Res2Process(); }).Start();
+                                        StartRuntimeWorker(Res2Process, "阻值2处理");
                                     }
                                 }
                                 catch {; }
@@ -454,7 +464,7 @@ namespace BusbarCompressionSystem.ViewModel
                                     if (Res3Trig == 1 & DataModel.Processmodel.Res3_Trig_IO.IOstatus == 0)
                                     {
                                         writeLog($"阻值3触发=1(M{DataModel.Settingmodel.Res3TrigAddress}), 准备读取阻值地址D{DataModel.Settingmodel.AddressRes + 4}");
-                                        new Thread(() => { Res3Process(); }).Start();
+                                        StartRuntimeWorker(Res3Process, "阻值3处理");
                                     }
                                 }
                                 catch {; }
@@ -462,18 +472,34 @@ namespace BusbarCompressionSystem.ViewModel
                             #endregion
 
                             #region 数据复制刷新
-                            DataModel.Processmodel.Scan_Trig_IO.IOstatus = ScanTrig;
-                            DataModel.Processmodel.SecondScan_Trig_IO.IOstatus = SecondScanTrig;
-                            DataModel.Processmodel.LinkedScan_Trig_IO.IOstatus = linkedScanResult.IsSuccess ? LinkedScanTrig : -1;
-                            DataModel.Processmodel.DualYStation2Scan_Trig_IO.IOstatus = dualYStation2ScanResult.IsSuccess ? DualYStation2ScanTrig : -1;
-                            DataModel.Processmodel.DualYStation1FlowEnd_Trig_IO.IOstatus = dualYStation1FlowEndResult.IsSuccess ? DualYStation1FlowEndTrig : -1;
-                            DataModel.Processmodel.DualYStation2FlowEnd_Trig_IO.IOstatus = dualYStation2FlowEndResult.IsSuccess ? DualYStation2FlowEndTrig : -1;
-                            DataModel.Processmodel.TakePhoto1_Trig_IO.IOstatus = TakePhoto1Trig;
+                            if (ModeTriggersPaused)
+                            {
+                                // 模式未知或双Y部署拒绝标准模式时，模式相关沿判定回退为 -1，恢复后重新识别 0→1。
+                                DataModel.Processmodel.Scan_Trig_IO.IOstatus = -1;
+                                DataModel.Processmodel.SecondScan_Trig_IO.IOstatus = -1;
+                                DataModel.Processmodel.LinkedScan_Trig_IO.IOstatus = -1;
+                                DataModel.Processmodel.DualYStation2Scan_Trig_IO.IOstatus = -1;
+                                DataModel.Processmodel.DualYStation1FlowEnd_Trig_IO.IOstatus = -1;
+                                DataModel.Processmodel.DualYStation2FlowEnd_Trig_IO.IOstatus = -1;
+                                DataModel.Processmodel.TakePhoto1_Trig_IO.IOstatus = -1;
+                                DataModel.Processmodel.IR_Trig_IO.IOstatus = -1;
+                                DataModel.Processmodel.TV3_Trig_IO.IOstatus = -1;
+                            }
+                            else
+                            {
+                                DataModel.Processmodel.Scan_Trig_IO.IOstatus = ScanTrig;
+                                DataModel.Processmodel.SecondScan_Trig_IO.IOstatus = SecondScanTrig;
+                                DataModel.Processmodel.LinkedScan_Trig_IO.IOstatus = linkedScanResult.IsSuccess ? LinkedScanTrig : -1;
+                                DataModel.Processmodel.DualYStation2Scan_Trig_IO.IOstatus = dualYStation2ScanResult.IsSuccess ? DualYStation2ScanTrig : -1;
+                                DataModel.Processmodel.DualYStation1FlowEnd_Trig_IO.IOstatus = dualYStation1FlowEndResult.IsSuccess ? DualYStation1FlowEndTrig : -1;
+                                DataModel.Processmodel.DualYStation2FlowEnd_Trig_IO.IOstatus = dualYStation2FlowEndResult.IsSuccess ? DualYStation2FlowEndTrig : -1;
+                                DataModel.Processmodel.TakePhoto1_Trig_IO.IOstatus = TakePhoto1Trig;
+                                DataModel.Processmodel.IR_Trig_IO.IOstatus = IRTrig;
+                                DataModel.Processmodel.TV3_Trig_IO.IOstatus = TV3Trig;
+                            }
+
                             DataModel.Processmodel.TV1_Trig_IO.IOstatus = TV1Trig;
                             DataModel.Processmodel.TV2_Trig_IO.IOstatus = TV2Trig;
-                            // IR 触发状态复制刷新（D1014）
-                            DataModel.Processmodel.IR_Trig_IO.IOstatus = IRTrig;
-                            DataModel.Processmodel.TV3_Trig_IO.IOstatus = TV3Trig;
                             DataModel.Processmodel.Res1_Trig_IO.IOstatus = Res1Trig;
                             DataModel.Processmodel.Res2_Trig_IO.IOstatus = Res2Trig;
                             DataModel.Processmodel.Res3_Trig_IO.IOstatus = Res3Trig;
@@ -514,29 +540,153 @@ namespace BusbarCompressionSystem.ViewModel
 
                 }
                 catch {; }
-                Thread.Sleep(100);
+                finally
+                {
+                    try { modbusTcp.ConnectClose(); } catch { }
+                }
+
+                if (_runtimeStopSignal.Wait(100))
+                {
+                    break;
+                }
             }
         }
 
 
+        /// <summary>
+        /// 启动 PLC 电测设备可用状态刷新线程。该线程只更新设备入口状态，退出时与生产信号轮询共用停止信号。
+        /// </summary>
         public void PLC_shankhand()
         {
-
-            new Thread(() =>
+            lock (_runtimeWorkerSync)
             {
-                while (true)
+                if (_plcHandshakeThread != null && _plcHandshakeThread.IsAlive)
                 {
-                    Thread.Sleep(1500);
-                    try
-                    {
-                        PLC_ReadTVAvailable();
-                    }
-                    catch (Exception e)
-                    { continue; }
-
+                    return;
                 }
-            }).Start();
 
+                _runtimeStopRequested = false;
+                _runtimeStopSignal.Reset();
+                _plcHandshakeThread = new Thread(() =>
+                {
+                    while (!_runtimeStopRequested)
+                    {
+                        if (_runtimeStopSignal.Wait(1500))
+                        {
+                            break;
+                        }
+
+                        try
+                        {
+                            PLC_ReadTVAvailable();
+                        }
+                        catch
+                        {
+                            if (_runtimeStopRequested)
+                            {
+                                break;
+                            }
+                        }
+                    }
+                })
+                {
+                    IsBackground = true,
+                    Name = "PLC电测可用状态刷新"
+                };
+                _plcHandshakeThread.Start();
+            }
+        }
+
+        /// <summary>
+        /// 停止 PLC 常驻轮询并等待线程退出。该入口先关闭新的扫码、电测和归档触发，再由窗口释放仪器与网络连接。
+        /// </summary>
+        /// <param name="joinTimeoutMs">等待每条常驻线程退出的最长时间，单位 ms。</param>
+        public void StopRuntimeWorkers(int joinTimeoutMs = 3000)
+        {
+            _runtimeStopRequested = true;
+            _runtimeStopSignal.Set();
+
+            JoinRuntimeWorker(_plcProcessThread, joinTimeoutMs);
+            JoinRuntimeWorker(_plcHandshakeThread, joinTimeoutMs);
+        }
+
+        /// <summary>
+        /// 等待扫码、电测、归档等一次性业务线程退出。
+        /// 关闭流程在置位仪器 stop 后调用，使 FUNCtion:STOP / STAT:DISC 仍可在连接存活时发出，再断开通信。
+        /// </summary>
+        /// <param name="joinTimeoutMs">等待每条业务线程退出的最长时间，单位 ms。</param>
+        public void JoinRuntimeBusinessWorkers(int joinTimeoutMs = 5000)
+        {
+            Thread[] workers;
+            lock (_runtimeWorkerSync)
+            {
+                workers = _runtimeBusinessWorkers.ToArray();
+            }
+
+            foreach (Thread worker in workers)
+            {
+                JoinRuntimeWorker(worker, joinTimeoutMs);
+            }
+        }
+
+        private static void JoinRuntimeWorker(Thread worker, int joinTimeoutMs)
+        {
+            if (worker == null || !worker.IsAlive || worker == Thread.CurrentThread)
+            {
+                return;
+            }
+
+            try
+            {
+                worker.Join(Math.Max(0, joinTimeoutMs));
+            }
+            catch
+            {
+            }
+        }
+
+        /// <summary>
+        /// 启动由 PLC 沿触发的一次性业务线程。后台线程不会阻止应用退出；停止信号置位后拒绝创建新的扫码、电测或归档任务。
+        /// </summary>
+        /// <param name="action">本次 PLC 触发对应的业务入口。</param>
+        /// <param name="name">线程诊断名称，用于现场进程转储识别业务阶段。</param>
+        private void StartRuntimeWorker(ThreadStart action, string name)
+        {
+            if (_runtimeStopRequested || action == null)
+            {
+                return;
+            }
+
+            var worker = new Thread(() =>
+            {
+                try
+                {
+                    action();
+                }
+                finally
+                {
+                    lock (_runtimeWorkerSync)
+                    {
+                        _runtimeBusinessWorkers.Remove(Thread.CurrentThread);
+                    }
+                }
+            })
+            {
+                IsBackground = true,
+                Name = name
+            };
+
+            lock (_runtimeWorkerSync)
+            {
+                if (_runtimeStopRequested)
+                {
+                    return;
+                }
+
+                _runtimeBusinessWorkers.Add(worker);
+            }
+
+            worker.Start();
         }
 
 
@@ -805,6 +955,66 @@ namespace BusbarCompressionSystem.ViewModel
 
             return 0;
         }
+
+        /// <summary>
+        /// 读取占用两个连续 D 寄存器的 PLC uint32 数据。
+        /// 双Y压力平均值、最大值和最小值使用该宽度；字序沿用设备现有 CDAB 配置，与浮点读取保持一致。
+        /// </summary>
+        /// <param name="address">uint32 高低字起始 D 寄存器编号，例如 Y2 平均压力使用 1630。</param>
+        /// <returns>读取成功时返回完整 32 位无符号值；重试完成后仍失败时返回 0，并写入 PLC 通讯日志。</returns>
+        public UInt32 PLC_ReadUint32(int address)
+        {
+            int maxRetry = 6;
+            for (int i = 0; i < maxRetry; i++)
+            {
+                var modbusTcp = new ModbusTcpNet
+                {
+                    ConnectTimeOut = 1000,
+                    ReceiveTimeOut = 1000,
+                    IpAddress = DataModel.Settingmodel.PLC_IP,
+                    Port = DataModel.Settingmodel.PLC_Port,
+                    DataFormat = HslCommunication.Core.DataFormat.CDAB
+                };
+
+                try
+                {
+                    var connectResult = modbusTcp.ConnectServer();
+                    if (connectResult.IsSuccess)
+                    {
+                        var readResult = modbusTcp.ReadUInt32(address.ToString(), 1);
+                        if (readResult.IsSuccess)
+                        {
+                            return readResult.Content[0];
+                        }
+
+                        if (i == maxRetry - 1)
+                        {
+                            writeLog($"[PLC通讯] 读取UInt32失败(D{address}-D{address + 1}): {readResult.Message}", false);
+                        }
+                    }
+                    else if (i == maxRetry - 1)
+                    {
+                        writeLog($"[PLC通讯] 连接失败(D{address}-D{address + 1}): {connectResult.Message}", false);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    if (i == maxRetry - 1)
+                    {
+                        writeLog($"[PLC通讯] 读取UInt32异常(D{address}-D{address + 1}): {ex.Message}", false);
+                    }
+                }
+                finally
+                {
+                    try { modbusTcp.ConnectClose(); } catch { }
+                }
+
+                Thread.Sleep(50);
+            }
+
+            return 0;
+        }
+
         public float PLC_ReadFloat(int address)
         {
             ModbusTcpNet modbusTcp = new ModbusTcpNet();
@@ -1031,6 +1241,7 @@ namespace BusbarCompressionSystem.ViewModel
 
         /// <summary>
         /// 从PLC读取耐压仪器（TV）可用状态，并同步更新到 <see cref="DataModel.Processmodel"/>。
+        /// 双Y专用部署机台无第三台耐压仪，读完 M3032 后强制 TV3Available=false，避免参数下发与触发误走工位3。
         /// </summary>
         /// <returns>连接成功且三台耐压仪线圈读取成功时返回 true，否则返回 false。</returns>
         /// <remarks>
@@ -1039,7 +1250,8 @@ namespace BusbarCompressionSystem.ViewModel
         ///    IR(M3033) 逻辑相反：现场确认 1 表示“开启/可用”，不取反。
         /// 3. 同步写入：ShankHandAddress=1（握手）、DeviceAvailableAddress=allow_start（设备可运行标志）。
         /// 4. TV3(M3032)与IR(M3033)共用第三电测位置；同时可用时记录诊断日志，流程仍按D1010/D1014实际触发执行。
-        /// 5. 失败时最多重试3次；仅在最后一次失败时记录异常日志，避免日志刷屏。
+        /// 5. 双Y专用部署（DeploymentEnabled）强制忽略工位3；标准产线仍完全按 M3032 镜像。
+        /// 6. 失败时最多重试3次；仅在最后一次失败时记录异常日志，避免日志刷屏。
         /// </remarks>
         public bool PLC_ReadTVAvailable()
         {
@@ -1103,6 +1315,22 @@ namespace BusbarCompressionSystem.ViewModel
                             {
                                 writeLog($"[耐压3可用状态] 读取M{DataModel.Settingmodel.Meter3AvailableAddress}失败，TV3Available=false");
                             }
+                        }
+
+                        // 双Y专用部署仅有 Y1/Y2 耐压仪，忽略 M3032 可用镜像，避免无仪器下发失败阻断规格写入。
+                        if (IsDualYElectricalTestDeployment())
+                        {
+                            bool wasAvailable = DataModel.Processmodel.TVAvailable.TV3Available;
+                            DataModel.Processmodel.TVAvailable.TV3Available = false;
+                            if (_lastDualYForcedTv3Unavailable == null || _lastDualYForcedTv3Unavailable.Value != true)
+                            {
+                                _lastDualYForcedTv3Unavailable = true;
+                                writeLog($"[双Y部署] 强制忽略耐压工位3：TV3Available=false（PLC M{DataModel.Settingmodel.Meter3AvailableAddress}镜像={(wasAvailable ? "可用" : "不可用")}，本机无AT9620_3）", true);
+                            }
+                        }
+                        else if (_lastDualYForcedTv3Unavailable != null)
+                        {
+                            _lastDualYForcedTv3Unavailable = null;
                         }
 
                         // 同步更新IR可用状态（M3033）

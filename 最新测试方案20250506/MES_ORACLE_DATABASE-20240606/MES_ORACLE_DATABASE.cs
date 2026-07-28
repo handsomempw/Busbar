@@ -1267,9 +1267,31 @@ namespace MES_ORACLE_DATABASE
             return false;
         }
 
+        /// <summary>
+        /// 保存母排单次过程数据到 MES。双Y ACW/DCW 复测会逐次调用本入口，压力值按 PLC uint32 数据宽度原样上传。
+        /// </summary>
+        /// <param name="STATIONCODE">MES 工站代码。</param>
+        /// <param name="EQUIPMENTID">执行测试的设备编号。</param>
+        /// <param name="PARTNOID">产品规格编码。</param>
+        /// <param name="WOCODE">产品工单号。</param>
+        /// <param name="SN">本次过程数据关联的产品序列号。</param>
+        /// <param name="TAKEPHOTO1">前置拍照结果；双Y纯电测行使用 false。</param>
+        /// <param name="RES">接触电阻测量值，单位沿用工艺配置。</param>
+        /// <param name="TVMAXVOLTAGE">耐压过程最大电压，单位 V。</param>
+        /// <param name="TVMAXCURRENT">耐压过程最大电流，单位 mA。</param>
+        /// <param name="TVMETERID">执行本次耐压测试的仪器编号。</param>
+        /// <param name="TVINFO">带 ACW/DCW/IR 模式前缀的仪器结果信息。</param>
+        /// <param name="TVRESULT">本次电测判定。</param>
+        /// <param name="PRESSURE_MAX">PLC uint32 压力最大值，单位沿用现场标定。</param>
+        /// <param name="PRESSURE_AVERAGE">PLC uint32 压力平均值，单位沿用现场标定。</param>
+        /// <param name="PRESSURE_MIN">PLC uint32 压力最小值，单位沿用现场标定。</param>
+        /// <param name="PRESSURE_RESULT">本次流程压力判定。</param>
+        /// <param name="TAKEPHOTO2">AOI 外观结果；双Y纯电测行使用 false。</param>
+        /// <param name="RESULT">产品本轮流程综合结果。</param>
+        /// <returns>MES 插入成功时返回 true。</returns>
         public static bool SaveBusBarData(string STATIONCODE, string EQUIPMENTID, string PARTNOID, string WOCODE, string SN,
            bool TAKEPHOTO1, float RES, float TVMAXVOLTAGE, float TVMAXCURRENT, string TVMETERID, string TVINFO, bool TVRESULT,
-           UInt16 PRESSURE_MAX, UInt16 PRESSURE_AVERAGE, UInt16 PRESSURE_MIN, bool PRESSURE_RESULT,
+           UInt32 PRESSURE_MAX, UInt32 PRESSURE_AVERAGE, UInt32 PRESSURE_MIN, bool PRESSURE_RESULT,
            bool TAKEPHOTO2, string RESULT)
         {
             try
@@ -1590,4 +1612,3 @@ namespace MES_ORACLE_DATABASE
 
     }
 }
-

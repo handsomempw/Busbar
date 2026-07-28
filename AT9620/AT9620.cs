@@ -350,6 +350,35 @@ namespace AT9620
         }
 
         /// <summary>
+        /// 软件退出时中止当前耐压会话并关闭 TCP 连接。
+        /// 先置位 stop，等待测试线程在连接仍存活时发送 FUNCtion:STOP；超时后若会话仍占用且 TCP 仍在，再补发一次 STOP，最后关闭连接。
+        /// 正常测试完成仍沿用会话自身的收尾路径。
+        /// </summary>
+        public void Shutdown()
+        {
+            stop = true;
+
+            int deadline = Environment.TickCount + 3000;
+            while (IsSessionActive && unchecked(Environment.TickCount - deadline) < 0)
+            {
+                Thread.Sleep(50);
+            }
+
+            if (IsSessionActive && isconnected)
+            {
+                try
+                {
+                    Send("FUNCtion:STOP\n");
+                }
+                catch
+                {
+                }
+            }
+
+            DisconnectCore();
+        }
+
+        /// <summary>
         /// 启动当前 AT9620 测试并读取结果。入口负责独占测试会话，参数、Fetch 轮询、结果解析沿用既有测试流程。
         /// </summary>
         /// <returns>测试执行结果；会话忙碌或连接失败时返回失败说明。</returns>

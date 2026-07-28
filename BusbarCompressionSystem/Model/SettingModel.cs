@@ -95,44 +95,70 @@ namespace BusbarCompressionSystem.Model
 
         #region ==================== 相机设备（运行时对象，不序列化） ====================
 
-        /// <summary>
-        /// 相机1数据对象（拍照留底工位）
-        /// </summary>
-        /// <remarks>
-        /// 包含相机连接、采集、触发等功能。
-        /// 运行时初始化，不保存到配置文件。
-        /// </remarks>
-        [XmlIgnore]
-        [XmlElement("相机配置1")]
-        public Camera.DATA camedata1 { set; get; } = new Camera.DATA();
+        private Camera.DATA _camedata1;
 
         /// <summary>
-        /// 相机2数据对象（拍照留底工位）
+        /// 拍照留底工位1的相机运行对象。标准视觉流程首次访问时创建，双Y纯电测窗口保持相机 SDK 未加载状态，
+        /// 该对象排除在“配置数据.xml”序列化范围外，相机参数继续由相机专用配置文件维护。
         /// </summary>
         [XmlIgnore]
-        [XmlElement("相机配置2")]
-        public Camera.DATA camedata2 { set; get; } = new Camera.DATA();
+        public Camera.DATA camedata1
+        {
+            get { return _camedata1 ?? (_camedata1 = new Camera.DATA()); }
+            set { _camedata1 = value; }
+        }
+
+        private Camera.DATA _camedata2;
 
         /// <summary>
-        /// 相机3数据对象（拍照留底工位）
+        /// 拍照留底工位2的相机运行对象。标准视觉流程首次访问时创建，双Y纯电测窗口保持相机 SDK 未加载状态，
+        /// 该对象排除在系统主配置序列化范围外。
         /// </summary>
         [XmlIgnore]
-        [XmlElement("相机配置3")]
-        public Camera.DATA camedata3 { set; get; } = new Camera.DATA();
+        public Camera.DATA camedata2
+        {
+            get { return _camedata2 ?? (_camedata2 = new Camera.DATA()); }
+            set { _camedata2 = value; }
+        }
+
+        private Camera.DATA _camedata3;
 
         /// <summary>
-        /// 相机4数据对象（AOI外观检测工位）
+        /// 拍照留底工位3的相机运行对象。标准视觉流程首次访问时创建，双Y纯电测窗口保持相机 SDK 未加载状态，
+        /// 该对象排除在系统主配置序列化范围外。
         /// </summary>
         [XmlIgnore]
-        [XmlElement("相机配置4")]
-        public Camera.DATA camedata4 { set; get; } = new Camera.DATA();
+        public Camera.DATA camedata3
+        {
+            get { return _camedata3 ?? (_camedata3 = new Camera.DATA()); }
+            set { _camedata3 = value; }
+        }
+
+        private Camera.DATA _camedata4;
 
         /// <summary>
-        /// 相机5数据对象（预留）
+        /// AOI 外观检测工位4的相机运行对象。标准视觉流程首次访问时创建，双Y纯电测窗口保持相机 SDK 未加载状态，
+        /// 该对象排除在系统主配置序列化范围外。
         /// </summary>
         [XmlIgnore]
-        [XmlElement("相机配置5")]
-        public Camera.DATA camedata5 { set; get; } = new Camera.DATA();
+        public Camera.DATA camedata4
+        {
+            get { return _camedata4 ?? (_camedata4 = new Camera.DATA()); }
+            set { _camedata4 = value; }
+        }
+
+        private Camera.DATA _camedata5;
+
+        /// <summary>
+        /// 预留视觉工位5的相机运行对象。标准视觉流程首次访问时创建，双Y纯电测窗口保持相机 SDK 未加载状态，
+        /// 该对象排除在系统主配置序列化范围外。
+        /// </summary>
+        [XmlIgnore]
+        public Camera.DATA camedata5
+        {
+            get { return _camedata5 ?? (_camedata5 = new Camera.DATA()); }
+            set { _camedata5 = value; }
+        }
 
         #endregion
 
@@ -531,6 +557,35 @@ namespace BusbarCompressionSystem.Model
         /// </summary>
         [XmlElement("双Y工位2流程结束地址")]
         public int DualYStation2FlowEndAddress { get; set; } = 1021;
+
+        /// <summary>
+        /// Y2 串口扫码器只从旧配置读取用于首次迁移，保存后由“配置\双Y电测配置.xml”独立维护。
+        /// </summary>
+        public bool ShouldSerializeDualYStation2ScannerModel() => false;
+
+        /// <summary>Y2 网络扫码器只从旧配置读取用于首次迁移，保存后由双Y专用配置独立维护。</summary>
+        public bool ShouldSerializeDualYStation2HF800() => false;
+
+        /// <summary>Y2 扫码器类型只从旧配置读取用于首次迁移，保存后由双Y专用配置独立维护。</summary>
+        public bool ShouldSerializeDualYStation2ScannerMode() => false;
+
+        /// <summary>双Y模式线圈只从旧配置读取用于首次迁移，保存后由双Y专用配置独立维护。</summary>
+        public bool ShouldSerializeDualYElectricalTestModeCoilAddress() => false;
+
+        /// <summary>Y2 产品码地址只从旧配置读取用于首次迁移，保存后由双Y专用配置独立维护。</summary>
+        public bool ShouldSerializeDualYStation2ScanSnAddress() => false;
+
+        /// <summary>Y2 扫码触发地址只从旧配置读取用于首次迁移，保存后由双Y专用配置独立维护。</summary>
+        public bool ShouldSerializeDualYStation2ScanTrigAddress() => false;
+
+        /// <summary>Y2 扫码反馈地址只从旧配置读取用于首次迁移，保存后由双Y专用配置独立维护。</summary>
+        public bool ShouldSerializeDualYStation2ScanResultAddress() => false;
+
+        /// <summary>Y1 流程结束地址只从旧配置读取用于首次迁移，保存后由双Y专用配置独立维护。</summary>
+        public bool ShouldSerializeDualYStation1FlowEndAddress() => false;
+
+        /// <summary>Y2 流程结束地址只从旧配置读取用于首次迁移，保存后由双Y专用配置独立维护。</summary>
+        public bool ShouldSerializeDualYStation2FlowEndAddress() => false;
 
         /// <summary>
         /// 测试模式信号地址（D 寄存器，uint16 类型）。

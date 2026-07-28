@@ -29,6 +29,7 @@ namespace TcpServerHelper
         private int receiveLoopRunning = 0;
         private int reconnectCount = 0;
         private string pendingCheckMessage = string.Empty;
+        private volatile bool stopRequested = false;
 
         public string ReceiveMSG { set; get; } = string.Empty;
 
@@ -56,6 +57,7 @@ namespace TcpServerHelper
                 return true;
             }
 
+            stopRequested = false;
             IPAddress ipAddress = IPAddress.Parse(IPAddress_str);
             _tcpServer = new TcpListener(ipAddress, Port);
             _tcpServer.Start();
@@ -121,7 +123,7 @@ namespace TcpServerHelper
         /// </summary>
         public void CheckIsConntect()
         {
-            while (true)
+            while (!stopRequested)
             {
                 if (!isConnected && _tcpServer != null)
                 {
@@ -158,7 +160,7 @@ namespace TcpServerHelper
             WriteRobotTcpLog("[线程] 接收线程启动");
             try
             {
-                while (true)
+                while (!stopRequested)
                 {
                     if (!isConnected)
                     {
@@ -211,7 +213,7 @@ namespace TcpServerHelper
             {
                 Interlocked.Exchange(ref receiveLoopRunning, 0);
                 WriteRobotTcpLog("[线程] 接收线程退出");
-                if (isConnected)
+                if (isConnected && !stopRequested)
                 {
                     WriteRobotTcpLog("[线程] 接收线程退出时已有机器人连接，自动恢复接收线程");
                     EnsureReceiveLoop();
@@ -491,6 +493,29 @@ namespace TcpServerHelper
                 _stream = null;
                 _tcpClient = null;
             }
+        }
+
+        /// <summary>
+        /// 软件退出时停止机器人 TCP 监听、重连和接收循环，并关闭当前客户端连接。
+        /// 该入口只释放通信资源，不发送 CHECK 结果，也不改变已经写入 SQLite 或 MES 的生产判定。
+        /// </summary>
+        public void StopListener()
+        {
+            stopRequested = true;
+            isConnected = false;
+            listiening = false;
+            CloseCurrentClient();
+
+            try
+            {
+                _tcpServer?.Stop();
+            }
+            catch
+            {
+            }
+
+            _tcpServer = null;
+            WriteRobotTcpLog("[连接] 软件退出，TCP服务端已停止");
         }
 
         private void WriteRobotTcpLog(string message)

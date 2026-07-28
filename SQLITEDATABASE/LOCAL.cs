@@ -41,9 +41,9 @@ namespace SQLITEDATABASE
             public string TVMeterID { get; set; }
             public string TVInfo { get; set; }
             public bool TVResult { get; set; }
-            public UInt16 PressureMax { get; set; }
-            public UInt16 PressureAverage { get; set; }
-            public UInt16 PressureMin { get; set; }
+            public UInt32 PressureMax { get; set; }
+            public UInt32 PressureAverage { get; set; }
+            public UInt32 PressureMin { get; set; }
             public bool PressureResult { get; set; }
             public bool TakePhoto2 { get; set; }
         }
@@ -405,20 +405,26 @@ namespace SQLITEDATABASE
             return 0;
         }
 
-        private static UInt16 ParseDbUInt16(object value)
+        private static UInt32 ParseDbUInt32(object value)
         {
-            float number = ParseDbFloat(value);
-            if (number <= 0)
+            UInt32 integerValue;
+            string raw = value?.ToString();
+            if (UInt32.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out integerValue)
+                || UInt32.TryParse(raw, NumberStyles.Integer, CultureInfo.CurrentCulture, out integerValue))
+            {
+                return integerValue;
+            }
+
+            decimal number;
+            if (!decimal.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out number)
+                && !decimal.TryParse(raw, NumberStyles.Float, CultureInfo.CurrentCulture, out number))
             {
                 return 0;
             }
 
-            if (number >= UInt16.MaxValue)
-            {
-                return UInt16.MaxValue;
-            }
-
-            return Convert.ToUInt16(number);
+            if (number <= 0) return 0;
+            if (number >= UInt32.MaxValue) return UInt32.MaxValue;
+            return Convert.ToUInt32(number);
         }
 
         /// <summary>
@@ -510,6 +516,56 @@ namespace SQLITEDATABASE
                 WriteErrorLog("[数据库异常]UpdatePressureForElectricalRows失败", $"异常: {ex.Message}", SN, WOCODE);
             }
             return false;
+        }
+
+        /// <summary>
+        /// 按指定 SQLite 行 ID 写入 32 位压力快照。
+        /// 双Y流程结束只应传入各模式最新测试行；同模式更早复测行不在此范围，以保持“压力属于最终一次测试”的追溯口径。
+        /// 精确 ID 范围同时保证 Y1/Y2 并行与历史记录互不覆盖。
+        /// </summary>
+        /// <param name="WOCODE">当前工位产品工单号，用于定位本地工单数据库。</param>
+        /// <param name="PARTNOID">当前工位产品规格编码。</param>
+        /// <param name="SN">当前工位产品 SN，用于校验目标行归属。</param>
+        /// <param name="recordIds">应写入压力的 SQLite 行 ID，通常为各 ACW/DCW 模式最新一条。</param>
+        /// <param name="AveragePressure">PLC uint32 压力平均值，单位沿用现场标定。</param>
+        /// <param name="MaxPressure">PLC uint32 压力最大值，单位沿用现场标定。</param>
+        /// <param name="MinPressure">PLC uint32 压力最小值，单位沿用现场标定。</param>
+        /// <param name="PressureResult">按当前工艺上下限计算的压力判定。</param>
+        /// <returns>全部目标测试行均写入成功时返回 true。</returns>
+        public static bool UpdatePressureForElectricalRowsByIds(string WOCODE, string PARTNOID, string SN, IEnumerable<long> recordIds,
+            UInt32 AveragePressure, UInt32 MaxPressure, UInt32 MinPressure, bool PressureResult)
+        {
+            try
+            {
+                List<long> ids = (recordIds ?? Enumerable.Empty<long>()).Where(id => id > 0).Distinct().ToList();
+                if (ids.Count == 0)
+                {
+                    WriteErrorLog("[数据缺失]双Y压力写入-测试行为空", "当前工位会话没有可写入的电测行ID", SN, WOCODE);
+                    return false;
+                }
+
+                string connectionString = CheckDataBase(WOCODE, PARTNOID, SN);
+                if (string.IsNullOrEmpty(connectionString))
+                {
+                    WriteErrorLog("[追踪]双Y压力写入-连接串为空", "CheckDataBase返回空", SN, WOCODE);
+                    return false;
+                }
+
+                string idList = string.Join(",", ids.Select(id => id.ToString(CultureInfo.InvariantCulture)).ToArray());
+                string updateSet = $"PRESSURE_RESULT={(PressureResult ? 1 : 0)},PRESSURE_MAX={MaxPressure.ToString(CultureInfo.InvariantCulture)},PRESSURE_AVERAGE={AveragePressure.ToString(CultureInfo.InvariantCulture)},PRESSURE_MIN={MinPressure.ToString(CultureInfo.InvariantCulture)}";
+                string sql = $"UPDATE BusbarCompressionData SET {updateSet} WHERE sn='{EscapeSqlLiteral(SN)}' AND ID IN ({idList}) AND (TVInfo LIKE '[ACW]%' OR TVInfo LIKE '[DCW]%')";
+                int affectedRows = excute_sql(sql, connectionString);
+                bool allUpdated = affectedRows == ids.Count;
+                WriteErrorLog("[追踪]双Y压力写入完成",
+                    $"expectedRows={ids.Count}, affectedRows={affectedRows}, IDs={idList}, PressureResult={(PressureResult ? 1 : 0)}",
+                    SN, WOCODE);
+                return allUpdated;
+            }
+            catch (Exception ex)
+            {
+                WriteErrorLog("[数据库异常]双Y压力写入失败", $"异常: {ex.Message}", SN, WOCODE);
+                return false;
+            }
         }
 
         /// <summary>
@@ -697,6 +753,88 @@ namespace SQLITEDATABASE
         }
 
         /// <summary>
+        /// 为双Y一次实际耐压测试新增独立过程行，并返回 SQLite 主键。
+        /// 每次 ACW/DCW 触发均调用本入口，连续复测继续追加记录；
+        /// 压力字段由流程结束按“各模式最新一条”补写，同模式更早复测行不写压力。
+        /// </summary>
+        /// <param name="WOCODE">本次测试产品的工单号，用于定位工单数据库。</param>
+        /// <param name="PARTNOID">本次测试产品的规格编码。</param>
+        /// <param name="SN">从对应工位 PLC 产品码区读取的产品 SN。</param>
+        /// <param name="STATIONCODE">MES 工站代码，沿用设备基础配置。</param>
+        /// <param name="EQUIPMENTID">设备编号，沿用设备基础配置。</param>
+        /// <param name="RES">本次测试前读取的接触电阻值，单位沿用 PLC 标定。</param>
+        /// <param name="MaxVoltage">本次耐压过程最大电压，单位 V。</param>
+        /// <param name="TVResult">本次耐压测试判定。</param>
+        /// <param name="MaxCurrent">本次耐压过程最大电流，单位 mA。</param>
+        /// <param name="TVInfo">带 ACW/DCW 前缀的仪器状态文本。</param>
+        /// <param name="TVMeterID">执行本次测试的耐压仪编号。</param>
+        /// <param name="testedAt">仪器完成本次测试的时间，用于界面与数据库统一排序。</param>
+        /// <returns>插入成功时返回大于 0 的 SQLite 行 ID；失败时返回 0 并写入数据库异常日志。</returns>
+        public static long InsertDualYTestAttempt(string WOCODE, string PARTNOID, string SN, string STATIONCODE, string EQUIPMENTID,
+            float RES, float MaxVoltage, bool TVResult, float MaxCurrent, string TVInfo, string TVMeterID, DateTime testedAt)
+        {
+            string connectionString = CheckDataBase(WOCODE, PARTNOID, SN);
+            if (string.IsNullOrEmpty(connectionString))
+            {
+                WriteErrorLog("[追踪]InsertDualYTestAttempt-连接串为空", "CheckDataBase返回空", SN, WOCODE);
+                return 0;
+            }
+
+            const string insertSql = "INSERT INTO BusbarCompressionData(PARTNOID,WOCODE,SN,EQUIPMENTID,STATIONCODE,DATETIME,TAKEPHOTO1,RES,TVMAXVOLTAGE,TVMAXCURRENT,TVRESULT,TVMeterID,TVInfo) " +
+                "VALUES(@partNoId,@woCode,@sn,@equipmentId,@stationCode,@testedAt,0,@res,@maxVoltage,@maxCurrent,@tvResult,@tvMeterId,@tvInfo)";
+
+            for (int retry = 0; retry <= 3; retry++)
+            {
+                try
+                {
+                    using (var connection = new SQLiteConnection(connectionString))
+                    {
+                        connection.Open();
+                        using (var command = new SQLiteCommand(insertSql, connection))
+                        {
+                            command.Parameters.AddWithValue("@partNoId", PARTNOID ?? string.Empty);
+                            command.Parameters.AddWithValue("@woCode", WOCODE ?? string.Empty);
+                            command.Parameters.AddWithValue("@sn", SN ?? string.Empty);
+                            command.Parameters.AddWithValue("@equipmentId", EQUIPMENTID ?? string.Empty);
+                            command.Parameters.AddWithValue("@stationCode", STATIONCODE ?? string.Empty);
+                            command.Parameters.AddWithValue("@testedAt", testedAt);
+                            command.Parameters.AddWithValue("@res", RES);
+                            command.Parameters.AddWithValue("@maxVoltage", MaxVoltage);
+                            command.Parameters.AddWithValue("@maxCurrent", MaxCurrent);
+                            command.Parameters.AddWithValue("@tvResult", TVResult ? 1 : 0);
+                            command.Parameters.AddWithValue("@tvMeterId", TVMeterID ?? string.Empty);
+                            command.Parameters.AddWithValue("@tvInfo", TVInfo ?? string.Empty);
+
+                            if (command.ExecuteNonQuery() <= 0)
+                            {
+                                return 0;
+                            }
+                        }
+
+                        using (var idCommand = new SQLiteCommand("SELECT last_insert_rowid()", connection))
+                        {
+                            long recordId = Convert.ToInt64(idCommand.ExecuteScalar(), CultureInfo.InvariantCulture);
+                            WriteErrorLog("[电测记录]双Y测试行新增成功", $"ID={recordId}, TVInfo={TVInfo}", SN, WOCODE);
+                            return recordId;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    if (retry >= 3)
+                    {
+                        WriteErrorLog("[数据库异常]InsertDualYTestAttempt失败", $"已重试3次，异常: {ex.Message}", SN, WOCODE);
+                        return 0;
+                    }
+
+                    Thread.Sleep(100);
+                }
+            }
+
+            return 0;
+        }
+
+        /// <summary>
         /// 新增一条独立电测记录（ACW/DCW第二次测试、IR测试共用）。
         ///
         /// 业务策略：
@@ -819,9 +957,9 @@ namespace SQLITEDATABASE
                         TVMeterID = row["TVMeterID"]?.ToString() ?? string.Empty,
                         TVInfo = tvInfo,
                         TVResult = TryParseDbBool(row["TVRESULT"]),
-                        PressureMax = ParseDbUInt16(row["PRESSURE_MAX"]),
-                        PressureAverage = ParseDbUInt16(row["PRESSURE_AVERAGE"]),
-                        PressureMin = ParseDbUInt16(row["PRESSURE_MIN"]),
+                        PressureMax = ParseDbUInt32(row["PRESSURE_MAX"]),
+                        PressureAverage = ParseDbUInt32(row["PRESSURE_AVERAGE"]),
+                        PressureMin = ParseDbUInt32(row["PRESSURE_MIN"]),
                         PressureResult = TryParseDbBool(row["PRESSURE_RESULT"]),
                         TakePhoto2 = TryParseDbBool(row["TAKEPHOTO2"])
                     };
@@ -835,6 +973,77 @@ namespace SQLITEDATABASE
             catch (Exception ex)
             {
                 WriteErrorLog("[数据库异常]GetElectricalTestProcessRows失败", $"异常: {ex.Message}", SN, WOCODE);
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// 按双Y当前工位会话记录的 SQLite 行 ID 读取全部 ACW/DCW 测试尝试。
+        /// 返回集合保留同模式复测行，供界面追溯、最终结果选取和 MES 逐次过程数据上传使用。
+        /// </summary>
+        /// <param name="WOCODE">当前工位产品工单号，用于定位工单数据库。</param>
+        /// <param name="PARTNOID">当前工位产品规格编码。</param>
+        /// <param name="SN">当前工位产品 SN，用于校验行归属。</param>
+        /// <param name="recordIds">本次扫码会话内实际测试行的 SQLite 主键集合。</param>
+        /// <returns>按 SQLite ID 升序排列的全部测试尝试；目标为空或读取失败时返回空集合。</returns>
+        public static List<ElectricalTestProcessRow> GetElectricalTestProcessRowsByIds(string WOCODE, string PARTNOID, string SN, IEnumerable<long> recordIds)
+        {
+            var result = new List<ElectricalTestProcessRow>();
+            try
+            {
+                List<long> ids = (recordIds ?? Enumerable.Empty<long>()).Where(id => id > 0).Distinct().ToList();
+                if (ids.Count == 0)
+                {
+                    WriteErrorLog("[数据缺失]双Y测试行读取-ID为空", "当前工位会话没有测试行ID", SN, WOCODE);
+                    return result;
+                }
+
+                string connectionString = CheckDataBase(WOCODE, PARTNOID, SN);
+                if (string.IsNullOrEmpty(connectionString))
+                {
+                    WriteErrorLog("[追踪]双Y测试行读取-连接串为空", "CheckDataBase返回空", SN, WOCODE);
+                    return result;
+                }
+
+                string idList = string.Join(",", ids.Select(id => id.ToString(CultureInfo.InvariantCulture)).ToArray());
+                string sql = $"SELECT ID, TAKEPHOTO1, RES, TVMAXVOLTAGE, TVMAXCURRENT, TVMeterID, TVInfo, TVRESULT, PRESSURE_MAX, PRESSURE_AVERAGE, PRESSURE_MIN, PRESSURE_RESULT, TAKEPHOTO2 FROM BusbarCompressionData WHERE sn='{EscapeSqlLiteral(SN)}' AND ID IN ({idList}) AND (TVInfo LIKE '[ACW]%' OR TVInfo LIKE '[DCW]%') ORDER BY ID ASC";
+                DataTable table = Read(sql, connectionString);
+                if (table == null || table.Rows.Count == 0)
+                {
+                    WriteErrorLog("[数据缺失]双Y测试行读取-无匹配行", $"IDs={idList}", SN, WOCODE);
+                    return result;
+                }
+
+                foreach (DataRow row in table.Rows)
+                {
+                    string tvInfo = row["TVInfo"]?.ToString() ?? string.Empty;
+                    long id;
+                    long.TryParse(row["ID"]?.ToString(), out id);
+                    result.Add(new ElectricalTestProcessRow
+                    {
+                        Id = id,
+                        TestMode = tvInfo.StartsWith("[DCW]", StringComparison.OrdinalIgnoreCase) ? "DCW" : "ACW",
+                        TakePhoto1 = TryParseDbBool(row["TAKEPHOTO1"]),
+                        Res = ParseDbFloat(row["RES"]),
+                        TVMaxVoltage = ParseDbFloat(row["TVMAXVOLTAGE"]),
+                        TVMaxCurrent = ParseDbFloat(row["TVMAXCURRENT"]),
+                        TVMeterID = row["TVMeterID"]?.ToString() ?? string.Empty,
+                        TVInfo = tvInfo,
+                        TVResult = TryParseDbBool(row["TVRESULT"]),
+                        PressureMax = ParseDbUInt32(row["PRESSURE_MAX"]),
+                        PressureAverage = ParseDbUInt32(row["PRESSURE_AVERAGE"]),
+                        PressureMin = ParseDbUInt32(row["PRESSURE_MIN"]),
+                        PressureResult = TryParseDbBool(row["PRESSURE_RESULT"]),
+                        TakePhoto2 = TryParseDbBool(row["TAKEPHOTO2"])
+                    });
+                }
+
+                WriteErrorLog("[追踪]双Y测试行读取完成", $"expectedRows={ids.Count}, actualRows={result.Count}, IDs={idList}", SN, WOCODE);
+            }
+            catch (Exception ex)
+            {
+                WriteErrorLog("[数据库异常]双Y测试行读取失败", $"异常: {ex.Message}", SN, WOCODE);
             }
 
             return result;
@@ -906,9 +1115,9 @@ namespace SQLITEDATABASE
                         TVMeterID = row["TVMeterID"]?.ToString() ?? string.Empty,
                         TVInfo = tvInfo,
                         TVResult = TryParseDbBool(row["TVRESULT"]),
-                        PressureMax = ParseDbUInt16(row["PRESSURE_MAX"]),
-                        PressureAverage = ParseDbUInt16(row["PRESSURE_AVERAGE"]),
-                        PressureMin = ParseDbUInt16(row["PRESSURE_MIN"]),
+                        PressureMax = ParseDbUInt32(row["PRESSURE_MAX"]),
+                        PressureAverage = ParseDbUInt32(row["PRESSURE_AVERAGE"]),
+                        PressureMin = ParseDbUInt32(row["PRESSURE_MIN"]),
                         PressureResult = TryParseDbBool(row["PRESSURE_RESULT"]),
                         TakePhoto2 = TryParseDbBool(row["TAKEPHOTO2"])
                     };
@@ -1501,23 +1710,32 @@ namespace SQLITEDATABASE
         /// <param name="resMax">阻值合格上限，单位沿用工艺参数配置。</param>
         /// <param name="requireAcw">true 表示本轮流程必须存在有效 ACW 过程行。</param>
         /// <param name="requireDcw">true 表示本轮流程必须存在有效 DCW 过程行。</param>
+        /// <param name="recordIds">双Y当前工位会话的测试行 ID；传入集合时判定范围严格限定为本轮测试。</param>
         /// <returns>错误代码：0=合格，2=期望耐压数据缺失或不良，3=阻值或压力不良。</returns>
-        public static int CheckElectricalOnlyDualTest(string WOCODE, string PARTNOID, string SN, float resMax = 50, bool requireAcw = true, bool requireDcw = true)
+        public static int CheckElectricalOnlyDualTest(string WOCODE, string PARTNOID, string SN, float resMax = 50,
+            bool requireAcw = true, bool requireDcw = true, IEnumerable<long> recordIds = null)
         {
             if (!requireAcw && !requireDcw)
             {
                 requireAcw = true;
             }
 
-            List<ElectricalTestProcessRow> rows = GetElectricalTestProcessRows(WOCODE, PARTNOID, SN);
+            List<ElectricalTestProcessRow> rows = recordIds == null
+                ? GetElectricalTestProcessRows(WOCODE, PARTNOID, SN)
+                : GetElectricalTestProcessRowsByIds(WOCODE, PARTNOID, SN, recordIds);
             List<ElectricalTestProcessRow> expectedRows = rows
                 .Where(r => (requireAcw && string.Equals(r.TestMode, "ACW", StringComparison.OrdinalIgnoreCase))
                     || (requireDcw && string.Equals(r.TestMode, "DCW", StringComparison.OrdinalIgnoreCase)))
                 .ToList();
 
-            bool acwOk = !requireAcw || expectedRows.Any(r => string.Equals(r.TestMode, "ACW", StringComparison.OrdinalIgnoreCase)
+            List<ElectricalTestProcessRow> effectiveRows = expectedRows
+                .GroupBy(r => r.TestMode, StringComparer.OrdinalIgnoreCase)
+                .Select(group => group.OrderByDescending(r => r.Id).First())
+                .ToList();
+
+            bool acwOk = !requireAcw || effectiveRows.Any(r => string.Equals(r.TestMode, "ACW", StringComparison.OrdinalIgnoreCase)
                 && r.TVResult && r.TVMaxVoltage > 0 && r.TVMaxVoltage != -1);
-            bool dcwOk = !requireDcw || expectedRows.Any(r => string.Equals(r.TestMode, "DCW", StringComparison.OrdinalIgnoreCase)
+            bool dcwOk = !requireDcw || effectiveRows.Any(r => string.Equals(r.TestMode, "DCW", StringComparison.OrdinalIgnoreCase)
                 && r.TVResult && r.TVMaxVoltage > 0 && r.TVMaxVoltage != -1);
 
             if (!acwOk || !dcwOk)
@@ -1528,7 +1746,7 @@ namespace SQLITEDATABASE
                 return 2;
             }
 
-            ElectricalTestProcessRow resNgRow = expectedRows.FirstOrDefault(r => r.Res > resMax);
+            ElectricalTestProcessRow resNgRow = effectiveRows.FirstOrDefault(r => r.Res > resMax);
             if (resNgRow != null)
             {
                 WriteErrorLog("[多测模式]双Y阻值判断",
@@ -1537,7 +1755,7 @@ namespace SQLITEDATABASE
                 return 3;
             }
 
-            ElectricalTestProcessRow pressureNgRow = expectedRows.FirstOrDefault(r => !r.PressureResult);
+            ElectricalTestProcessRow pressureNgRow = effectiveRows.FirstOrDefault(r => !r.PressureResult);
             if (pressureNgRow != null)
             {
                 WriteErrorLog("[多测模式]双Y压力判断",
