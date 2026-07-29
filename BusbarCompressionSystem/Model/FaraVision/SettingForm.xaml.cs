@@ -1663,19 +1663,14 @@ namespace BusbarCompressionSystem.Model.FaraVision
         }
 
         /// <summary>
-        /// Metrology参数变更事件处理器（300ms防抖）        
-        /// 
+        /// Metrology 参数变更事件处理器（300ms 防抖）。
+        ///
         /// 业务场景：
-        /// - 用户在"Metrology参数（高级设置）"展开面板中调整参数（搜索范围、卡尺数量、边缘阈值等）
-        /// - 使用防抖机制避免参数变更时的频繁预览
-        /// 
+        /// - 操作者在“Metrology参数（高级设置）”中调整卡尺数量、搜索深度等参数。
+        ///
         /// 显示口径：
-        /// - 参数变更不自动刷新 HALCON 窗口，避免频繁清屏影响 ROI 配置过程；
-        /// - 测试测量、校准和检测照片按钮会先准备主界面结果图，再由完整测量流程绘制测距图层。
-        /// 
-        /// 注意：
-        /// - 防抖定时器保留为手动排障预览入口，不参与默认生产配置流程。
-        /// - 若恢复实时找边预览，应确认 PreviewDimensionMeasurement 只显示找边层，不包含完整测距层。
+        /// - 参数变更不自动刷新 HALCON 窗口，避免频繁清屏打断 ROI 配置。
+        /// - 卡尺与找边结果由“测试此模板 / 检测照片 / 校准”在主界面 AOI 窗口一次性绘制。
         /// </summary>
         private void MetrologyParameter_Changed(object sender, RoutedEventArgs e)
         {
@@ -1684,7 +1679,7 @@ namespace BusbarCompressionSystem.Model.FaraVision
                 return;
             }
 
-            // 初始化定时器（仅第一次）
+            // 初始化定时器（仅第一次）；保留防抖入口，默认不触发预览重绘。
             if (_metrologyPreviewTimer == null)
             {
                 _metrologyPreviewTimer = new System.Windows.Threading.DispatcherTimer();
@@ -1692,24 +1687,9 @@ namespace BusbarCompressionSystem.Model.FaraVision
                 _metrologyPreviewTimer.Tick += (s, args) =>
                 {
                     _metrologyPreviewTimer.Stop();
-
-                    /*
-                    try
-                    {
-                        if (t.Image != null && t.TestMode == TestModes.尺寸测量)
-                        {
-                            vml.Main.PreviewDimensionMeasurement(t.Image, t, vml.Main.DataModel.FaraVisionDataModel.Settingmodel.HWindow);
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Debug.WriteLine($"Metrology预览刷新失败: {ex.Message}");
-                    }
-                    */
                 };
             }
 
-            // 重置定时器（防抖）
             _metrologyPreviewTimer.Stop();
             _metrologyPreviewTimer.Start();
         }

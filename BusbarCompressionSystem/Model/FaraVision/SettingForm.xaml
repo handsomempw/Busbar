@@ -799,7 +799,7 @@
                                     <CheckBox Grid.Row="10" Grid.Column="0" Grid.ColumnSpan="3" Margin="0,10,0,0"
                                               IsChecked="{Binding ShowMetrologyDebugInfo}"
                                               Content="显示调试信息（卡尺位置、边缘点）"
-                                              ToolTip="勾选后将在预览时显示卡尺位置和边缘点"/>
+                                              ToolTip="勾选后，点击“测试此模板”会在主界面 AOI 窗口显示橙色卡尺框与边缘点"/>
                                 </Grid>
                             </Expander>
 
@@ -886,6 +886,7 @@
                                         <RowDefinition Height="Auto"/>
                                         <RowDefinition Height="Auto"/>
                                         <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
                                     </Grid.RowDefinitions>
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto"/>
@@ -951,9 +952,19 @@
                                     <TextBlock Grid.Row="5" Grid.Column="2" Text="{Binding MetrologyMeasureLength1, StringFormat={}{0}像素}"
                                                VerticalAlignment="Center" Margin="8,0,0,0"/>
 
-                                    <CheckBox Grid.Row="6" Grid.Column="0" Grid.ColumnSpan="3" Margin="0,8,0,0"
+                                    <TextBlock Grid.Row="6" Grid.Column="0" VerticalAlignment="Center" Margin="0,5"
+                                               ToolTip="沿 ROI 线方向的卡尺半宽度，影响橙色卡尺框厚度">沿线方向半宽度:</TextBlock>
+                                    <Slider Grid.Row="6" Grid.Column="1" Minimum="2" Maximum="200" Margin="4,5"
+                                            HorizontalAlignment="Stretch"
+                                            Value="{Binding MetrologyMeasureLength2}" TickFrequency="1" IsSnapToTickEnabled="True"
+                                            ValueChanged="MetrologyParameter_Changed"/>
+                                    <TextBlock Grid.Row="6" Grid.Column="2" Text="{Binding MetrologyMeasureLength2, StringFormat={}{0}像素}"
+                                               VerticalAlignment="Center" Margin="8,0,0,0"/>
+
+                                    <CheckBox Grid.Row="7" Grid.Column="0" Grid.ColumnSpan="3" Margin="0,8,0,0"
                                               IsChecked="{Binding ShowMetrologyDebugInfo}"
-                                              Content="显示调试信息（卡尺位置、边缘点）"/>
+                                              Content="显示调试信息（卡尺位置、边缘点）"
+                                              ToolTip="勾选后，点击“测试此模板”会在主界面 AOI 窗口显示橙色卡尺框与边缘点"/>
                                 </Grid>
                             </Expander>
 

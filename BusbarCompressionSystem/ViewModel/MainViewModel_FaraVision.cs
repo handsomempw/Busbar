@@ -2645,7 +2645,7 @@ namespace BusbarCompressionSystem.ViewModel
                     hwindow.DispLine(distanceResult.Row1, distanceResult.Col1, distanceResult.Row2, distanceResult.Col2);
                     hwindow.SetLineStyle(new HTuple()); // 恢复实线
 
-                    // 如果启用调试信息，绘制边缘点、卡尺位置和最近点标记
+                    // 如果启用调试信息，绘制边缘点、卡尺框和最近点标记
                     if (tool.ShowMetrologyDebugInfo)
                     {
                         // 绘制边缘点（春绿色十字标记）
@@ -2663,6 +2663,11 @@ namespace BusbarCompressionSystem.ViewModel
                             double col = edge2Cols[i].D;
                             hwindow.DispCross(row, col, 6, 0);
                         }
+
+                        // 沿两侧 ROI 绘制橙色卡尺框，与测距红线同属一次测量图层，
+                        // 避免再走独立找边预览清屏后卡尺与距离线互相覆盖。
+                        DrawMetrologyCaliperFramesOnRoi(hwindow, tool, roi1);
+                        DrawMetrologyCaliperFramesOnRoi(hwindow, tool, roi2);
 
                         // 绘制最近点标记（橙色圆圈）
                         hwindow.SetColor("orange");
@@ -2785,6 +2790,9 @@ namespace BusbarCompressionSystem.ViewModel
                             double col = circleEdgeCols[i].D;
                             hwindow.DispCross(row, col, 6, 0);
                         }
+
+                        // 直线 ROI 侧橙色卡尺框
+                        DrawMetrologyCaliperFramesOnRoi(hwindow, tool, roi1);
 
                         // 绘制圆心标记（橙色圆圈）
                         hwindow.SetColor("orange");
@@ -4316,13 +4324,30 @@ namespace BusbarCompressionSystem.ViewModel
 
                 DrawMetrologyCaliperFramesOnRoi(hwindow, tool, roi);
             }
+
+            try
+            {
+                HOperatorSet.SetWindowParam(hwindow, "flush", "true");
+            }
+            catch
+            {
+            }
         }
 
         /// <summary>
-        /// 沿 ROI 线段绘制 Metrology 卡尺框，供直线检测与尺寸测量预览共用。
+        /// 沿操作者配置的直线 ROI 绘制 Metrology 卡尺框，供直线检测与尺寸测量的主界面 AOI 预览共用。
+        /// 该图层仅用于核对卡尺分布和搜索范围，不改变找边、尺寸判定或工程参数。
         /// </summary>
+        /// <param name="hwindow">主界面 AOI 结果窗口，卡尺框以橙色叠加到当前测量图层。</param>
+        /// <param name="tool">当前工具配置，提供卡尺数量及两个方向的半长度，单位为像素。</param>
+        /// <param name="roi">操作者绘制并随工程保存的直线 ROI；其他 ROI 类型不生成矩形卡尺框。</param>
         private void DrawMetrologyCaliperFramesOnRoi(HWindow hwindow, ToolModel tool, ROI roi)
         {
+            if (hwindow == null || tool == null || roi == null || roi.Type != ROIType.Line)
+            {
+                return;
+            }
+
             int numMeasures = Math.Max(0, tool.MetrologyNumMeasures);
             if (numMeasures <= 0)
             {
@@ -4346,7 +4371,7 @@ namespace BusbarCompressionSystem.ViewModel
             double perpRow = -dirCol;
             double perpCol = dirRow;
             double halfLen1 = tool.MetrologyMeasureLength1;
-            double halfLen2 = tool.MetrologyMeasureLength2;
+            double halfLen2 = Math.Max(1, tool.MetrologyMeasureLength2);
 
             hwindow.SetColor("orange");
             hwindow.SetLineWidth(1);
@@ -4557,6 +4582,11 @@ namespace BusbarCompressionSystem.ViewModel
                     out lineRowBegin, out lineColBegin, out lineRowEnd, out lineColEnd,
                     out edgeRows, out edgeCols, out _))
                 {
+                    // 找边失败时仍按 ROI 绘制卡尺布局，便于核对搜索范围是否盖住目标边缘。
+                    if (tool.ShowMetrologyDebugInfo)
+                    {
+                        DrawMetrologyCaliperFramesOnRoi(hwindow, tool, roi);
+                    }
                     return false;
                 }
 
@@ -4575,68 +4605,10 @@ namespace BusbarCompressionSystem.ViewModel
                     hwindow.DispCross(row, col, 6, 0);
                 }
 
-                // 3. 如果启用调试信息，绘制卡尺位置
+                // 3. 如果启用调试信息，绘制卡尺位置（以用户 ROI 为基准，避免跟着拟合线漂移）
                 if (tool.ShowMetrologyDebugInfo)
                 {
-                    // 重要：调试“卡尺矩形框”以用户绘制的ROI线段为基准（更符合“预览=配置”的直觉），
-                    // 避免跟着拟合结果漂移导致ROI中心看起来“不在画的线的中心”。
-                    int numMeasures = Math.Max(0, tool.MetrologyNumMeasures);
-                    if (numMeasures <= 0)
-                    {
-                        return true;
-                    }
-
-                    // 计算ROI线段方向向量（Row/Col坐标系）
-                    double roiRowBegin = roi.Row1;
-                    double roiColBegin = roi.Col1;
-                    double roiRowEnd = roi.Row2;
-                    double roiColEnd = roi.Col2;
-                    double dirRow = roiRowEnd - roiRowBegin;
-                    double dirCol = roiColEnd - roiColBegin;
-                    double lineLength = Math.Sqrt(dirRow * dirRow + dirCol * dirCol);
-                    if (lineLength <= 1e-6)
-                    {
-                        return true; // 线段过短：跳过卡尺矩形框绘制，避免除0/NaN
-                    }
-                    dirRow /= lineLength;
-                    dirCol /= lineLength;
-
-                    // 垂直方向向量
-                    double perpRow = -dirCol;
-                    double perpCol = dirRow;
-
-                    // 绘制卡尺位置（橙色矩形，避免与ROI(绿/黄)冲突）
-                    hwindow.SetColor("orange");
-                    hwindow.SetLineWidth(1);
-                    hwindow.SetDraw("margin");
-
-                    for (int i = 0; i < numMeasures; i++)
-                    {
-                        // 计算卡尺中心位置
-                        double t = (numMeasures == 1) ? 0.5 : (double)i / (numMeasures - 1);
-                        double centerRow = roiRowBegin + t * (roiRowEnd - roiRowBegin);
-                        double centerCol = roiColBegin + t * (roiColEnd - roiColBegin);
-
-                        // 计算卡尺矩形的四个角点
-                        double halfLen1 = tool.MetrologyMeasureLength1; // 测量方向半长度
-                        double halfLen2 = tool.MetrologyMeasureLength2; // 垂直测量方向半宽度
-
-                        // 测量方向应垂直于ROI线方向，因此Length1沿perp，Length2沿dir
-                        double row1 = centerRow - halfLen1 * perpRow - halfLen2 * dirRow;
-                        double col1 = centerCol - halfLen1 * perpCol - halfLen2 * dirCol;
-                        double row2 = centerRow + halfLen1 * perpRow - halfLen2 * dirRow;
-                        double col2 = centerCol + halfLen1 * perpCol - halfLen2 * dirCol;
-                        double row3 = centerRow + halfLen1 * perpRow + halfLen2 * dirRow;
-                        double col3 = centerCol + halfLen1 * perpCol + halfLen2 * dirCol;
-                        double row4 = centerRow - halfLen1 * perpRow + halfLen2 * dirRow;
-                        double col4 = centerCol - halfLen1 * perpCol + halfLen2 * dirCol;
-
-                        // 绘制矩形
-                        hwindow.DispLine(row1, col1, row2, col2);
-                        hwindow.DispLine(row2, col2, row3, col3);
-                        hwindow.DispLine(row3, col3, row4, col4);
-                        hwindow.DispLine(row4, col4, row1, col1);
-                    }
+                    DrawMetrologyCaliperFramesOnRoi(hwindow, tool, roi);
                 }
 
                 return true;
