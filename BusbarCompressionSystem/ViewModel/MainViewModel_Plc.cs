@@ -205,14 +205,14 @@ namespace BusbarCompressionSystem.ViewModel
                                     DualYStation1FlowEndTrig == 1 &&
                                     DataModel.Processmodel.DualYStation1FlowEnd_Trig_IO.IOstatus == 0)
                                 {
-                                    StartRuntimeWorker(() => DualYFlowEndProcess(1), "双Y-Y1归档");
+                                    StartRuntimeWorker(() => DualYFlowEndProcess(1), "双Y-Y1结算");
                                 }
 
                                 if (DualYModeActive &&
                                     DualYStation2FlowEndTrig == 1 &&
                                     DataModel.Processmodel.DualYStation2FlowEnd_Trig_IO.IOstatus == 0)
                                 {
-                                    StartRuntimeWorker(() => DualYFlowEndProcess(2), "双Y-Y2归档");
+                                    StartRuntimeWorker(() => DualYFlowEndProcess(2), "双Y-Y2结算");
                                 }
                             }
                             catch (Exception ex)

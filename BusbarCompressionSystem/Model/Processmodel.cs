@@ -335,7 +335,7 @@ namespace BusbarCompressionSystem.Model
     }
 
     /// <summary>
-    /// 双Y单工位的操作员展示状态。该模型汇总扫码产品和流程结束归档结果，
+    /// 双Y单工位的操作员展示状态。该模型汇总扫码产品和当前实测结算结果，
     /// 帮助小屏界面区分 Y1/Y2 当前节拍；正式测试结果仍以 SQLite、MES 和 PLC 反馈为准。
     /// </summary>
     public class DualYStationDisplayState : ObservableObject
@@ -388,7 +388,7 @@ namespace BusbarCompressionSystem.Model
         }
 
         /// <summary>
-        /// 当前工位面向操作员的流程状态，例如等待电测、归档处理中或归档完成。
+        /// 当前工位面向操作员的流程状态，例如等待电测、结果结算中或测试完成。
         /// </summary>
         public string WorkflowState
         {
@@ -402,7 +402,7 @@ namespace BusbarCompressionSystem.Model
         }
 
         /// <summary>
-        /// 当前工位最近一次综合判定及 MES/报工状态摘要，便于现场快速定位归档结果。
+        /// 当前工位最近一次实测综合判定及点检摘要；后台MES归档状态只写日志，不覆盖当前产品显示。
         /// </summary>
         public string LastResult
         {
@@ -432,7 +432,7 @@ namespace BusbarCompressionSystem.Model
         /// 刷新工位流程阶段与结果摘要。该状态服务于界面提示；正式报工结果和设备联锁继续以业务流程返回值为准。
         /// </summary>
         /// <param name="workflowState">操作员可识别的当前流程阶段。</param>
-        /// <param name="lastResult">综合判定、MES 和报工摘要；传空值时保留现有结果。</param>
+        /// <param name="lastResult">实测综合判定和点检摘要；传空值时保留现有结果。</param>
         public void UpdateWorkflow(string workflowState, string lastResult = null)
         {
             WorkflowState = string.IsNullOrWhiteSpace(workflowState) ? "状态未知" : workflowState;

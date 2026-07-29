@@ -53,7 +53,8 @@ namespace BusbarCompressionSystem.ViewModel
     }
 
     /// <summary>
-    /// 双Y并行仅电测模式：2工位扫码、D1020/D1021 流程结束归档（替代 CHECK/机器人）。
+    /// 双Y并行仅电测模式：2工位扫码、D1020/D1021 实测结算（替代 CHECK/机器人），
+    /// 写 M3051/M3052 后释放工位并在后台一次性归档；耐压点检旁路报工，IR/AOI 点检码在扫码入口拦截。
     /// </summary>
     public partial class MainViewModel
     {
@@ -74,6 +75,23 @@ namespace BusbarCompressionSystem.ViewModel
                 PartNoId = partNoId ?? string.Empty;
                 TestRecordIds.Clear();
             }
+        }
+
+        /// <summary>
+        /// 双Y工位完成实测结算后交给后台归档的一次性数据快照。
+        /// 快照与后续扫码会话隔离，MES保存或报工耗时不会占用工位，也不会覆盖下一件产品的界面状态。
+        /// </summary>
+        private sealed class DualYArchiveSnapshot
+        {
+            internal int StationIndex { get; set; }
+            internal string Sn { get; set; } = string.Empty;
+            internal string WoCode { get; set; } = string.Empty;
+            internal string PartNoId { get; set; } = string.Empty;
+            internal string ResultText { get; set; } = string.Empty;
+            internal bool RequireAcw { get; set; }
+            internal bool RequireDcw { get; set; }
+            internal bool IsTvInspection { get; set; }
+            internal List<long> TestRecordIds { get; set; } = new List<long>();
         }
 
         private readonly object _dualYMesLock = new object();
@@ -151,12 +169,12 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
-        /// 尝试占用指定工位的流程结束归档入口。扫码和归档共享同一工位同步边界，
-        /// 防止产品码尚在校验或写入时并发读取并归档上一笔数据。
+        /// 尝试占用指定工位的流程结束结算入口。扫码和实测结算共享同一工位同步边界，
+        /// 防止产品码尚在校验或写入时并发读取上一笔数据；MES后台归档不占用该边界。
         /// </summary>
         /// <param name="stationIndex">双Y物理工位号，取值 1 或 2。</param>
         /// <param name="busyReason">占用失败时返回当前工位正在处理的业务阶段。</param>
-        /// <returns>成功占用归档入口时返回 true；工位正在扫码或归档时返回 false。</returns>
+        /// <returns>成功占用结算入口时返回 true；工位正在扫码或结算时返回 false。</returns>
         private bool TryBeginDualYFlowEndProcessing(int stationIndex, out string busyReason)
         {
             object workflowSync = stationIndex == 1 ? _dualYStation1WorkflowSync : _dualYStation2WorkflowSync;
@@ -172,7 +190,7 @@ namespace BusbarCompressionSystem.ViewModel
 
                 if (flowEndProcessing != 0)
                 {
-                    busyReason = "上一笔归档仍在处理";
+                    busyReason = "上一笔实测结算仍在处理";
                     return false;
                 }
 
@@ -191,9 +209,9 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
-        /// 释放指定工位的流程结束占用，使下一次扫码或归档触发可以进入业务链。
+        /// 释放指定工位的实测结算占用，使下一件产品扫码和流程结束触发可以进入业务链。
         /// </summary>
-        /// <param name="stationIndex">本次归档所属的双Y物理工位号。</param>
+        /// <param name="stationIndex">本次实测结算所属的双Y物理工位号。</param>
         private void EndDualYFlowEndProcessing(int stationIndex)
         {
             object workflowSync = stationIndex == 1 ? _dualYStation1WorkflowSync : _dualYStation2WorkflowSync;
@@ -215,8 +233,8 @@ namespace BusbarCompressionSystem.ViewModel
         /// 同一工位一次只允许一笔 MES 校验、SQLite 建账和 PLC 写码业务执行。
         /// </summary>
         /// <param name="stationIndex">双Y物理工位号，取值 1 或 2。</param>
-        /// <param name="busyReason">占用失败时返回扫码或归档中的具体阶段。</param>
-        /// <returns>成功占用扫码入口时返回 true；工位正在扫码或归档时返回 false。</returns>
+        /// <param name="busyReason">占用失败时返回扫码或实测结算中的具体阶段。</param>
+        /// <returns>成功占用扫码入口时返回 true；工位正在扫码或实测结算时返回 false。</returns>
         private bool TryBeginDualYScanProcessing(int stationIndex, out string busyReason)
         {
             object workflowSync = stationIndex == 1 ? _dualYStation1WorkflowSync : _dualYStation2WorkflowSync;
@@ -232,7 +250,7 @@ namespace BusbarCompressionSystem.ViewModel
 
                 if (flowEndProcessing != 0)
                 {
-                    busyReason = "工位正在归档";
+                    busyReason = "工位正在计算实测结果";
                     return false;
                 }
 
@@ -386,6 +404,9 @@ namespace BusbarCompressionSystem.ViewModel
                 ? DataModel.Processmodel.DualYStation1Display
                 : DataModel.Processmodel.DualYStation2Display;
             if (stationDisplay.WorkflowState == "等待电测"
+                || stationDisplay.WorkflowState == "结果结算中"
+                || stationDisplay.WorkflowState == "结算失败"
+                || stationDisplay.WorkflowState == "结算异常"
                 || stationDisplay.WorkflowState == "归档处理中"
                 || stationDisplay.WorkflowState == "归档失败"
                 || stationDisplay.WorkflowState == "归档异常")
@@ -428,6 +449,9 @@ namespace BusbarCompressionSystem.ViewModel
                 ? DataModel.Processmodel.DualYStation1Display
                 : DataModel.Processmodel.DualYStation2Display;
             bool activeProductConflict = stationDisplay.WorkflowState == "等待电测"
+                || stationDisplay.WorkflowState == "结果结算中"
+                || stationDisplay.WorkflowState == "结算失败"
+                || stationDisplay.WorkflowState == "结算异常"
                 || stationDisplay.WorkflowState == "归档处理中"
                 || stationDisplay.WorkflowState == "归档失败"
                 || stationDisplay.WorkflowState == "归档异常";
@@ -488,6 +512,9 @@ namespace BusbarCompressionSystem.ViewModel
                 ? DataModel.Processmodel.DualYStation1Display
                 : DataModel.Processmodel.DualYStation2Display;
             bool preserveActiveProduct = stationDisplay.WorkflowState == "等待电测"
+                || stationDisplay.WorkflowState == "结果结算中"
+                || stationDisplay.WorkflowState == "结算失败"
+                || stationDisplay.WorkflowState == "结算异常"
                 || stationDisplay.WorkflowState == "归档处理中"
                 || stationDisplay.WorkflowState == "归档失败"
                 || stationDisplay.WorkflowState == "归档异常";
@@ -609,14 +636,17 @@ namespace BusbarCompressionSystem.ViewModel
         /// <param name="sn">流程结束时从 PLC 读取的产品 SN。</param>
         /// <param name="woCode">流程结束时从 PLC 读取的工单号。</param>
         /// <param name="recordIds">返回本轮每次实际测试对应的 SQLite 行 ID。</param>
+        /// <param name="partNoId">返回本轮扫码会话登记的规格编码，供归档落库与点检料号对齐。</param>
         /// <param name="reason">校验失败时返回可写入操作员日志的原因。</param>
         /// <returns>产品会话一致且至少存在一条测试行时返回 true。</returns>
-        private bool TryGetDualYTestRunRecordIds(int stationIndex, string sn, string woCode, out List<long> recordIds, out string reason)
+        private bool TryGetDualYTestRunRecordIds(int stationIndex, string sn, string woCode,
+            out List<long> recordIds, out string partNoId, out string reason)
         {
             lock (_dualYTestRunSync)
             {
                 DualYTestRunState state = stationIndex == 1 ? _dualYStation1TestRun : _dualYStation2TestRun;
                 recordIds = state.TestRecordIds.Where(id => id > 0).Distinct().ToList();
+                partNoId = state.PartNoId ?? string.Empty;
 
                 if (!string.Equals(state.Sn, sn, StringComparison.Ordinal)
                     || !string.Equals(state.WoCode, woCode, StringComparison.Ordinal))
@@ -814,10 +844,12 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
-        /// D1020/D1021 流程结束触发后的归档：按双Y独立配置的产品码地址读取 SN/工单，再读压力、校验电测、写 MES 并报工。
-        /// 产品码地址与流程结束触发地址分离；Y1/Y2 分别使用 Station1ScanSnAddress / Station2ScanSnAddress。
+        /// D1020/D1021 流程结束触发后的实测结算：从耐压工位产品码镜像区读取 SN/工单，
+        /// 汇总耐压、阻值和压力后写 M3051/M3052，并立即释放工位供下一件产品扫码作业。
+        /// MES过程数据和正常产品报工使用本轮快照在后台执行，失败只记录日志，不改变实测结果，也不回写当前工位卡片。
+        /// Y1 读 AddressSN+25（默认 D825），Y2 读 AddressSN+50（默认 D850）；与扫码写入区 D800/D950、流程结束触发 D1020/D1021 均分离。
         /// </summary>
-        /// <param name="stationIndex">1 或 2。</param>
+        /// <param name="stationIndex">本次结算所属的双Y物理工位号，1 对应耐压1镜像区与 M3051，2 对应耐压2镜像区与 M3052。</param>
         public void DualYFlowEndProcess(int stationIndex)
         {
             if (stationIndex != 1 && stationIndex != 2)
@@ -828,50 +860,60 @@ namespace BusbarCompressionSystem.ViewModel
             string busyReason;
             if (!TryBeginDualYFlowEndProcessing(stationIndex, out busyReason))
             {
-                writeLog($"[双Y-工位{stationIndex}流程结束] {busyReason}，忽略重复触发。", true);
+                writeLog($"[双Y-工位{stationIndex}结算] {busyReason}，忽略重复触发。", true);
                 return;
             }
+            bool settlementProcessingHeld = true;
 
-            UpdateDualYStationDisplay(stationIndex, display => display.UpdateWorkflow("归档处理中"));
+            UpdateDualYStationDisplay(stationIndex, display => display.UpdateWorkflow("结果结算中"));
+
+            // 结算触发后先清除上一件实测结果；耐压、阻值和压力完成综合判定后再写入本件结果。
+            WriteDualYStationTotalResult(stationIndex, false);
 
             try
             {
-                // 产品码读取地址与 D1020/D1021 流程结束触发地址分离：
-                // 触发由 Station1/2FlowEndAddress 负责；此处只读取扫码写入的 SN/工单区。
+                // 结算回读耐压工位产品码镜像，不读扫码写入区：
+                // Y1=AddressSN+25（D825），Y2=AddressSN+50（D850）；扫码仍写 D800/D950，触发仍用 D1020/D1021。
                 int snAddress = stationIndex == 1
-                    ? DataModel.DualYConfiguration.Station1ScanSnAddress
-                    : DataModel.DualYConfiguration.Station2ScanSnAddress;
+                    ? DataModel.Settingmodel.AddressSN + 25
+                    : DataModel.Settingmodel.AddressSN + 50;
 
                 string snCode;
                 string woCode;
                 string rawCode;
                 if (!TryReadProductCodeFromPlc(snAddress, $"双Y-工位{stationIndex}流程结束", out snCode, out woCode, out rawCode, 3, 500))
                 {
-                    writeLog($"[双Y-工位{stationIndex}流程结束] 产品编码读取失败，已中止归档。原始值=[{rawCode}]", true);
-                    UpdateDualYStationDisplay(stationIndex, display => display.UpdateWorkflow("归档失败", "产品码读取失败"));
+                    writeLog($"[双Y-工位{stationIndex}结算] 产品编码读取失败，已中止实测结算。原始值=[{rawCode}]", true);
+                    UpdateDualYStationDisplay(stationIndex, display => display.UpdateWorkflow("结算失败", "产品码读取失败"));
                     return;
                 }
 
                 UpdateDualYStationDisplay(stationIndex, display =>
                 {
                     display.BeginProduct(snCode, woCode);
-                    display.UpdateWorkflow("归档处理中");
+                    display.UpdateWorkflow("结果结算中");
                 });
 
-                string partnoid = DataModel.Processmodel.PartNOID;
+                bool isTvInspection = IsTvInspectionSn(snCode);
                 List<long> testRecordIds;
+                string sessionPartNoId;
                 string testRunError;
-                if (!TryGetDualYTestRunRecordIds(stationIndex, snCode, woCode, out testRecordIds, out testRunError))
+                if (!TryGetDualYTestRunRecordIds(stationIndex, snCode, woCode, out testRecordIds, out sessionPartNoId, out testRunError))
                 {
-                    writeLog($"[双Y归档] 当前工位测试记录校验失败，工位={stationIndex}, SN={snCode}, 原因={testRunError}", true);
-                    UpdateDualYStationDisplay(stationIndex, display => display.UpdateWorkflow("归档失败", testRunError));
+                    writeLog($"[双Y结算] 当前工位测试记录校验失败，工位={stationIndex}, SN={snCode}, 原因={testRunError}", true);
+                    UpdateDualYStationDisplay(stationIndex, display => display.UpdateWorkflow("结算失败", testRunError));
                     return;
                 }
+
+                string partnoid = !string.IsNullOrWhiteSpace(sessionPartNoId)
+                    ? sessionPartNoId.Trim()
+                    : DataModel.Processmodel.PartNOID;
 
                 bool requireAcw;
                 bool requireDcw;
                 string requiredModeText = GetDualYRequiredElectricalModes(out requireAcw, out requireDcw);
-                writeLog($"[双Y归档] 开始，工位={stationIndex}, SN={snCode}, WO={woCode}, 模式={requiredModeText}, 测试次数={testRecordIds.Count}");
+                writeLog($"[双Y结算] 开始，工位={stationIndex}, SN={snCode}, WO={woCode}, 模式={requiredModeText}, 测试次数={testRecordIds.Count}"
+                    + (isTvInspection ? $", 点检={GetInspectionTypeText(snCode)}" : string.Empty));
 
                 int pressureAddress = stationIndex == 1
                     ? DataModel.Settingmodel.AddressPressure
@@ -881,24 +923,24 @@ namespace BusbarCompressionSystem.ViewModel
                 UInt32 minPressure = PLC_ReadUint32(pressureAddress + 4);
                 bool pressureResult = maxPressure <= DataModel.Processmodel.PressureParamter.Max_Pressure
                     && minPressure >= DataModel.Processmodel.PressureParamter.Min_Pressure;
-                writeLog($"[双Y归档] 压力读取完成，工位={stationIndex}, 地址=D{pressureAddress}/D{pressureAddress + 2}/D{pressureAddress + 4}, 平均={averagePressure}, 最大={maxPressure}, 最小={minPressure}");
+                writeLog($"[双Y结算] 压力读取完成，工位={stationIndex}, 地址=D{pressureAddress}/D{pressureAddress + 2}/D{pressureAddress + 4}, 平均={averagePressure}, 最大={maxPressure}, 最小={minPressure}");
 
                 // 口径B：压力只归属各模式最新一次测试；同模式更早复测行保持无压力，便于区分尝试与最终行。
                 List<long> pressureTargetIds = SelectDualYPressureTargetRecordIds(woCode, partnoid, snCode, testRecordIds);
                 if (pressureTargetIds.Count == 0)
                 {
-                    writeLog($"[双Y归档] 压力目标行为空，工位={stationIndex}, SN={snCode}, WO={woCode}", true);
-                    UpdateDualYStationDisplay(stationIndex, display => display.UpdateWorkflow("归档失败", "本轮无可写入压力的电测行"));
+                    writeLog($"[双Y结算] 压力目标行为空，工位={stationIndex}, SN={snCode}, WO={woCode}", true);
+                    UpdateDualYStationDisplay(stationIndex, display => display.UpdateWorkflow("结算失败", "本轮无可写入压力的电测行"));
                     return;
                 }
 
-                writeLog($"[双Y归档] 压力写入目标，工位={stationIndex}, 会话行数={testRecordIds.Count}, 目标行数={pressureTargetIds.Count}, IDs={string.Join(",", pressureTargetIds)}");
+                writeLog($"[双Y结算] 压力写入目标，工位={stationIndex}, 会话行数={testRecordIds.Count}, 目标行数={pressureTargetIds.Count}, IDs={string.Join(",", pressureTargetIds)}");
                 bool pressureDbOk = sqlite.UpdatePressureForElectricalRowsByIds(
                     woCode, partnoid, snCode, pressureTargetIds, averagePressure, maxPressure, minPressure, pressureResult);
                 if (!pressureDbOk)
                 {
-                    writeLog($"[双Y归档] SQLite压力写入失败，工位={stationIndex}, SN={snCode}, WO={woCode}", true);
-                    UpdateDualYStationDisplay(stationIndex, display => display.UpdateWorkflow("归档失败", "本轮压力数据写入失败"));
+                    writeLog($"[双Y结算] SQLite压力写入失败，工位={stationIndex}, SN={snCode}, WO={woCode}", true);
+                    UpdateDualYStationDisplay(stationIndex, display => display.UpdateWorkflow("结算失败", "本轮压力数据写入失败"));
                     return;
                 }
                 UpdateDualYPressureRecords(
@@ -914,37 +956,132 @@ namespace BusbarCompressionSystem.ViewModel
                     checkCode = 3;
                 }
                 string resultstr = MapElectricalCheckCodeToResultString(checkCode);
-                writeLog($"[双Y归档] 综合判定完成，工位={stationIndex}, SN={snCode}, 结果={resultstr}");
+                bool stationTotalOk = checkCode == 0;
+                writeLog($"[双Y结算] 综合判定完成，工位={stationIndex}, SN={snCode}, 结果={resultstr}");
 
+                // 总结果只区分合格与否：合格写 1，NG2/NG3 及任何不合格写 0。
+                WriteDualYStationTotalResult(stationIndex, stationTotalOk);
+
+                string displayResult = resultstr;
+                if (isTvInspection)
+                {
+                    bool expectedOk = IsTvOkInspectionSn(snCode);
+                    bool inspectionPassed = expectedOk == stationTotalOk;
+                    writeLog(
+                        $"[双Y结算] 耐压点检完成，工位={stationIndex}, SN={snCode}, 期望={(expectedOk ? "OK" : "NG")}, 实测={(stationTotalOk ? "OK" : "NG")}, 点检={(inspectionPassed ? "通过" : "不通过")}",
+                        !inspectionPassed);
+                    displayResult += $" / 点检:{(inspectionPassed ? "通过" : "不通过")}";
+                }
+
+                UpdateDualYStationDisplay(stationIndex, display =>
+                {
+                    if (string.Equals(display.CurrentSn, snCode, StringComparison.Ordinal)
+                        && string.Equals(display.CurrentWoCode, woCode, StringComparison.Ordinal))
+                    {
+                        display.UpdateWorkflow("测试完成", displayResult);
+                    }
+                });
+
+                var archiveSnapshot = new DualYArchiveSnapshot
+                {
+                    StationIndex = stationIndex,
+                    Sn = snCode,
+                    WoCode = woCode,
+                    PartNoId = partnoid,
+                    ResultText = resultstr,
+                    RequireAcw = requireAcw,
+                    RequireDcw = requireDcw,
+                    IsTvInspection = isTvInspection,
+                    TestRecordIds = testRecordIds.ToList()
+                };
+
+                // 归档快照已经脱离当前测试会话，先释放工位，再启动MES后台任务。
+                EndDualYFlowEndProcessing(stationIndex);
+                settlementProcessingHeld = false;
+                StartRuntimeWorker(() => ArchiveDualYResultInBackground(archiveSnapshot), $"双Y-Y{stationIndex}后台归档");
+                writeLog($"[双Y结算] 实测结果已提交PLC，后台归档已启动，工位={stationIndex}, SN={snCode}, 结果={resultstr}");
+            }
+            catch (Exception ex)
+            {
+                WriteDualYStationTotalResult(stationIndex, false);
+                writeLog($"[双Y结算] 异常，工位={stationIndex}, {ex.Message}", true);
+                sqlite.WriteErrorLog("[双Y流程结束异常]实测结算失败", ex.Message, string.Empty, string.Empty);
+                UpdateDualYStationDisplay(stationIndex, display => display.UpdateWorkflow("结算异常", "请查看运行日志"));
+            }
+            finally
+            {
+                if (settlementProcessingHeld)
+                {
+                    EndDualYFlowEndProcessing(stationIndex);
+                }
+            }
+        }
+
+        /// <summary>
+        /// 使用实测结算阶段生成的固定快照执行一次MES过程数据保存和报工。
+        /// 该任务与工位当前扫码会话隔离；失败只记录日志，不重试、不改变 M3051/M3052，也不刷新工位卡片。
+        /// </summary>
+        /// <param name="snapshot">写入PLC实测结果前已经固定的产品、测试模式和SQLite行身份。</param>
+        private void ArchiveDualYResultInBackground(DualYArchiveSnapshot snapshot)
+        {
+            try
+            {
                 bool mesOk;
                 bool reportOk;
                 lock (_dualYMesLock)
                 {
                     mesOk = SaveDualYElectricalProcessDataToMes(
-                        snCode, woCode, partnoid, resultstr, requireAcw, requireDcw, testRecordIds);
-                    reportOk = report(woCode, snCode, resultstr);
+                        snapshot.Sn, snapshot.WoCode, snapshot.PartNoId, snapshot.ResultText,
+                        snapshot.RequireAcw, snapshot.RequireDcw, snapshot.TestRecordIds);
+
+                    if (snapshot.IsTvInspection)
+                    {
+                        reportOk = true;
+                        writeLog($"[双Y后台归档] 耐压点检跳过报工，工位={snapshot.StationIndex}, SN={snapshot.Sn}, WO={snapshot.WoCode}, 结果={snapshot.ResultText}");
+                    }
+                    else
+                    {
+                        reportOk = report(snapshot.WoCode, snapshot.Sn, snapshot.ResultText);
+                    }
                 }
 
-                if (!reportOk)
-                {
-                    writeLog($"[双Y归档] 报工失败，工位={stationIndex}, SN={snCode}, WO={woCode}, 结果={resultstr}", true);
-                }
-
-                string archiveState = mesOk && reportOk ? "归档完成" : "归档异常";
-                string archiveResult = $"{resultstr} / MES:{(mesOk ? "成功" : "失败")} / 报工:{(reportOk ? "成功" : "失败")}";
-                UpdateDualYStationDisplay(stationIndex, display => display.UpdateWorkflow(archiveState, archiveResult));
-                writeLog($"[双Y归档] 完成，工位={stationIndex}, SN={snCode}, 结果={resultstr}, MES过程数据={(mesOk ? "成功" : "失败")}, 报工={(reportOk ? "成功" : "失败")}");
+                string reportText = snapshot.IsTvInspection ? "跳过" : (reportOk ? "成功" : "失败");
+                writeLog(
+                    $"[双Y后台归档] 结束，工位={snapshot.StationIndex}, SN={snapshot.Sn}, 结果={snapshot.ResultText}, MES过程数据={(mesOk ? "成功" : "失败")}, 报工={reportText}",
+                    !mesOk || !reportOk);
             }
             catch (Exception ex)
             {
-                writeLog($"[双Y归档] 异常，工位={stationIndex}, {ex.Message}", true);
-                sqlite.WriteErrorLog("[双Y流程结束异常]归档失败", ex.Message, string.Empty, string.Empty);
-                UpdateDualYStationDisplay(stationIndex, display => display.UpdateWorkflow("归档异常", "请查看运行日志"));
+                writeLog($"[双Y后台归档] 异常后结束，工位={snapshot.StationIndex}, SN={snapshot.Sn}, {ex.Message}", true);
+                sqlite.WriteErrorLog("[双Y后台归档异常]一次性归档失败", ex.Message, snapshot.Sn, snapshot.WoCode);
             }
-            finally
+        }
+
+        /// <summary>
+        /// 向 PLC 写入双Y指定工位的总结果线圈。
+        /// D1020/D1021 结算路径使用：1 表示耐压、阻值和压力综合合格，0 表示任一实测项目 NG；点检期望命中和后台归档状态不写入该线圈。
+        /// Y1 默认 M3051，Y2 默认 M3052，与 M3041/M3042 耐压→IR 放行信号并存。
+        /// </summary>
+        /// <param name="stationIndex">双Y物理工位号，1 写 Y1 总结果线圈，2 写 Y2 总结果线圈。</param>
+        /// <param name="isOk">true 写入 1（实测综合合格），false 写入 0（实测综合 NG 或尚未完成本轮判定）。</param>
+        private void WriteDualYStationTotalResult(int stationIndex, bool isOk)
+        {
+            if (DataModel?.DualYConfiguration == null)
             {
-                EndDualYFlowEndProcessing(stationIndex);
+                return;
             }
+
+            int addr = stationIndex == 1
+                ? DataModel.DualYConfiguration.Station1TotalResultCoilAddress
+                : DataModel.DualYConfiguration.Station2TotalResultCoilAddress;
+            if (addr <= 0)
+            {
+                writeLog($"[双Y-工位{stationIndex}总结果] 线圈地址未配置，无法写入{(isOk ? 1 : 0)}", true);
+                return;
+            }
+
+            bool writeOk = PLC_WriteCoil(addr, isOk, $"双Y-工位{stationIndex}总结果");
+            writeLog($"[双Y-工位{stationIndex}总结果] 写入M{addr}={(isOk ? 1 : 0)}（{(isOk ? "OK" : "NG")}）{(writeOk ? "成功" : "失败")}", !writeOk);
         }
 
         /// <summary>
@@ -962,7 +1099,10 @@ namespace BusbarCompressionSystem.ViewModel
                 return;
             }
 
-            string effectivePartNoId = string.IsNullOrWhiteSpace(partnoid) ? DataModel.Processmodel.PartNOID : partnoid;
+            // 双Y电测按当前生产规格保存和查询本地测试行；点检MES料号只用于扫码追溯，不参与实测判定。
+            string effectivePartNoId = string.IsNullOrWhiteSpace(DataModel.Processmodel.PartNOID)
+                ? partnoid
+                : DataModel.Processmodel.PartNOID;
             BeginDualYTestRun(dualYStationIndex, sn, wocode, effectivePartNoId);
             App.Current.Dispatcher.BeginInvoke(new Action(() =>
             {
@@ -990,8 +1130,8 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
-        /// 上传双Y当前工位会话的全部 MES 电测过程数据。
-        /// 每次 ACW/DCW 复测均对应一条过程数据；产品报工仍由流程结束阶段统一执行一次。
+        /// 上传双Y已完成实测结算快照中的全部 MES 电测过程数据。
+        /// 每次 ACW/DCW 复测均对应一条过程数据；调用发生在后台归档线程，上传失败只记录日志，不影响下一件产品作业。
         /// </summary>
         /// <param name="sn">当前流程结束工位从 PLC 产品码区读取到的 SN。</param>
         /// <param name="wocode">当前 SN 对应工单号。</param>
@@ -1015,7 +1155,7 @@ namespace BusbarCompressionSystem.ViewModel
 
             if (rows.Count == 0)
             {
-                writeLog($"[双Y归档] MES过程数据上传失败，SN={sn}, WO={wocode}, 原因=本地期望电测记录为空", true);
+                writeLog($"[双Y后台归档] MES过程数据上传失败，SN={sn}, WO={wocode}, 原因=本地期望电测记录为空", true);
                 return false;
             }
 
@@ -1024,7 +1164,7 @@ namespace BusbarCompressionSystem.ViewModel
             bool hasDcw = rows.Any(row => string.Equals(row.TestMode, "DCW", StringComparison.OrdinalIgnoreCase));
             if ((requireAcw && !hasAcw) || (requireDcw && !hasDcw))
             {
-                writeLog($"[双Y归档] MES过程数据不完整，SN={sn}, WO={wocode}, 期望ACW={requireAcw}, 实际ACW={hasAcw}, 期望DCW={requireDcw}, 实际DCW={hasDcw}", true);
+                writeLog($"[双Y后台归档] MES过程数据不完整，SN={sn}, WO={wocode}, 期望ACW={requireAcw}, 实际ACW={hasAcw}, 期望DCW={requireDcw}, 实际DCW={hasDcw}", true);
                 allOk = false;
             }
 
@@ -1036,7 +1176,7 @@ namespace BusbarCompressionSystem.ViewModel
                     row.TakePhoto1, row.Res, row.TVMaxVoltage, row.TVMaxCurrent, row.TVMeterID, persistedTvInfo, row.TVResult,
                     row.PressureMax, row.PressureAverage, row.PressureMin, row.PressureResult, row.TakePhoto2, resultstr);
 
-                writeLog($"[双Y归档] MES过程数据上传{(saveOk ? "成功" : "失败")}，SN={sn}, WO={wocode}, 模式={row.TestMode}, 结果={resultstr}", !saveOk);
+                writeLog($"[双Y后台归档] MES过程数据上传{(saveOk ? "成功" : "失败")}，SN={sn}, WO={wocode}, 模式={row.TestMode}, 结果={resultstr}", !saveOk);
                 allOk = allOk && saveOk;
             }
 

@@ -1,3 +1,4 @@
+using System;
 using System.Xml.Serialization;
 
 namespace BusbarCompressionSystem.Model.Setting1
@@ -13,7 +14,7 @@ namespace BusbarCompressionSystem.Model.Setting1
         /// 配置结构版本，仅用于后续兼容迁移，不参与 PLC、电测判定或 MES 报工。
         /// </summary>
         [XmlElement("配置版本")]
-        public int ConfigurationVersion { get; set; } = 2;
+        public int ConfigurationVersion { get; set; } = 3;
 
         /// <summary>
         /// 面向现场维护人员的业务边界说明。程序不依据这些文字作判定，保存时保留说明便于直接检查 XML。
@@ -53,8 +54,8 @@ namespace BusbarCompressionSystem.Model.Setting1
         public Honeywell.HF800 Station1HF800 { get; set; } = new Honeywell.HF800();
 
         /// <summary>
-        /// Y1 产品码写入起始地址，单位为 D 寄存器编号，内容格式为“SN;工单号”。
-        /// 信号表约定为 D800；与 Y1 流程结束触发 D1020 分离，归档时按本地址回读扫码写入区。
+        /// Y1 扫码成功后写入产品码的起始地址，单位为 D 寄存器编号，内容格式为“SN;工单号”。
+        /// 信号表约定为 D800；仅服务进站写码。流程结束归档回读耐压1镜像 AddressSN+25（默认 D825），不读本地址。
         /// </summary>
         [XmlElement("Y1扫码SN地址D")]
         public int Station1ScanSnAddress { get; set; } = 800;
@@ -90,7 +91,8 @@ namespace BusbarCompressionSystem.Model.Setting1
         public Honeywell.HF800 Station2HF800 { get; set; } = new Honeywell.HF800();
 
         /// <summary>
-        /// Y2 产品码写入起始地址，单位为 D 寄存器编号，内容格式为“SN;工单号”。
+        /// Y2 扫码成功后写入产品码的起始地址，单位为 D 寄存器编号，内容格式为“SN;工单号”。
+        /// 信号表约定为 D950；仅服务进站写码。流程结束归档回读耐压2镜像 AddressSN+50（默认 D850），不读本地址。
         /// </summary>
         [XmlElement("Y2扫码SN地址D")]
         public int Station2ScanSnAddress { get; set; } = 950;
@@ -108,16 +110,34 @@ namespace BusbarCompressionSystem.Model.Setting1
         public int Station2ScanResultAddress { get; set; } = 1121;
 
         /// <summary>
-        /// Y1 流程结束触发地址，单位为 D 寄存器编号；PLC 写入 1 后，上位机归档本工位电测结果并执行 MES 报工。
+        /// Y1 流程结束触发地址，单位为 D 寄存器编号；PLC 写入 1 后，上位机结算本工位实测结果并写 M3051，
+        /// 随后释放工位并在后台一次性归档，归档失败不影响下一件产品扫码作业。
         /// </summary>
         [XmlElement("Y1流程结束地址D")]
         public int Station1FlowEndAddress { get; set; } = 1020;
 
         /// <summary>
-        /// Y2 流程结束触发地址，单位为 D 寄存器编号；PLC 写入 1 后，上位机归档本工位电测结果并执行 MES 报工。
+        /// Y2 流程结束触发地址，单位为 D 寄存器编号；PLC 写入 1 后，上位机结算本工位实测结果并写 M3052，
+        /// 随后释放工位并在后台一次性归档，归档失败不影响下一件产品扫码作业。
         /// </summary>
         [XmlElement("Y2流程结束地址D")]
         public int Station2FlowEndAddress { get; set; } = 1021;
+
+        /// <summary>
+        /// Y1 工位总结果线圈地址，单位为 M 寄存器编号。
+        /// D1020 结算触发后写入：1 表示本工位耐压、阻值、压力综合合格，0 表示任一实测项目 NG；
+        /// 点检期望命中和后台归档状态均不改变该线圈。
+        /// </summary>
+        [XmlElement("Y1工位总结果线圈M")]
+        public int Station1TotalResultCoilAddress { get; set; } = 3051;
+
+        /// <summary>
+        /// Y2 工位总结果线圈地址，单位为 M 寄存器编号。
+        /// D1021 结算触发后写入：1 表示本工位耐压、阻值、压力综合合格，0 表示任一实测项目 NG；
+        /// 与 Y1 的 M3051 按工位隔离，点检期望命中和后台归档状态均不改变该线圈。
+        /// </summary>
+        [XmlElement("Y2工位总结果线圈M")]
+        public int Station2TotalResultCoilAddress { get; set; } = 3052;
 
         /// <summary>
         /// Y2 压力平均值起始地址，单位为 D 寄存器编号。平均、最大、最小压力均为 uint32，
@@ -131,8 +151,20 @@ namespace BusbarCompressionSystem.Model.Setting1
         /// </summary>
         public void EnsureDefaults()
         {
-            ConfigurationVersion = System.Math.Max(ConfigurationVersion, 2);
+            ConfigurationVersion = System.Math.Max(ConfigurationVersion, 3);
             BusinessDescription = BusinessDescription ?? new DualYConfigurationDescription();
+            if (string.IsNullOrWhiteSpace(BusinessDescription.InspectionBoundary))
+            {
+                BusinessDescription.InspectionBoundary =
+                    "双Y只认配置数据.xml中的耐压点检OK/NG码；IR/AOI点检码在双Y扫码入口拦截。工位总结果按实测写M3051/M3052；点检期望命中仅日志与小屏展示。M3041/M3042仍按耐压结束写入以兼容旧链路。";
+            }
+            if (string.IsNullOrWhiteSpace(BusinessDescription.ArchiveBoundary)
+                || BusinessDescription.ArchiveBoundary.IndexOf("M3051", StringComparison.Ordinal) < 0
+                || BusinessDescription.ArchiveBoundary.IndexOf("归档失败", StringComparison.Ordinal) >= 0)
+            {
+                BusinessDescription.ArchiveBoundary =
+                    "Y1、Y2流程结束信号先结算耐压、阻值和压力，并按实测结果写M3051/M3052；写完即释放工位供下一件扫码。MES保存和正常产品报工在后台执行一次，失败只记日志；耐压点检只留档不报工。";
+            }
             Station1ScannerModel = Station1ScannerModel ?? new Scanner.ScannerModel();
             Station1HF800 = Station1HF800 ?? new Honeywell.HF800();
             Station2ScannerModel = Station2ScannerModel ?? new Scanner.ScannerModel();
@@ -140,6 +172,14 @@ namespace BusbarCompressionSystem.Model.Setting1
             if (Station2PressureAddress <= 0)
             {
                 Station2PressureAddress = 1630;
+            }
+            if (Station1TotalResultCoilAddress <= 0)
+            {
+                Station1TotalResultCoilAddress = 3051;
+            }
+            if (Station2TotalResultCoilAddress <= 0)
+            {
+                Station2TotalResultCoilAddress = 3052;
             }
         }
 
@@ -226,13 +266,15 @@ namespace BusbarCompressionSystem.Model.Setting1
         /// 说明普通扫码、双Y自动扫码和手动扫码的配置归属及共用业务链。
         /// </summary>
         [XmlElement("扫码边界")]
-        public string ScannerBoundary { get; set; } = "Y1、Y2自动扫码器只服务双Y机台；普通产线扫码器继续由配置数据.xml管理。手动扫码与自动扫码共用MES校验、建账和PLC反馈。";
+        public string ScannerBoundary { get; set; } =
+            "Y1、Y2自动扫码器只服务双Y机台；普通产线扫码器继续由配置数据.xml管理。手动扫码与自动扫码共用MES校验、建账和PLC反馈。双Y点检仅放行耐压OK/NG码。";
 
         /// <summary>
-        /// 说明双Y流程结束信号承担的数据归档和 MES 报工责任。
+        /// 说明双Y流程结束信号、实测结果写回和后台归档的业务边界。
         /// </summary>
         [XmlElement("归档边界")]
-        public string ArchiveBoundary { get; set; } = "Y1、Y2流程结束信号分别归档本工位电测数据并报工，替代标准产线的机器人CHECK结束入口。";
+        public string ArchiveBoundary { get; set; } =
+            "Y1、Y2流程结束信号先结算耐压、阻值和压力，并按实测结果写M3051/M3052；写完即释放工位供下一件扫码。MES保存和正常产品报工在后台执行一次，失败只记日志；耐压点检只留档不报工。";
 
         /// <summary>
         /// 说明两工位压力快照的地址和数据宽度，供 PLC 与上位机联调时核对寄存器分配。
@@ -245,5 +287,12 @@ namespace BusbarCompressionSystem.Model.Setting1
         /// </summary>
         [XmlElement("地址单位")]
         public string AddressUnits { get; set; } = "名称末尾M表示线圈编号，末尾D表示数据寄存器编号；XML中填写纯数字。";
+
+        /// <summary>
+        /// 说明双Y耐压点检与普通产线点检、IR/AOI 点检的边界，供现场配置点检码时核对。
+        /// </summary>
+        [XmlElement("点检边界")]
+        public string InspectionBoundary { get; set; } =
+            "双Y只认配置数据.xml中的耐压点检OK/NG码；IR/AOI点检码在双Y扫码入口拦截。工位总结果按实测写M3051/M3052；点检期望命中仅日志与小屏展示。M3041/M3042仍按耐压结束写入以兼容旧链路。";
     }
 }

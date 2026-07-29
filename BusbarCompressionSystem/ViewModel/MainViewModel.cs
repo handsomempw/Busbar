@@ -433,6 +433,28 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
+        /// 判断当前 SN 是否属于耐压点检标准件，供双Y扫码放行和实测结算选择耐压点检口径。
+        /// </summary>
+        /// <param name="sn">扫码器或 PLC 提供的当前产品 SN。</param>
+        /// <returns>耐压 OK/NG 任一点检码命中时返回 true。</returns>
+        private bool IsTvInspectionSn(string sn)
+        {
+            return IsConfiguredInspectionSn(sn, DataModel.Settingmodel.SETTING_DATA.InspectionTVOKSN)
+                || IsConfiguredInspectionSn(sn, DataModel.Settingmodel.SETTING_DATA.InspectionTVNGSN);
+        }
+
+        /// <summary>
+        /// 判断耐压点检标准件的期望结果是否为 OK。
+        /// 返回值只用于双Y点检日志和小屏展示；M3051/M3052 始终保留实测总结果语义。
+        /// </summary>
+        /// <param name="sn">已识别为耐压点检的当前 SN。</param>
+        /// <returns>耐压 OK 点检码返回 true，耐压 NG 点检码返回 false。</returns>
+        private bool IsTvOkInspectionSn(string sn)
+        {
+            return IsConfiguredInspectionSn(sn, DataModel.Settingmodel.SETTING_DATA.InspectionTVOKSN);
+        }
+
+        /// <summary>
         /// 判断当前 SN 是否属于 AOI 点检标准件，供 CHECK 阶段选择 AOI 专用判定口径。
         /// </summary>
         /// <param name="sn">CHECK 从 PLC 产品码中解析的 SN。</param>
@@ -560,6 +582,14 @@ namespace BusbarCompressionSystem.ViewModel
             if (inspectionMatchCount == 1)
             {
                 string inspectionSn = snstr.Trim();
+
+                // 双Y仅电测不跑 IR/AOI；误扫对应点检码时在进站拦截，避免后续归档按错误点检类型处理。
+                if (beginDualYProductSession && !IsTvInspectionSn(inspectionSn))
+                {
+                    writeLog($"[{contextTag}] 双Y仅支持耐压点检，已拦截非耐压点检码，类型={GetInspectionTypeText(inspectionSn)}, SN={inspectionSn}", true);
+                    return "双Y仅支持耐压点检，请使用耐压OK/NG标准件";
+                }
+
                 writeLog($"[{contextTag}] 点检扫码原始数据: {inspectionSn}");
                 string wocode = MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.get_WO_CODE(inspectionSn);
                 string partnoid = MES_ORACLE_DATABASE.MES_ORACLE_DATABASE.get_PartNO_ID(inspectionSn);
