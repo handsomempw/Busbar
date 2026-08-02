@@ -274,6 +274,7 @@ namespace BusbarCompressionSystem.ViewModel
                 ? string.Empty
                 : Path.GetFileName(tool.LastResultImagePath);
             double minScore = tool?.MinScore ?? 0;
+            double candidateMinScore = tool?.CandidateMinScore ?? 0;
             double score = tool?.ActualScore ?? 0;
             double deltaX = tool?.DeltaX ?? 0;
             double deltaY = tool?.DeltaY ?? 0;
@@ -291,7 +292,7 @@ namespace BusbarCompressionSystem.ViewModel
                 $"模型已加载={modelLoaded}|" +
                 $"模型路径={shmPath}|" +
                 $"ROI={roi}|" +
-                $"MinScore={minScore:F3}|Score={score:F3}|" +
+                $"CandidateMinScore={candidateMinScore:F3}|MinScore={minScore:F3}|Score={score:F3}|" +
                 $"ΔXmm={deltaX:F3}|ΔYmm={deltaY:F3}|角度deg={angle:F2}|" +
                 $"允许ΔXmm={allowX:F3}|允许ΔYmm={allowY:F3}|允许角度deg={allowAngle:F2}|" +
                 $"判定={GetMeasurementStatusText(status)}|" +

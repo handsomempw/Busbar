@@ -993,6 +993,29 @@ namespace BusbarCompressionSystem.Model.FaraVision
         }
 
         /// <summary>
+        /// 校验当前工具的模板匹配角域与分值参数，供模型设置和批量同步入口共用。
+        /// 校验失败时保持 ToolModel 原值并提示有效范围，避免界面显示值与预览、在线运行值分离。
+        /// </summary>
+        /// <param name="actionName">触发校验的操作名称，用于提示操作员本次被阻止的入口。</param>
+        /// <returns>true 表示参数可继续用于本次操作；false 表示操作员应先修正工具设置。</returns>
+        private bool EnsureShapeMatchParametersValid(string actionName)
+        {
+            string errorMessage = null;
+            if (t != null && t.TryValidateShapeMatchParameters(out errorMessage))
+            {
+                return true;
+            }
+
+            NoticeBox.Show(
+                $"{actionName}前请修正模板匹配参数：{errorMessage ?? "当前工具未就绪"}",
+                "提示",
+                MessageBoxIcon.Warning,
+                true,
+                6000);
+            return false;
+        }
+
+        /// <summary>
         /// 模型设置对话框关闭后复位 WPF 画布绘制态与 PositionDetect 圈选态，避免特征圈选标志残留引发 MouseMove 持续重算。
         /// </summary>
         private void RestoreStateAfterModelDialog()
@@ -1006,6 +1029,12 @@ namespace BusbarCompressionSystem.Model.FaraVision
             ResetDrawingStates();
         }
 
+        /// <summary>
+        /// 打开当前工具的模板示教窗口。
+        /// 编辑权限、PositionROI 和匹配参数通过校验后才进入示教，现有模型文件和基准数据在窗口保存前保持不变。
+        /// </summary>
+        /// <param name="sender">模型设置按钮。</param>
+        /// <param name="e">WPF 点击事件参数。</param>
         private void modelsetting_Click(object sender, RoutedEventArgs e)
         {
             if (!EnsureEditable())
@@ -1014,6 +1043,11 @@ namespace BusbarCompressionSystem.Model.FaraVision
             }
 
             if (!EnsurePositionRoiForModelSetting())
+            {
+                return;
+            }
+
+            if (!EnsureShapeMatchParametersValid("打开模型设置"))
             {
                 return;
             }
@@ -1035,9 +1069,20 @@ namespace BusbarCompressionSystem.Model.FaraVision
 
         }
 
+        /// <summary>
+        /// 将当前模板匹配工具的偏差、分值和比例参数同步到全部工具。
+        /// ROI、模型文件、基准点和模板定位参考位姿保持各工具独立；源参数无效时停止同步并保留全部工具原值。
+        /// </summary>
+        /// <param name="sender">同步阈值到全部工具按钮。</param>
+        /// <param name="e">WPF 点击事件参数。</param>
         private void ApplyAll_Click(object sender, RoutedEventArgs e)
         {
             if (!EnsureEditable())
+            {
+                return;
+            }
+
+            if (!EnsureShapeMatchParametersValid("同步阈值"))
             {
                 return;
             }
@@ -1049,12 +1094,16 @@ namespace BusbarCompressionSystem.Model.FaraVision
                     try
                     {
                         vml.Main.DataModel.FaraVisionDataModel.Processmodel.Tools[i].MinScore = vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool.MinScore;
+                        vml.Main.DataModel.FaraVisionDataModel.Processmodel.Tools[i].CandidateMinScore = vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool.CandidateMinScore;
                         vml.Main.DataModel.FaraVisionDataModel.Processmodel.Tools[i].K = vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool.K;
                         vml.Main.DataModel.FaraVisionDataModel.Processmodel.Tools[i].Allow_X_Delta = vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool.Allow_X_Delta;
                         vml.Main.DataModel.FaraVisionDataModel.Processmodel.Tools[i].Allow_Y_Delta = vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool.Allow_Y_Delta;
                         vml.Main.DataModel.FaraVisionDataModel.Processmodel.Tools[i].AllowAngleDelta = vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool.AllowAngleDelta;
                     }
-                    catch { }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"模板匹配参数同步失败：Tool{i + 1}，{ex.Message}");
+                    }
                 }
             }
         }

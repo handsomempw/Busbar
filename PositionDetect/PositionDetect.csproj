@@ -89,6 +89,7 @@
       <SubType>Designer</SubType>
     </Page>
     <Compile Include="Model\DATA.cs" />
+    <Compile Include="Model\TemplateFeatureItem.cs" />
     <Compile Include="Positon_Detect_Form.xaml.cs">
       <DependentUpon>Positon_Detect_Form.xaml</DependentUpon>
       <SubType>Code</SubType>

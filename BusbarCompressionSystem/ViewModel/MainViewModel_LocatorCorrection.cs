@@ -62,6 +62,11 @@ namespace BusbarCompressionSystem.ViewModel
                 tool.ShapeMatch.BasicData.productcenter_X = tool.InitX;
                 tool.ShapeMatch.BasicData.productcenter_Y = tool.InitY;
 
+                if (!tool.TryValidateShapeMatchParameters(out string parameterError))
+                {
+                    throw new InvalidOperationException($"模板定位参数无效：{parameterError}");
+                }
+                ShapeMatch.GetFindShapeModelAngles(tool.AllowAngleDelta, out double angleStartDeg, out double angleExtentDeg);
                 ShapeMatch.Result matchResult = tool.ShapeMatch.Match(
                     image,
                     1,
@@ -69,9 +74,10 @@ namespace BusbarCompressionSystem.ViewModel
                     tool.PositionROI.Col1,
                     tool.PositionROI.Row2,
                     tool.PositionROI.Col2,
-                    (int)-tool.AllowAngleDelta,
-                    (int)tool.AllowAngleDelta,
-                    false);
+                    angleStartDeg,
+                    angleExtentDeg,
+                    false,
+                    tool.CandidateMinScore);
 
                 if (!matchResult.IsSuccess)
                 {
@@ -86,7 +92,7 @@ namespace BusbarCompressionSystem.ViewModel
                 {
                     tool.ToolStatus = ToolStatus.定位未生效;
                     tool.ActualScore = 0;
-                    traceDetail = "未找到匹配目标";
+                    traceDetail = string.IsNullOrEmpty(matchResult.ErrorInfo) ? "未找到匹配目标" : matchResult.ErrorInfo;
                     state.Summary = traceDetail;
                     return;
                 }
@@ -104,7 +110,7 @@ namespace BusbarCompressionSystem.ViewModel
                 if (tool.ActualScore < tool.MinScore)
                 {
                     tool.ToolStatus = ToolStatus.定位未生效;
-                    traceDetail = "匹配分值低于下限";
+                    traceDetail = $"匹配分值低于合格下限({tool.ActualScore:F3} < {tool.MinScore:F3})";
                     state.Summary = traceDetail;
                     return;
                 }

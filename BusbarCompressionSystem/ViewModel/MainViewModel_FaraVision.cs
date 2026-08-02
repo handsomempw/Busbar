@@ -470,7 +470,13 @@ namespace BusbarCompressionSystem.ViewModel
                 writeLog($"[AOI工程加载] Tool{index}.xml损坏或无法读取，工程保存已保护");
             }
 
-            return result.Data;
+            ToolModel tool = result.Data;
+            if (IsShapeModelTool(tool) && tool.NormalizeShapeMatchParametersForProjectLoad(out string adjustmentSummary))
+            {
+                writeLog($"[AOI工程加载] Tool{index} 模板匹配参数已按兼容口径迁移：{adjustmentSummary}", true);
+            }
+
+            return tool;
         }
 
         public KColor GetPixelData(int X, int Y)
@@ -1073,6 +1079,11 @@ namespace BusbarCompressionSystem.ViewModel
         /// <param name="index">工具文件序号；1 表示 <c>Tool1.xml</c>，与界面工具顺序一致。</param>
         private void SavePrjXml(ToolModel td, int index)
         {
+            if (IsShapeModelTool(td) && !td.TryValidateShapeMatchParameters(out string parameterError))
+            {
+                throw new InvalidOperationException($"Tool{index} 模板匹配参数无效：{parameterError}");
+            }
+
             string filename = $"{GetCurrentProjectDirectory()}\\Tool{index}.xml";
             if (!SaveProjectXmlSafely(filename, td, _aoiProjectLoadFailed))
             {
@@ -1923,6 +1934,7 @@ namespace BusbarCompressionSystem.ViewModel
             //t.PositionDetect = tool.PositionDetect;
             t.ModelFileName = tool.ModelFileName;
             t.MinScore = tool.MinScore;
+            t.CandidateMinScore = tool.CandidateMinScore;
             t.ActualScore = tool.ActualScore;
             t.K = tool.K;
             t.InitX = tool.InitX;

@@ -12,9 +12,6 @@
              d:DesignWidth="800"
              DataContextChanged="UserControl_DataContextChanged"
            >
-    <!--<UserControl.DataContext>
-        <viewmodel:PositionDetectViewModel x:Name="vmodel"/>
-    </UserControl.DataContext>-->
 <Grid Margin="5"   >
         <Grid.ColumnDefinitions>
             <ColumnDefinition/>
@@ -26,30 +23,31 @@
             <RowDefinition Height="auto"/>
         </Grid.RowDefinitions>
         <halcon:HWindowControlWPF Name="HWindow" Grid.Row="0" Grid.RowSpan="2" />
-        <!--<halcon:HSmartWindowControlWPF Name="HWindow" Grid.Row="0" Grid.RowSpan="2" />-->
-        <!--<DockPanel>
-            <Label Background="Transparent" VerticalAlignment="Center">相机:</Label>
-            <ComboBox p:ComboBoxHelper.CornerRadius="15" Height="30" Margin="2" Padding="15,0" DropDownClosed="ComboBox_DropDownClosed"></ComboBox>
-        </DockPanel>-->
-        <StackPanel Grid.Row="0" Grid.Column="1" Grid.RowSpan="2">
+        <StackPanel Grid.Row="0" Grid.Column="1" Grid.RowSpan="2" Width="220">
             <GroupBox Header="特征选择">
                 <Grid Margin="10">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="auto"/>
                         <RowDefinition Height="auto"/>
-                        <RowDefinition/>
+                        <RowDefinition Height="auto"/>
+                        <RowDefinition Height="auto"/>
+                        <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition/>
                         <ColumnDefinition/>
                     </Grid.ColumnDefinitions>
                     <Button Grid.Row="0" Grid.Column="0" Margin="5" Padding="10" Grid.ColumnSpan="2" Content="{Binding  DATA.ROIModeStr}"  Click="Button_Click"
-                            ToolTip="开启模板特征圈选。每画一个矩形或圆形特征后，在图像窗口点鼠标右键完成当前特征。"/>
-                    <Button Grid.Row="1" Grid.Column="0" Margin="5" Padding="10" Content="画矩形特征" IsEnabled="{Binding DATA.ROImode}" Background="{Binding DATA.RectangleMmode}" Click="Button_Click_1"
-                            ToolTip="左键拖动矩形区域，区域合适后点鼠标右键完成当前特征。"/>
-                    <Button Grid.Row="1" Grid.Column="1" Margin="5" Padding="10" Content="画圆形特征" IsEnabled="{Binding DATA.ROImode}" Background="{Binding DATA.CircleMode}" Click="Button_Click_2"
-                            ToolTip="左键拖动圆形区域，区域合适后点鼠标右键完成当前特征。"/>
-                    <ListBox Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2" Margin="5" Padding="10" ItemsSource="{Binding DATA.Objects}" 
+                            ToolTip="开启模板特征圈选。绿=包含区，品红=排除区。每画完一个区域后在图像窗口点鼠标右键完成。"/>
+                    <Button Grid.Row="1" Grid.Column="0" Margin="5" Padding="8" Content="画包含矩形" IsEnabled="{Binding DATA.ROImode}" Background="{Binding DATA.RectangleMmode}" Click="Button_Click_1"
+                            ToolTip="左键拖出要学习的轮廓区域，合适后点鼠标右键完成。"/>
+                    <Button Grid.Row="1" Grid.Column="1" Margin="5" Padding="8" Content="画包含圆形" IsEnabled="{Binding DATA.ROImode}" Background="{Binding DATA.CircleMode}" Click="Button_Click_2"
+                            ToolTip="左键拖出圆形包含区，合适后点鼠标右键完成。"/>
+                    <Button Grid.Row="2" Grid.Column="0" Margin="5" Padding="8" Grid.ColumnSpan="2" Content="画排除矩形" IsEnabled="{Binding DATA.ROImode}" Background="{Binding DATA.ExcludeRectangleMode}" Click="DrawExcludeRectangle_Click"
+                            ToolTip="框住反光、字符、阴影等不要的区域；建模时从包含区中挖掉。列表中显示为“排除-矩形”。"/>
+                    <TextBlock Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="2" Margin="5,0" FontSize="11" Foreground="#666"
+                               Text="绿=包含，品红=排除；Delete 删除选中项"/>
+                    <ListBox Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="2" Margin="5" Padding="6" MinHeight="120" ItemsSource="{Binding DATA.Objects}"
                              SelectedIndex="{Binding DATA.selectedindex}"
                              SelectionChanged="ListBox_SelectionChanged" KeyDown="ListBox_KeyDown"
                              PreviewMouseRightButtonDown="ListBox_PreviewMouseRightButtonDown">
@@ -64,7 +62,7 @@
 
             <GroupBox Header="生成" >
                 <Button Grid.Row="0" Grid.Column="0" Margin="5" Padding="10" Content="预览生成模型" IsEnabled="{Binding DATA.CanPreviewModel}" Click="Button_Click_5"
-                        ToolTip="至少完成一个模板特征后可生成临时模型，并在图片上显示红色匹配轮廓。"/>
+                        ToolTip="按“包含区减排除区”生成临时模型。红色=实际模型边缘，黄=最终建模域，青=包含边界，品红=排除边界。"/>
             </GroupBox>
             <GroupBox Header="导出" >
                 <Button Grid.Row="0" Grid.Column="0" Margin="5" Padding="10" Content="保存模型文件" IsEnabled="{Binding DATA.CanSaveModel}" Click="Button_Click_3"

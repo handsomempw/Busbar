@@ -1,8 +1,10 @@
 ﻿using BusbarCompressionSystem.Model.FaraVision;
+using BusbarCompressionSystem.Model.FaraVision.Tool;
 using BusbarCompressionSystem.ViewModel;
 using HalconDotNet;
 using Microsoft.Win32;
 using Panuon.WPF.UI;
+using PositionDetect;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -29,6 +31,12 @@ namespace BusbarCompressionSystem.Model.FaraVision
         ViewModelLocator vml = null;
         private string _modelStatus = "未导出";
 
+        /// <summary>
+        /// 打开当前工具的模板示教会话，复制示教图并同步生产搜索参数。
+        /// 窗口内只维护临时 ROI 和模型句柄；正式 .shm 仍由保存按钮发布到当前 Tool 序号。
+        /// </summary>
+        /// <param name="image">当前工具的示教图像；窗口复制后独立管理，调用方仍保留原图所有权。</param>
+        /// <param name="Modelfilename">当前工具正式 .shm 的完整路径。</param>
         public ModelWindow(HObject image, string Modelfilename)
         {
             InitializeComponent();
@@ -37,19 +45,88 @@ namespace BusbarCompressionSystem.Model.FaraVision
             HOperatorSet.GenEmptyObj(out vml.PositionDetectViewModel.DATA.image);
             HOperatorSet.CopyImage(image, out vml.PositionDetectViewModel.DATA.image);
             vml.PositionDetectViewModel.DATA.modelfilename = Modelfilename;
-            UpdateModelStatus(File.Exists(Modelfilename) ? $"已导出 {System.IO.Path.GetFileName(Modelfilename)}" : "未导出");
+            bool settingsReady = TrySyncPreviewMatchSettings(out string settingsError);
+            UpdateModelStatus(settingsReady
+                ? (File.Exists(Modelfilename) ? $"已导出 {System.IO.Path.GetFileName(Modelfilename)}" : "未导出")
+                : settingsError);
             ConfigureBasePointButtons();
         }
 
-
+        /// <summary>
+        /// 结束当前模板示教会话并释放临时图像、区域和模型句柄。
+        /// 已保存的 .shm、工具 XML、在线模型句柄和基准数据保持不变，关闭窗口不会改变生产判定。
+        /// </summary>
+        /// <param name="sender">模型设置窗口。</param>
+        /// <param name="e">窗口关闭事件参数。</param>
         private void WindowX_Closing(object sender, System.ComponentModel.CancelEventArgs e)
         {
-            if (vml?.PositionDetectViewModel?.DATA != null)
+            var data = vml?.PositionDetectViewModel?.DATA;
+            if (data != null)
             {
-                vml.PositionDetectViewModel.DATA.ROImode = false;
+                data.ROImode = false;
+                data.modelID = null;
+                foreach (var item in data.Objects.ToList())
+                {
+                    try
+                    {
+                        item?.Region?.Dispose();
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"模板示教区域释放失败：{ex.Message}");
+                    }
+                }
+                data.Objects.Clear();
+                data.image?.Dispose();
+                data.image = null;
+                data.HWindow = null;
             }
         }
 
+        /// <summary>
+        /// 把当前工具的 PositionROI、角域与分值参数同步到模型设置预览会话。
+        /// 同步前只做显式校验，不修改 ToolModel；预览、设基准与在线检测由此共用同一搜索区域和判定口径。
+        /// </summary>
+        /// <param name="errorMessage">工具、ROI 或参数未就绪时返回操作员可直接处理的原因。</param>
+        /// <returns>true 表示预览参数已同步；false 表示应保持预览与保存入口关闭。</returns>
+        private bool TrySyncPreviewMatchSettings(out string errorMessage)
+        {
+            var tool = vml?.Main?.DataModel?.FaraVisionDataModel?.Processmodel?.tool;
+            if (tool == null || vml?.PositionDetectViewModel?.DATA == null)
+            {
+                errorMessage = "当前工具未就绪";
+                return false;
+            }
+
+            if (!tool.TryValidateShapeMatchParameters(out errorMessage))
+            {
+                errorMessage = $"模板匹配参数无效：{errorMessage}";
+                return false;
+            }
+
+            if (tool.PositionROI == null || !tool.PositionROI.IsValidRectangle())
+            {
+                errorMessage = "模板匹配ROI未设置，请返回工具设置重新选择";
+                return false;
+            }
+
+            var data = vml.PositionDetectViewModel.DATA;
+            data.PreviewAllowAngleDelta = tool.AllowAngleDelta;
+            data.PreviewCandidateMinScore = tool.CandidateMinScore;
+            data.PreviewMinScore = tool.MinScore;
+            data.PreviewRoiRow1 = tool.PositionROI.Row1;
+            data.PreviewRoiCol1 = tool.PositionROI.Col1;
+            data.PreviewRoiRow2 = tool.PositionROI.Row2;
+            data.PreviewRoiCol2 = tool.PositionROI.Col2;
+            errorMessage = null;
+            return true;
+        }
+
+        /// <summary>
+        /// 更新当前示教会话的模型状态栏，向操作员反馈圈选、预览、保存和重载结果。
+        /// 状态文字只用于本窗口诊断，不参与在线检测判定或工程持久化。
+        /// </summary>
+        /// <param name="status">当前操作结果或可执行的修正提示。</param>
         private void UpdateModelStatus(string status)
         {
             _modelStatus = status;
@@ -65,31 +142,69 @@ namespace BusbarCompressionSystem.Model.FaraVision
             if (tool?.TestMode == TestModes.模板定位)
             {
                 getinitpositionbymodelimage.Content = "5 保存定位参考位姿";
-                getinitpositionbymodelimage.ToolTip = "用当前模板图匹配一次，并保存定位参考位姿；在线 ROI 跟随矫正读取这组 Row/Col/Angle。";
+                getinitpositionbymodelimage.ToolTip = "用当前模板图匹配一次；分值须达到合格下限后才保存参考位姿，供在线 ROI 跟随矫正。";
                 getinitpositonfromimagefile.Visibility = Visibility.Collapsed;
                 return;
             }
 
             getinitpositionbymodelimage.Content = "5 用模板图设基准点";
-            getinitpositionbymodelimage.ToolTip = "用当前模板图片匹配一次，并把找到的位置写入基准X/Y。";
+            getinitpositionbymodelimage.ToolTip = "用当前模板图片匹配一次；分值须达到合格下限后才写入基准X/Y。";
             getinitpositonfromimagefile.Visibility = Visibility.Visible;
-            getinitpositonfromimagefile.ToolTip = "选择一张现场图片匹配，并把该图片中的位置写入基准X/Y。";
+            getinitpositonfromimagefile.ToolTip = "选择一张现场图片匹配；分值须达到合格下限后才写入基准X/Y。";
         }
 
+        /// <summary>
+        /// 开始一轮模板特征圈选，并清理上一次尚未发布的临时区域。
+        /// 正式 .shm、PositionROI 和在线模型句柄保持不变，操作员仍按原步骤绘制包含区与排除区。
+        /// </summary>
+        /// <param name="sender">选择模板特征按钮。</param>
+        /// <param name="e">WPF 点击事件参数。</param>
         private void selectFeature_Click(object sender, RoutedEventArgs e)
         {
             if (!vml.PositionDetectViewModel.DATA.ROImode)
             {
+                foreach (var item in vml.PositionDetectViewModel.DATA.Objects.ToList())
+                {
+                    try
+                    {
+                        item?.Region?.Dispose();
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"上次模板示教区域释放失败：{ex.Message}");
+                    }
+                }
                 vml.PositionDetectViewModel.DATA.Objects.Clear();
             }
             vml.PositionDetectViewModel.DATA.ROImode = true;
-            UpdateModelStatus("正在圈选模板特征");
+            UpdateModelStatus("正在圈选模板特征（绿=包含，品红=排除）");
         }
 
+        /// <summary>
+        /// 按当前工具的生产搜索参数预览模板模型。
+        /// 参数或 ROI 无效时保留原有正式模型并给出修正提示；预览达到合格分后才开放保存入口。
+        /// </summary>
+        /// <param name="sender">预览生成模型按钮。</param>
+        /// <param name="e">WPF 点击事件参数。</param>
         private void previewGenerateModel_Click(object sender, RoutedEventArgs e)
         {
+            if (!TrySyncPreviewMatchSettings(out string settingsError))
+            {
+                UpdateModelStatus(settingsError);
+                NoticeBox.Show(settingsError, "提示", MessageBoxIcon.Warning, true, 6000);
+                return;
+            }
+
             bool success = vml.PositionDetectViewModel.showdetect();
-            UpdateModelStatus(success ? "已预览生成，待保存模型文件" : "预览生成失败");
+            string summary = vml.PositionDetectViewModel.DATA.LastPreviewSummary;
+            if (success)
+            {
+                UpdateModelStatus(string.IsNullOrWhiteSpace(summary) ? "已预览生成，待保存模型文件" : summary);
+            }
+            else
+            {
+                UpdateModelStatus(string.IsNullOrWhiteSpace(summary) ? "预览生成失败" : summary);
+            }
         }
 
         /// <summary>
@@ -126,6 +241,10 @@ namespace BusbarCompressionSystem.Model.FaraVision
             }
         }
 
+        /// <summary>
+        /// 检查当前工具是否已有可用的 PositionROI，作为模板图和现场图设基准的共同搜索范围。
+        /// </summary>
+        /// <returns>ROI 可用于匹配返回 true；未设置时显示操作提示并返回 false。</returns>
         private bool EnsurePositionRoiReady()
         {
             var roi = vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool.PositionROI;
@@ -140,12 +259,72 @@ namespace BusbarCompressionSystem.Model.FaraVision
             return true;
         }
 
+        /// <summary>
+        /// 同步显示设基准结果到状态栏和提示框，便于操作员在当前窗口完成确认与修正。
+        /// </summary>
+        /// <param name="message">设基准结果或失败原因。</param>
+        /// <param name="icon">提示框图标；成功流程传入 Success。</param>
         private void ShowBasePointResult(string message, MessageBoxIcon icon = MessageBoxIcon.Warning)
         {
             UpdateModelStatus(message);
             NoticeBox.Show(message, "提示", icon, true, 6000);
         }
 
+        /// <summary>
+        /// 使用当前工具的角域与候选搜索下限执行一次匹配，供设基准/参考位姿写入。
+        /// 搜索范围与在线检测共用 PositionROI 和 ShapeMatch 固定参数；合格线门禁由调用方在写入前单独检查。
+        /// </summary>
+        /// <param name="image">待匹配图像，坐标单位为 px；该方法不接管图像生命周期。</param>
+        /// <param name="tool">当前 AOI 工具配置，提供 PositionROI、角域和分值参数。</param>
+        /// <returns>HALCON 匹配结果，含候选点、耗时与失败原因。</returns>
+        /// <exception cref="InvalidOperationException">当前工具的角域或分值参数无效时抛出，由设基准入口显示操作员提示。</exception>
+        private ShapeMatch.Result MatchWithToolSettings(HObject image, ToolModel tool)
+        {
+            if (!tool.TryValidateShapeMatchParameters(out string parameterError))
+            {
+                throw new InvalidOperationException($"模板匹配参数无效：{parameterError}");
+            }
+
+            ShapeMatch.GetFindShapeModelAngles(tool.AllowAngleDelta, out double angleStartDeg, out double angleExtentDeg);
+            return tool.ShapeMatch.Match(
+                image,
+                1,
+                tool.PositionROI.Row1,
+                tool.PositionROI.Col1,
+                tool.PositionROI.Row2,
+                tool.PositionROI.Col2,
+                angleStartDeg,
+                angleExtentDeg,
+                true,
+                tool.CandidateMinScore);
+        }
+
+        /// <summary>
+        /// 检查匹配候选是否达到合格分值，达到才允许写入基准或参考位姿。
+        /// 位置偏差不在此判定：设基准本身用于定义零点。
+        /// </summary>
+        /// <param name="tool">当前工具，读取工程已校验的合格分值下限。</param>
+        /// <param name="score">候选分值（0~1）。</param>
+        /// <param name="errorMessage">未达合格线时的操作员提示。</param>
+        /// <returns>达到合格线返回 true。</returns>
+        private static bool TryAcceptScoreForBasePoint(ToolModel tool, double score, out string errorMessage)
+        {
+            if (score < tool.MinScore)
+            {
+                errorMessage = $"分值低于合格下限({score:F3} < {tool.MinScore:F3})，未写入基准/参考位姿";
+                return false;
+            }
+
+            errorMessage = null;
+            return true;
+        }
+
+        /// <summary>
+        /// 使用当前模板图执行匹配并写入业务基准。
+        /// 模板定位模式保存参考行列与角度，模板匹配模式保存基准 X/Y；两条路径共用 PositionROI、角域、候选分和合格分门禁。
+        /// </summary>
+        /// <param name="sender">模板图设基准或保存定位参考位姿按钮。</param>
+        /// <param name="e">WPF 点击事件参数。</param>
         private void getinitpositionbymodelimage_Click(object sender, RoutedEventArgs e)
         {
             try
@@ -155,20 +334,10 @@ namespace BusbarCompressionSystem.Model.FaraVision
                     return;
                 }
 
-                //int w = (int)vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool.BitmapSource.Width;
-                //int h = (int)vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool.BitmapSource.Height;
-                //var r = vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool.ShapeMatch.Match(vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool.Image, 1, 0, h - 1, 0, w - 1);
-                //vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool.InitX = r.points[0].column;
-                //vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool.InitY = r.points[1].row;
+                var tool = vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool;
+                var shapmatchresult = MatchWithToolSettings(tool.Image, tool);
 
-                var shapmatchresult = vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool.ShapeMatch.Match(
-                    vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool.Image, 1,
-                    vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool.PositionROI.Row1,
-                    vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool.PositionROI.Col1,
-                    vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool.PositionROI.Row2,
-                    vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool.PositionROI.Col2);
-
-                var Result_Data = vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool.ShapeMatch.Analysis_Result(shapmatchresult);
+                var Result_Data = tool.ShapeMatch.Analysis_Result(shapmatchresult);
                 if (!shapmatchresult.IsSuccess)
                 {
                     ShowBasePointResult(string.IsNullOrWhiteSpace(shapmatchresult.ErrorInfo)
@@ -177,27 +346,40 @@ namespace BusbarCompressionSystem.Model.FaraVision
                     return;
                 }
 
-                var tool = vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool;
-                if (tool.TestMode == TestModes.模板定位
-                    && shapmatchresult.points != null
-                    && shapmatchresult.points.Count > 0)
+                if (shapmatchresult.points == null || shapmatchresult.points.Count == 0)
                 {
-                    var rp = shapmatchresult.points[0];
-                    tool.ReferenceMatchRow = rp.row;
-                    tool.ReferenceMatchCol = rp.column;
-                    tool.ReferenceMatchAngleDeg = rp.angle * 180.0 / Math.PI;
+                    ShowBasePointResult(string.IsNullOrWhiteSpace(shapmatchresult.ErrorInfo)
+                        ? "模板图设基准点失败：未找到候选"
+                        : $"模板图设基准点失败：{shapmatchresult.ErrorInfo}");
+                    return;
+                }
+
+                var firstPoint = shapmatchresult.points[0];
+                if (!TryAcceptScoreForBasePoint(tool, firstPoint.score, out string scoreError))
+                {
+                    ShowBasePointResult($"模板图设基准点失败：{scoreError}");
+                    return;
+                }
+
+                if (tool.TestMode == TestModes.模板定位)
+                {
+                    tool.ReferenceMatchRow = firstPoint.row;
+                    tool.ReferenceMatchCol = firstPoint.column;
+                    tool.ReferenceMatchAngleDeg = firstPoint.angle * 180.0 / Math.PI;
                     tool.ReferencePoseConfigured = true;
                     ShowBasePointResult(
-                        $"参考位姿已保存：Row={rp.row:F1}, Col={rp.column:F1}, Angle={tool.ReferenceMatchAngleDeg:F2}deg",
+                        $"参考位姿已保存：Row={firstPoint.row:F1}, Col={firstPoint.column:F1}, Angle={tool.ReferenceMatchAngleDeg:F2}deg, 分值={firstPoint.score:F3}, 耗时={shapmatchresult.ElapsedMs}ms",
                         MessageBoxIcon.Success);
                     return;
                 }
 
                 if (Result_Data != null)
                 {
-                    vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool.InitX = Result_Data.X_actual;
-                    vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool.InitY = Result_Data.Y_actual;
-                    ShowBasePointResult($"模板图基准点已更新：X={Result_Data.X_actual:F2}, Y={Result_Data.Y_actual:F2}", MessageBoxIcon.Success);
+                    tool.InitX = Result_Data.X_actual;
+                    tool.InitY = Result_Data.Y_actual;
+                    ShowBasePointResult(
+                        $"模板图基准点已更新：X={Result_Data.X_actual:F2}, Y={Result_Data.Y_actual:F2}, 分值={Result_Data.score:F3}, 角度={Result_Data.angle * 180.0 / Math.PI:F2}°, 耗时={shapmatchresult.ElapsedMs}ms",
+                        MessageBoxIcon.Success);
                 }
                 else
                 {
@@ -210,6 +392,12 @@ namespace BusbarCompressionSystem.Model.FaraVision
             }
         }
 
+        /// <summary>
+        /// 使用操作员选择的现场图片写入模板匹配基准 X/Y。
+        /// 图片只服务本次设基准并在完成后释放；模板定位参考位姿继续由模板图入口维护。
+        /// </summary>
+        /// <param name="sender">现场图设基准按钮。</param>
+        /// <param name="e">WPF 点击事件参数。</param>
         private void getinitpositonfromimagefile_Click(object sender, RoutedEventArgs e)
         {
             try
@@ -230,36 +418,53 @@ namespace BusbarCompressionSystem.Model.FaraVision
                 ofd.Filter = "图片文件|*.jpg;*.jpeg;*.bmp;*.png|JPG文件|*.jpg;*.jpeg|BMP文件|*.bmp|PNG文件|*.png";
                 if (ofd.ShowDialog() == true)
                 {
-
                     HObject image = null;
-                    HOperatorSet.GenEmptyObj(out image);
-                    HOperatorSet.ReadImage(out image, ofd.FileName);
-
-                    var shapmatchresult = vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool.ShapeMatch.Match(
-                   image, 1,
-                    vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool.PositionROI.Row1,
-                    vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool.PositionROI.Col1,
-                    vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool.PositionROI.Row2,
-                    vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool.PositionROI.Col2);
-
-                    var Result_Data = vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool.ShapeMatch.Analysis_Result(shapmatchresult);
-                    if (!shapmatchresult.IsSuccess)
+                    try
                     {
-                        ShowBasePointResult(string.IsNullOrWhiteSpace(shapmatchresult.ErrorInfo)
-                            ? "现场图设基准点失败：匹配结果为空"
-                            : $"现场图设基准点失败：{shapmatchresult.ErrorInfo}");
-                        return;
+                        HOperatorSet.GenEmptyObj(out image);
+                        HOperatorSet.ReadImage(out image, ofd.FileName);
+
+                        var shapmatchresult = MatchWithToolSettings(image, tool);
+
+                        var Result_Data = tool.ShapeMatch.Analysis_Result(shapmatchresult);
+                        if (!shapmatchresult.IsSuccess)
+                        {
+                            ShowBasePointResult(string.IsNullOrWhiteSpace(shapmatchresult.ErrorInfo)
+                                ? "现场图设基准点失败：匹配结果为空"
+                                : $"现场图设基准点失败：{shapmatchresult.ErrorInfo}");
+                            return;
+                        }
+
+                        if (shapmatchresult.points == null || shapmatchresult.points.Count == 0)
+                        {
+                            ShowBasePointResult(string.IsNullOrWhiteSpace(shapmatchresult.ErrorInfo)
+                                ? "现场图设基准点失败：未找到候选"
+                                : $"现场图设基准点失败：{shapmatchresult.ErrorInfo}");
+                            return;
+                        }
+
+                        if (!TryAcceptScoreForBasePoint(tool, shapmatchresult.points[0].score, out string scoreError))
+                        {
+                            ShowBasePointResult($"现场图设基准点失败：{scoreError}");
+                            return;
+                        }
+
+                        if (Result_Data != null)
+                        {
+                            tool.InitX = Result_Data.X_actual;
+                            tool.InitY = Result_Data.Y_actual;
+                            ShowBasePointResult(
+                                $"现场图基准点已更新：X={Result_Data.X_actual:F2}, Y={Result_Data.Y_actual:F2}, 分值={Result_Data.score:F3}, 角度={Result_Data.angle * 180.0 / Math.PI:F2}°, 耗时={shapmatchresult.ElapsedMs}ms",
+                                MessageBoxIcon.Success);
+                        }
+                        else
+                        {
+                            ShowBasePointResult("现场图设基准点失败：匹配结果为空");
+                        }
                     }
-
-                    if (Result_Data != null)
+                    finally
                     {
-                        vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool.InitX = Result_Data.X_actual;
-                        vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool.InitY = Result_Data.Y_actual;
-                        ShowBasePointResult($"现场图基准点已更新：X={Result_Data.X_actual:F2}, Y={Result_Data.Y_actual:F2}", MessageBoxIcon.Success);
-                    }
-                    else
-                    {
-                        ShowBasePointResult("现场图设基准点失败：匹配结果为空");
+                        image?.Dispose();
                     }
                 }
 

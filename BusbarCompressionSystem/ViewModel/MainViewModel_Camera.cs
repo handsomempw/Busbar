@@ -661,7 +661,22 @@ namespace BusbarCompressionSystem.ViewModel
                                         tool.ShapeMatch.BasicData.matchcenterY_Basic = tool.InitY;
                                         tool.ShapeMatch.BasicData.productcenter_X = tool.InitX;
                                         tool.ShapeMatch.BasicData.productcenter_Y = tool.InitY;
-                                        shapmatchresult = tool.ShapeMatch.Match(Image, 1, tool.PositionROI.Row1, tool.PositionROI.Col1, tool.PositionROI.Row2, tool.PositionROI.Col2, (int)-tool.AllowAngleDelta, (int)tool.AllowAngleDelta, true);
+                                        if (!tool.TryValidateShapeMatchParameters(out string parameterError))
+                                        {
+                                            throw new InvalidOperationException($"模板匹配参数无效：{parameterError}");
+                                        }
+                                        ShapeMatch.GetFindShapeModelAngles(tool.AllowAngleDelta, out double angleStartDeg, out double angleExtentDeg);
+                                        shapmatchresult = tool.ShapeMatch.Match(
+                                            Image,
+                                            1,
+                                            tool.PositionROI.Row1,
+                                            tool.PositionROI.Col1,
+                                            tool.PositionROI.Row2,
+                                            tool.PositionROI.Col2,
+                                            angleStartDeg,
+                                            angleExtentDeg,
+                                            true,
+                                            tool.CandidateMinScore);
 
                                         if (!shapmatchresult.IsSuccess)
                                         {
@@ -687,7 +702,7 @@ namespace BusbarCompressionSystem.ViewModel
                                                 {
                                                     if (Math.Abs(tool.DeltaX) < tool.Allow_X_Delta &&
                                                         Math.Abs(tool.DeltaY) < tool.Allow_Y_Delta &&
-                                                        Math.Abs(tool.ActualAngle) < tool.AllowAngleDelta
+                                                        Math.Abs(tool.ActualAngle) <= tool.AllowAngleDelta
                                                         )
                                                     {
                                                         tool.ToolStatus = ToolStatus.OK;
@@ -703,14 +718,17 @@ namespace BusbarCompressionSystem.ViewModel
                                                 else
                                                 {
                                                     tool.ToolStatus = ToolStatus.NG2;
-                                                    templateMatchTraceDetail = "匹配分值低于下限";
+                                                    templateMatchTraceDetail = $"匹配分值低于合格下限({tool.ActualScore:F3} < {tool.MinScore:F3})";
                                                 }
 
                                             }
                                             else
                                             {
                                                 tool.ToolStatus = ToolStatus.NG2;
-                                                templateMatchTraceDetail = "Analysis_Result返回空";
+                                                tool.ActualScore = 0;
+                                                templateMatchTraceDetail = string.IsNullOrEmpty(shapmatchresult.ErrorInfo)
+                                                    ? "未找到匹配目标"
+                                                    : shapmatchresult.ErrorInfo;
                                             }
                                         }
                                     }

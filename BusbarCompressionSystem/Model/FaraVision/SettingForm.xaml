@@ -247,9 +247,12 @@
                         <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right"
                                    Visibility="{Binding TestMode,Converter={StaticResource TestMode2Visibility_TemplateMatchJudge}}">Y偏差范围:</TextBlock>
                         <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right"
-                                   Visibility="{Binding TestMode,Converter={StaticResource TestMode2Visibility_TemplateMatchJudge}}">角度偏差范围:</TextBlock>
-                        <TextBlock Grid.Row="3" Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right">模板匹配分值下限:</TextBlock>
-                        <TextBlock Grid.Row="4" Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right"  Visibility="Collapsed">标定像素尺寸(um/pixel):</TextBlock>
+                                   Visibility="{Binding TestMode,Converter={StaticResource TestMode2Visibility_ShapeMatch}}"
+                                   ToolTip="模板匹配与模板定位共用。输入20表示搜索 -20°～+20°；有效范围为大于0°且不超过180°。">角度偏差范围:</TextBlock>
+                        <TextBlock Grid.Row="3" Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right"
+                                   ToolTip="有效范围0.1～1.0。匹配结果达到该分值才判合格。">合格分值下限:</TextBlock>
+                        <TextBlock Grid.Row="4" Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right"
+                                   ToolTip="有效范围0.1～合格分值。搜不到时可适当降低；搜到后仍由合格分值判定。">候选搜索下限:</TextBlock>
                         <TextBlock Grid.Row="5" Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right"  Visibility="Collapsed">X轴取反:</TextBlock>
                         <TextBlock Grid.Row="6" Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right"  Visibility="Collapsed">Y轴取反:</TextBlock>
                         <TextBlock Grid.Row="7" Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Right"  Visibility="Collapsed">XY轴对换:</TextBlock>
@@ -285,21 +288,25 @@
                         <TextBox Grid.Row="1" Grid.Column="1"   Margin="2,2,100,2" Text="{Binding Allow_Y_Delta}"
                                  Visibility="{Binding TestMode,Converter={StaticResource TestMode2Visibility_TemplateMatchJudge}}" />
                         <TextBox Grid.Row="2" Grid.Column="1"   Margin="2,2,100,2" Text="{Binding AllowAngleDelta}"
-                                 Visibility="{Binding TestMode,Converter={StaticResource TestMode2Visibility_TemplateMatchJudge}}" />
+                                 Visibility="{Binding TestMode,Converter={StaticResource TestMode2Visibility_ShapeMatch}}"
+                                 ToolTip="输入20表示模板匹配与模板定位搜索 -20°～+20°；请输入大于0且不超过180的数值。"/>
                         <TextBlock Grid.Row="0" Grid.Column="1"  HorizontalAlignment="Right"  Margin="2,2,70,2"  Visibility="Collapsed">mm</TextBlock>
                         <TextBlock Grid.Row="1" Grid.Column="1"  HorizontalAlignment="Right"  Margin="2,2,70,2"  Visibility="Collapsed">mm</TextBlock>
 
                         <Button Grid.Row="2" Grid.Column="1" Width="90" Margin="2"
-                                Grid.RowSpan="2" HorizontalAlignment="Right"
+                                Grid.RowSpan="3" HorizontalAlignment="Right"
                                 p:ButtonHelper.CornerRadius="20"
                                 Background="PaleVioletRed" Foreground="White"
                                 Name="ApplyAll"
                                 Click="ApplyAll_Click"
                                 Visibility="{Binding TestMode,Converter={StaticResource TestMode2Visibility_TemplateMatchJudge}}"
-                                ToolTip="将当前工具的X偏差、Y偏差、角度偏差、分值下限和比例参数复制到全部工具；不会复制ROI、模型文件和基准点。"
+                                ToolTip="将当前工具的X/Y偏差、角度偏差、合格分值、候选搜索下限和比例参数复制到全部工具；不会复制ROI、模型文件和基准点。"
                                 >同步阈值到全部工具</Button>
-                        <TextBox Grid.Row="3" Grid.Column="1" VerticalAlignment="Center" Margin="2,2,100,2" Text="{Binding MinScore}"/>
-                        <TextBox Grid.Row="4" Grid.Column="1" VerticalAlignment="Center" Margin="2,2,100,2" Text="{Binding K}"  Visibility="Collapsed"/>
+                        <TextBox Grid.Row="3" Grid.Column="1" VerticalAlignment="Center" Margin="2,2,100,2" Text="{Binding MinScore}"
+                                 ToolTip="合格分值下限：范围0.1～1.0；候选达到该分值才判 OK，设基准与预览保存同样使用。"/>
+                        <TextBox Grid.Row="4" Grid.Column="1" VerticalAlignment="Center" Margin="2,2,100,2" Text="{Binding CandidateMinScore}"
+                                 ToolTip="候选搜索下限：范围0.1～合格分值，默认0.5；只决定能否形成候选，最终合格仍看上一项。"/>
+                        <TextBox Grid.Row="8" Grid.Column="1" VerticalAlignment="Center" Margin="2,2,100,2" Text="{Binding K}"  Visibility="Collapsed"/>
                         <CheckBox Grid.Row="5" Grid.Column="1" Margin="2"  IsChecked="{Binding DirectX }" Visibility="Collapsed"/>
                         <CheckBox Grid.Row="6" Grid.Column="1" Margin="2"  IsChecked="{Binding DirectY  }" Visibility="Collapsed"/>
                         <CheckBox Grid.Row="7" Grid.Column="1" Margin="2"  IsChecked="{Binding InvertXY }" Visibility="Collapsed"/>

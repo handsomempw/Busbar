@@ -42,7 +42,7 @@ namespace PositionDetect
         {
             if (!vm.DATA.ROImode)
             {
-                vm.DATA.Objects.Clear();
+                ClearTemplateFeatures();
             }
             vm.DATA.ROImode = !vm.DATA.ROImode;
 
@@ -65,6 +65,26 @@ namespace PositionDetect
             vm.drawcircle();
             vm.showregion();
 
+        }
+
+        private void DrawExcludeRectangle_Click(object sender, RoutedEventArgs e)
+        {
+            vm.showtest();
+            vm.showregion();
+            vm.drawExcludeRectangle();
+            vm.showregion();
+        }
+
+        /// <summary>
+        /// 清空当前示教会话中的包含区与排除区，并释放 HALCON 区域句柄。
+        /// </summary>
+        private void ClearTemplateFeatures()
+        {
+            foreach (var item in vm.DATA.Objects.ToList())
+            {
+                try { item?.Region?.Dispose(); } catch { }
+            }
+            vm.DATA.Objects.Clear();
         }
 
         private void Button_Click_3(object sender, RoutedEventArgs e)

@@ -87,9 +87,60 @@ namespace BusbarCompressionSystem.Model.FaraVision.Tool
         [XmlElement("位置检测模型文件名称")]
         public string ModelFileName { set; get; } = string.Empty;
 
+        /// <summary>
+        /// 模板匹配合格分值下限（0~1）。
+        /// FindShapeModel 返回候选后，由业务层用该值判定 OK/NG；设基准与预览保存同样使用该门禁。
+        /// 写入工程 XML；默认 0.8 保持历史合格口径。
+        /// </summary>
         [XmlElement("模板匹配分值下限")]
+        public double MinScore
+        {
+            get { return _minScore; }
+            set
+            {
+                if (_minScore != value)
+                {
+                    _minScore = value;
+                    RaisePropertyChanged(() => MinScore);
+                }
+            }
+        }
 
-        public double MinScore { set; get; } = 0.8;
+        /// <summary>
+        /// FindShapeModel 候选搜索下限（0~1）。
+        /// 只决定 HALCON 是否返回匹配实例；合格仍看 <see cref="MinScore"/>。
+        /// 通过 <see cref="CandidateMinScoreXml"/> 写入工程 XML；默认 0.5，与历史硬编码搜索下限一致。
+        /// 工程保存前应满足 0.1 ≤ CandidateMinScore ≤ MinScore ≤ 1。
+        /// </summary>
+        [XmlIgnore]
+        public double CandidateMinScore
+        {
+            get { return _candidateMinScore; }
+            set
+            {
+                _candidateMinScoreConfigured = true;
+                if (_candidateMinScore != value)
+                {
+                    _candidateMinScore = value;
+                    RaisePropertyChanged(() => CandidateMinScore);
+                }
+            }
+        }
+
+        /// <summary>
+        /// 候选搜索下限的 XML 持久化入口。
+        /// 读取到该节点表示工程已显式配置候选分；旧工程缺少节点时由加载迁移保留历史 0.5 搜索门槛。
+        /// </summary>
+        [XmlElement("模板匹配候选搜索下限")]
+        public double CandidateMinScoreXml
+        {
+            get { return CandidateMinScore; }
+            set { CandidateMinScore = value; }
+        }
+
+        private double _minScore = 0.8;
+        private double _candidateMinScore = 0.5;
+        private bool _candidateMinScoreConfigured;
 
         private double _actualScore;
         public double ActualScore
@@ -169,8 +220,138 @@ namespace BusbarCompressionSystem.Model.FaraVision.Tool
         private double _deltaX;
         private double _deltaY;
 
+        /// <summary>
+        /// 允许角度偏差 ±δ（deg）。
+        /// 在线 FindShapeModel 按 AngleStart=-δ、AngleExtent=2δ 搜索，即真实范围为 -δ～+δ。
+        /// 写入工程 XML；模板匹配与模板定位的搜索角域均读取该值。
+        /// </summary>
         [XmlElement("允许角度偏差")]
-        public double AllowAngleDelta { set; get; } = 20;
+        public double AllowAngleDelta
+        {
+            get { return _allowAngleDelta; }
+            set
+            {
+                if (_allowAngleDelta != value)
+                {
+                    _allowAngleDelta = value;
+                    RaisePropertyChanged(() => AllowAngleDelta);
+                }
+            }
+        }
+
+        private double _allowAngleDelta = 20;
+
+        /// <summary>
+        /// 在 AOI 工具 XML 读取完成后迁移模板匹配参数。
+        /// 旧工程缺少候选分节点时沿用历史 0.5 搜索门槛；候选分高于合格分时提高合格分，保持历史有效门槛并避免扩大 OK 范围。
+        /// 非法角度与分值在加载阶段恢复到安全范围，调整原因写入工程加载日志，在线检测只读取迁移后的确定值。
+        /// </summary>
+        /// <param name="adjustmentSummary">参数发生迁移时返回原值与生效值，供工程加载日志追溯。</param>
+        /// <returns>true 表示至少一个参数已调整；false 表示工程参数可直接使用。</returns>
+        public bool NormalizeShapeMatchParametersForProjectLoad(out string adjustmentSummary)
+        {
+            var adjustments = new List<string>();
+
+            double normalizedMinScore = NormalizeScore(MinScore, 0.8);
+            if (MinScore != normalizedMinScore)
+            {
+                adjustments.Add($"合格分值由 {MinScore:0.###} 调整为 {normalizedMinScore:0.###}");
+            }
+
+            double normalizedCandidateScore;
+            if (_candidateMinScoreConfigured)
+            {
+                normalizedCandidateScore = NormalizeScore(CandidateMinScore, 0.5);
+                if (CandidateMinScore != normalizedCandidateScore)
+                {
+                    adjustments.Add($"候选分值由 {CandidateMinScore:0.###} 调整为 {normalizedCandidateScore:0.###}");
+                }
+            }
+            else
+            {
+                normalizedCandidateScore = 0.5;
+                adjustments.Add("旧工程补入历史候选分值 0.5");
+            }
+
+            if (normalizedCandidateScore > normalizedMinScore)
+            {
+                adjustments.Add($"合格分值由 {normalizedMinScore:0.###} 提高为候选分值 {normalizedCandidateScore:0.###}");
+                normalizedMinScore = normalizedCandidateScore;
+            }
+
+            double normalizedAngleDelta = NormalizeAngleDelta(AllowAngleDelta);
+            if (AllowAngleDelta != normalizedAngleDelta)
+            {
+                adjustments.Add($"角度偏差由 {AllowAngleDelta:0.###}deg 调整为 {normalizedAngleDelta:0.###}deg");
+            }
+
+            MinScore = normalizedMinScore;
+            CandidateMinScore = normalizedCandidateScore;
+            AllowAngleDelta = normalizedAngleDelta;
+            adjustmentSummary = string.Join("；", adjustments);
+            return adjustments.Count > 0;
+        }
+
+        /// <summary>
+        /// 校验界面编辑后的模板匹配参数，供模型预览、批量同步、工程保存和在线检测共用。
+        /// 校验只返回原因，不修改工具配置，保证界面显示值、工程 XML 与实际运行值一致。
+        /// </summary>
+        /// <param name="errorMessage">校验失败时返回操作员可直接处理的范围说明。</param>
+        /// <returns>true 表示分值与角度参数可用于预览、设基准和在线检测；false 表示当前操作应停止。</returns>
+        public bool TryValidateShapeMatchParameters(out string errorMessage)
+        {
+            if (!IsFinite(MinScore) || MinScore < 0.1 || MinScore > 1.0)
+            {
+                errorMessage = "合格分值下限须在 0.1～1.0 之间";
+                return false;
+            }
+
+            if (!IsFinite(CandidateMinScore) || CandidateMinScore < 0.1 || CandidateMinScore > 1.0)
+            {
+                errorMessage = "候选搜索下限须在 0.1～1.0 之间";
+                return false;
+            }
+
+            if (CandidateMinScore > MinScore)
+            {
+                errorMessage = "候选搜索下限须小于或等于合格分值下限";
+                return false;
+            }
+
+            if (!IsFinite(AllowAngleDelta) || AllowAngleDelta <= 0 || AllowAngleDelta > 180)
+            {
+                errorMessage = "允许角度偏差须大于 0deg 且不超过 180deg";
+                return false;
+            }
+
+            errorMessage = null;
+            return true;
+        }
+
+        private static double NormalizeScore(double value, double fallback)
+        {
+            if (!IsFinite(value))
+            {
+                return fallback;
+            }
+
+            return Math.Max(0.1, Math.Min(1.0, value));
+        }
+
+        private static double NormalizeAngleDelta(double value)
+        {
+            if (!IsFinite(value) || value == 0)
+            {
+                return 20;
+            }
+
+            return Math.Min(180, Math.Abs(value));
+        }
+
+        private static bool IsFinite(double value)
+        {
+            return !double.IsNaN(value) && !double.IsInfinity(value);
+        }
 
 
 
