@@ -1091,6 +1091,95 @@ namespace BusbarCompressionSystem.ViewModel
             }
         }
 
+        /// <summary>
+        /// 在模型发布事务中保存当前 Tool 的可编辑示教配方。
+        /// 已有 Tool XML 作为保存基线，只替换模板示教特征和示教图尺寸；设置页中的其他待保存参数继续沿用原有保存与审计流程。
+        /// 调用方随后发布同序号 .shm、重载在线句柄并同步工程快照，其他工具、检测流程和设备通信保持当前状态。
+        /// </summary>
+        /// <param name="tool">模型设置窗口正在编辑的 ToolModel，必须仍属于当前工程且提供本次候选配方。</param>
+        /// <param name="errorMessage">工程保护、工具归属、现有 XML 读取或原子保存失败时返回可供状态栏和日志使用的原因。</param>
+        /// <returns>当前 Tool XML 的示教配方节点已保存并通过反序列化校验时返回 true。</returns>
+        internal bool TrySaveCurrentToolRecipeForModelPublish(ToolModel tool, out string errorMessage)
+        {
+            errorMessage = string.Empty;
+            if (tool == null)
+            {
+                errorMessage = "当前工具为空";
+                return false;
+            }
+
+            if (_aoiProjectLoadFailed || _faraVisionSettingConfigLoadFailed)
+            {
+                errorMessage = "当前 AOI 工程或视觉配置加载状态异常，工程保存保护已生效";
+                writeLog($"[模板示教配方保存] Tool{tool.Index} 跳过：{errorMessage}", true);
+                return false;
+            }
+
+            int toolListIndex = tool.Index - 1;
+            if (toolListIndex < 0
+                || toolListIndex >= DataModel.FaraVisionDataModel.Processmodel.Tools.Count
+                || !ReferenceEquals(DataModel.FaraVisionDataModel.Processmodel.Tools[toolListIndex], tool))
+            {
+                errorMessage = $"Tool{tool.Index} 与当前工程工具列表不一致";
+                writeLog($"[模板示教配方保存] {errorMessage}", true);
+                return false;
+            }
+
+            try
+            {
+                string filename = Path.Combine(GetCurrentProjectDirectory(), $"Tool{tool.Index}.xml");
+                ToolModel persistedTool;
+                if (File.Exists(filename))
+                {
+                    ConfigLoadResult<ToolModel> loadResult = ConfigXmlSaveHelper.TryLoad<ToolModel>(
+                        filename,
+                        () => null,
+                        message => writeLog(message));
+                    if (loadResult.LoadFailed || loadResult.Data == null)
+                    {
+                        errorMessage = $"Tool{tool.Index}.xml 无法读取，配方节点保持原文件状态";
+                        writeLog($"[模板示教配方保存] {errorMessage}", true);
+                        return false;
+                    }
+
+                    persistedTool = loadResult.Data;
+                }
+                else
+                {
+                    persistedTool = CloneToolModelSnapshot(tool);
+                    if (persistedTool == null)
+                    {
+                        errorMessage = $"Tool{tool.Index} 首次保存对象无法创建";
+                        writeLog($"[模板示教配方保存] {errorMessage}", true);
+                        return false;
+                    }
+                }
+
+                persistedTool.TemplateFeatures = (tool.TemplateFeatures ?? new List<PositionDetect.TemplateFeatureDefinition>())
+                    .Where(feature => feature != null)
+                    .Select(feature => feature.Clone())
+                    .ToList();
+                persistedTool.TemplateFeatureImageWidth = tool.TemplateFeatureImageWidth;
+                persistedTool.TemplateFeatureImageHeight = tool.TemplateFeatureImageHeight;
+
+                if (!SaveProjectXmlSafely(filename, persistedTool, _aoiProjectLoadFailed))
+                {
+                    errorMessage = $"Tool{tool.Index}.xml 原子保存失败";
+                    writeLog($"[模板示教配方保存] {errorMessage}", true);
+                    return false;
+                }
+
+                writeLog($"[模板示教配方保存] Tool{tool.Index} 配方节点已同步到工程 XML", false);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                errorMessage = ex.Message;
+                writeLog($"[模板示教配方保存] Tool{tool.Index} 失败：{ex.Message}", true);
+                return false;
+            }
+        }
+
         public bool LoadBitmapSource()
         {
 

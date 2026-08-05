@@ -9,16 +9,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Data;
-using System.Windows.Documents;
-using System.Windows.Input;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
-using System.Windows.Shapes;
 
 namespace BusbarCompressionSystem.Model.FaraVision
 {
@@ -30,57 +21,203 @@ namespace BusbarCompressionSystem.Model.FaraVision
 
         ViewModelLocator vml = null;
         private string _modelStatus = "未导出";
+        private readonly ToolModel _tool;
+        private List<TemplateFeatureDefinition> _publishedTemplateFeatures = new List<TemplateFeatureDefinition>();
+        private int _publishedTemplateImageWidth;
+        private int _publishedTemplateImageHeight;
+        private int _restoredFeatureCount;
+        private string _sessionRestoreMessage = string.Empty;
 
         /// <summary>
-        /// 打开当前工具的模板示教会话，复制示教图并同步生产搜索参数。
-        /// 窗口内只维护临时 ROI 和模型句柄；正式 .shm 仍由保存按钮发布到当前 Tool 序号。
+        /// 打开当前工具的模板示教会话，复制示教图、恢复 Tool XML 中的可编辑区域并同步生产搜索参数。
+        /// 窗口内维护 HALCON Region 和临时模型句柄；几何配方、正式 .shm 与在线模型在“保存并发布”成功后按同一 Tool 序号更新。
         /// </summary>
         /// <param name="image">当前工具的示教图像；窗口复制后独立管理，调用方仍保留原图所有权。</param>
-        /// <param name="Modelfilename">当前工具正式 .shm 的完整路径。</param>
-        public ModelWindow(HObject image, string Modelfilename)
+        /// <param name="modelFilename">当前工具正式 .shm 的完整路径。</param>
+        /// <param name="tool">当前工具配置，提供持久化特征配方、PositionROI、角域、分值和基准数据。</param>
+        public ModelWindow(HObject image, string modelFilename, ToolModel tool)
         {
+            _tool = tool ?? throw new ArgumentNullException(nameof(tool));
             InitializeComponent();
             vml = (ViewModelLocator)this.FindResource("Locator");
             vml.PositionDetectViewModel.DATA.image?.Dispose();
-            HOperatorSet.GenEmptyObj(out vml.PositionDetectViewModel.DATA.image);
             HOperatorSet.CopyImage(image, out vml.PositionDetectViewModel.DATA.image);
-            vml.PositionDetectViewModel.DATA.modelfilename = Modelfilename;
+            vml.PositionDetectViewModel.DATA.modelfilename = modelFilename;
+            CapturePublishedRecipeBaseline();
+            RestoreTemplateFeatureSession();
             bool settingsReady = TrySyncPreviewMatchSettings(out string settingsError);
             UpdateModelStatus(settingsReady
-                ? (File.Exists(Modelfilename) ? $"已导出 {System.IO.Path.GetFileName(Modelfilename)}" : "未导出")
+                ? (File.Exists(modelFilename) ? $"已发布 {System.IO.Path.GetFileName(modelFilename)}" : "当前工具尚未发布模型")
                 : settingsError);
             ConfigureBasePointButtons();
         }
 
         /// <summary>
+        /// 记录当前 Tool 已发布的模板特征基线，供本次会话放弃修改或模型发布失败时恢复。
+        /// 基线只复制可序列化几何参数，HALCON Region 始终由模型窗口独立创建和释放。
+        /// </summary>
+        private void CapturePublishedRecipeBaseline()
+        {
+            _publishedTemplateFeatures = CloneTemplateFeatures(_tool.TemplateFeatures);
+            _publishedTemplateImageWidth = _tool.TemplateFeatureImageWidth;
+            _publishedTemplateImageHeight = _tool.TemplateFeatureImageHeight;
+        }
+
+        /// <summary>
+        /// 深拷贝模板特征定义集合，隔离 ToolModel 已发布配方与窗口编辑会话。
+        /// </summary>
+        /// <param name="features">待复制的 Tool XML 特征集合；旧工程允许为空。</param>
+        /// <returns>按原顺序排列的独立几何定义集合。</returns>
+        private static List<TemplateFeatureDefinition> CloneTemplateFeatures(IEnumerable<TemplateFeatureDefinition> features)
+        {
+            return (features ?? Enumerable.Empty<TemplateFeatureDefinition>())
+                .Where(feature => feature != null)
+                .Select(feature => feature.Clone())
+                .ToList();
+        }
+
+        /// <summary>
+        /// 根据当前示教图尺寸恢复可编辑模板区域。
+        /// 配方图像尺寸与当前图片不一致时保留 ToolModel 原配方并进入重新示教视图，避免旧坐标覆盖不同尺寸图片。
+        /// </summary>
+        private void RestoreTemplateFeatureSession()
+        {
+            if (!TryGetSessionImageSize(out int imageWidth, out int imageHeight, out string imageError))
+            {
+                _restoredFeatureCount = vml.PositionDetectViewModel.RestoreTemplateFeatures(
+                    Enumerable.Empty<TemplateFeatureDefinition>(),
+                    out _);
+                _sessionRestoreMessage = $"示教图尺寸读取失败：{imageError}";
+                return;
+            }
+
+            bool hasSavedFeatures = _publishedTemplateFeatures.Count > 0;
+            bool hasSavedImageSize = _publishedTemplateImageWidth > 0 && _publishedTemplateImageHeight > 0;
+            if (hasSavedFeatures
+                && hasSavedImageSize
+                && (_publishedTemplateImageWidth != imageWidth || _publishedTemplateImageHeight != imageHeight))
+            {
+                _restoredFeatureCount = vml.PositionDetectViewModel.RestoreTemplateFeatures(
+                    Enumerable.Empty<TemplateFeatureDefinition>(),
+                    out _);
+                _sessionRestoreMessage =
+                    $"示教图尺寸已变化（配方 {_publishedTemplateImageWidth}x{_publishedTemplateImageHeight}px，当前 {imageWidth}x{imageHeight}px），请重新示教";
+                return;
+            }
+
+            _restoredFeatureCount = vml.PositionDetectViewModel.RestoreTemplateFeatures(
+                _publishedTemplateFeatures,
+                out _sessionRestoreMessage);
+        }
+
+        /// <summary>
+        /// 读取模型设置会话复制图的原始尺寸，供配方兼容校验和发布时写入 Tool XML。
+        /// </summary>
+        /// <param name="width">图像宽度，单位 px。</param>
+        /// <param name="height">图像高度，单位 px。</param>
+        /// <param name="errorMessage">图像为空或 HALCON 读取失败时的原因。</param>
+        /// <returns>尺寸可用于配方校验时返回 true。</returns>
+        private bool TryGetSessionImageSize(out int width, out int height, out string errorMessage)
+        {
+            width = 0;
+            height = 0;
+            errorMessage = string.Empty;
+            HTuple imageWidth = null;
+            HTuple imageHeight = null;
+            try
+            {
+                HObject image = vml?.PositionDetectViewModel?.DATA?.image;
+                if (image == null)
+                {
+                    errorMessage = "示教图为空";
+                    return false;
+                }
+
+                HOperatorSet.GetImageSize(image, out imageWidth, out imageHeight);
+                width = imageWidth.I;
+                height = imageHeight.I;
+                return width > 0 && height > 0;
+            }
+            catch (Exception ex)
+            {
+                errorMessage = ex.Message;
+                return false;
+            }
+            finally
+            {
+                imageWidth?.Dispose();
+                imageHeight?.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// 窗口完成加载后显示示教图、已恢复区域和已发布模型轮廓。
+        /// 轮廓显示只提供操作员复核，生产模型句柄和在线判定保持当前状态。
+        /// </summary>
+        /// <param name="sender">模板模型设置窗口。</param>
+        /// <param name="e">WPF 加载事件参数。</param>
+        private void WindowX_Loaded(object sender, RoutedEventArgs e)
+        {
+            string modelFilename = vml.PositionDetectViewModel.DATA.modelfilename;
+            vml.PositionDetectViewModel.DisplayPublishedModelContours(modelFilename, out string contourSummary);
+
+            var statusParts = new List<string>();
+            if (_restoredFeatureCount > 0)
+            {
+                statusParts.Add($"已恢复 {_restoredFeatureCount} 个可编辑特征");
+            }
+            else if (_publishedTemplateFeatures.Count > 0)
+            {
+                statusParts.Add(File.Exists(modelFilename)
+                    ? "已发布模型继续运行，原配方保持在 Tool XML"
+                    : "原配方保持在 Tool XML，当前工具等待重新示教并发布");
+            }
+            else if (File.Exists(modelFilename))
+            {
+                statusParts.Add("已发布模型可继续运行，当前工程缺少可编辑特征配方");
+            }
+            else
+            {
+                statusParts.Add("请开始圈选模板特征");
+            }
+
+            if (!string.IsNullOrWhiteSpace(_sessionRestoreMessage))
+            {
+                statusParts.Add(_sessionRestoreMessage);
+            }
+            if (!string.IsNullOrWhiteSpace(contourSummary))
+            {
+                statusParts.Add(contourSummary);
+            }
+
+            UpdateModelStatus(string.Join("；", statusParts));
+        }
+
+        /// <summary>
         /// 结束当前模板示教会话并释放临时图像、区域和模型句柄。
-        /// 已保存的 .shm、工具 XML、在线模型句柄和基准数据保持不变，关闭窗口不会改变生产判定。
+        /// 存在未发布特征修改时先由操作员确认放弃；已保存的 .shm、工具 XML、在线模型句柄和基准数据保持当前状态。
         /// </summary>
         /// <param name="sender">模型设置窗口。</param>
         /// <param name="e">窗口关闭事件参数。</param>
         private void WindowX_Closing(object sender, System.ComponentModel.CancelEventArgs e)
         {
             var data = vml?.PositionDetectViewModel?.DATA;
-            if (data != null)
+            if (data?.IsTemplateRecipeDirty == true)
             {
-                data.ROImode = false;
-                data.modelID = null;
-                foreach (var item in data.Objects.ToList())
+                MessageBoxResult result = MessageBoxX.Show(
+                    "当前特征修改尚未保存并发布。关闭窗口会放弃本次编辑，已发布模型继续生效，确认关闭？",
+                    "未发布修改",
+                    MessageBoxButton.YesNo,
+                    MessageBoxIcon.Question,
+                    DefaultButton.NoCancel);
+                if (result != MessageBoxResult.Yes)
                 {
-                    try
-                    {
-                        item?.Region?.Dispose();
-                    }
-                    catch (Exception ex)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"模板示教区域释放失败：{ex.Message}");
-                    }
+                    e.Cancel = true;
+                    return;
                 }
-                data.Objects.Clear();
-                data.image?.Dispose();
-                data.image = null;
-                data.HWindow = null;
             }
+
+            vml?.PositionDetectViewModel?.DisposeTemplateFeatureSession();
         }
 
         /// <summary>
@@ -91,33 +228,32 @@ namespace BusbarCompressionSystem.Model.FaraVision
         /// <returns>true 表示预览参数已同步；false 表示应保持预览与保存入口关闭。</returns>
         private bool TrySyncPreviewMatchSettings(out string errorMessage)
         {
-            var tool = vml?.Main?.DataModel?.FaraVisionDataModel?.Processmodel?.tool;
-            if (tool == null || vml?.PositionDetectViewModel?.DATA == null)
+            if (_tool == null || vml?.PositionDetectViewModel?.DATA == null)
             {
                 errorMessage = "当前工具未就绪";
                 return false;
             }
 
-            if (!tool.TryValidateShapeMatchParameters(out errorMessage))
+            if (!_tool.TryValidateShapeMatchParameters(out errorMessage))
             {
                 errorMessage = $"模板匹配参数无效：{errorMessage}";
                 return false;
             }
 
-            if (tool.PositionROI == null || !tool.PositionROI.IsValidRectangle())
+            if (_tool.PositionROI == null || !_tool.PositionROI.IsValidRectangle())
             {
                 errorMessage = "模板匹配ROI未设置，请返回工具设置重新选择";
                 return false;
             }
 
             var data = vml.PositionDetectViewModel.DATA;
-            data.PreviewAllowAngleDelta = tool.AllowAngleDelta;
-            data.PreviewCandidateMinScore = tool.CandidateMinScore;
-            data.PreviewMinScore = tool.MinScore;
-            data.PreviewRoiRow1 = tool.PositionROI.Row1;
-            data.PreviewRoiCol1 = tool.PositionROI.Col1;
-            data.PreviewRoiRow2 = tool.PositionROI.Row2;
-            data.PreviewRoiCol2 = tool.PositionROI.Col2;
+            data.PreviewAllowAngleDelta = _tool.AllowAngleDelta;
+            data.PreviewCandidateMinScore = _tool.CandidateMinScore;
+            data.PreviewMinScore = _tool.MinScore;
+            data.PreviewRoiRow1 = _tool.PositionROI.Row1;
+            data.PreviewRoiCol1 = _tool.PositionROI.Col1;
+            data.PreviewRoiRow2 = _tool.PositionROI.Row2;
+            data.PreviewRoiCol2 = _tool.PositionROI.Col2;
             errorMessage = null;
             return true;
         }
@@ -134,50 +270,34 @@ namespace BusbarCompressionSystem.Model.FaraVision
         }
 
         /// <summary>
+        /// 同步模型发布结果到状态栏和提示框，使操作员在事务结束后直接看到生效范围与下一步处理。
+        /// 该提示只反馈 Tool XML、.shm、在线句柄和工程快照状态，不改变发布结果。
+        /// </summary>
+        /// <param name="message">发布结果、回退状态和现场处理建议。</param>
+        /// <param name="icon">成功、警告或错误级别，决定提示框的视觉优先级。</param>
+        private void ShowModelPublishResult(string message, MessageBoxIcon icon)
+        {
+            UpdateModelStatus(message);
+            NoticeBox.Show(message, "模型发布", icon, true, 8000);
+        }
+
+        /// <summary>
         /// 按工具模式配置基准入口。模板定位只从模板图保存参考位姿，避免现场图基准入口写入模板匹配用的 InitX/InitY 后误导在线 ROI 跟随矫正。
         /// </summary>
         private void ConfigureBasePointButtons()
         {
-            var tool = vml?.Main?.DataModel?.FaraVisionDataModel?.Processmodel?.tool;
-            if (tool?.TestMode == TestModes.模板定位)
+            if (_tool.TestMode == TestModes.模板定位)
             {
-                getinitpositionbymodelimage.Content = "5 保存定位参考位姿";
+                getinitpositionbymodelimage.Content = "保存定位参考位姿";
                 getinitpositionbymodelimage.ToolTip = "用当前模板图匹配一次；分值须达到合格下限后才保存参考位姿，供在线 ROI 跟随矫正。";
                 getinitpositonfromimagefile.Visibility = Visibility.Collapsed;
                 return;
             }
 
-            getinitpositionbymodelimage.Content = "5 用模板图设基准点";
+            getinitpositionbymodelimage.Content = "用模板图设基准点";
             getinitpositionbymodelimage.ToolTip = "用当前模板图片匹配一次；分值须达到合格下限后才写入基准X/Y。";
             getinitpositonfromimagefile.Visibility = Visibility.Visible;
             getinitpositonfromimagefile.ToolTip = "选择一张现场图片匹配；分值须达到合格下限后才写入基准X/Y。";
-        }
-
-        /// <summary>
-        /// 开始一轮模板特征圈选，并清理上一次尚未发布的临时区域。
-        /// 正式 .shm、PositionROI 和在线模型句柄保持不变，操作员仍按原步骤绘制包含区与排除区。
-        /// </summary>
-        /// <param name="sender">选择模板特征按钮。</param>
-        /// <param name="e">WPF 点击事件参数。</param>
-        private void selectFeature_Click(object sender, RoutedEventArgs e)
-        {
-            if (!vml.PositionDetectViewModel.DATA.ROImode)
-            {
-                foreach (var item in vml.PositionDetectViewModel.DATA.Objects.ToList())
-                {
-                    try
-                    {
-                        item?.Region?.Dispose();
-                    }
-                    catch (Exception ex)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"上次模板示教区域释放失败：{ex.Message}");
-                    }
-                }
-                vml.PositionDetectViewModel.DATA.Objects.Clear();
-            }
-            vml.PositionDetectViewModel.DATA.ROImode = true;
-            UpdateModelStatus("正在圈选模板特征（绿=包含，品红=排除）");
         }
 
         /// <summary>
@@ -215,30 +335,113 @@ namespace BusbarCompressionSystem.Model.FaraVision
         /// <param name="e">WPF 点击事件参数。</param>
         private void exportModel_Click(object sender, RoutedEventArgs e)
         {
-            bool success = vml.PositionDetectViewModel.OutputModel();
-            if (success)
+            var data = vml.PositionDetectViewModel.DATA;
+            if (!data.CanSaveModel)
             {
-                var tool = vml?.Main?.DataModel?.FaraVisionDataModel?.Processmodel?.tool;
-                bool loaded = tool != null && vml.Main.EnsureShapeModelLoaded(tool, "模型保存后加载", true);
-                bool snapshotSaved = vml.Main.BackupCurrentAoiProjectFilesAfterSave();
+                ShowModelPublishResult("请先完成特征圈选并预览生成模型", MessageBoxIcon.Warning);
+                return;
+            }
 
-                if (loaded && snapshotSaved)
-                {
-                    UpdateModelStatus($"已保存并加载 {System.IO.Path.GetFileName(vml.PositionDetectViewModel.DATA.modelfilename)}");
-                }
-                else if (loaded)
-                {
-                    UpdateModelStatus("模型文件已保存并加载，工程快照未确认，请检查运行日志");
-                }
-                else
-                {
-                    UpdateModelStatus("模型文件已保存，内存重载失败，请检查运行日志");
-                }
+            if (!TryStageSessionRecipe(out string recipeError))
+            {
+                ShowModelPublishResult(
+                    $"模板配方准备失败：{recipeError}；已发布模型继续生效",
+                    MessageBoxIcon.Warning);
+                return;
+            }
+
+            if (!vml.Main.TrySaveCurrentToolRecipeForModelPublish(_tool, out string xmlError))
+            {
+                RestorePublishedRecipeToTool();
+                ShowModelPublishResult(
+                    $"配方 XML 保存失败：{xmlError}；已发布模型继续生效",
+                    MessageBoxIcon.Error);
+                return;
+            }
+
+            if (!vml.PositionDetectViewModel.OutputModel(out string modelError))
+            {
+                bool rollbackSaved = TryRestorePublishedRecipeXml(out string rollbackError);
+                ShowModelPublishResult(
+                    rollbackSaved
+                        ? $"模型文件发布失败：{modelError}；Tool XML 已恢复，上一次发布模型继续生效"
+                        : $"模型文件发布失败：{modelError}；Tool XML 回退失败：{rollbackError}，当前发布版本需要人工核对",
+                    rollbackSaved ? MessageBoxIcon.Warning : MessageBoxIcon.Error);
+                return;
+            }
+
+            CapturePublishedRecipeBaseline();
+            data.IsTemplateRecipeDirty = false;
+            data.ROImode = false;
+
+            bool loaded = vml.Main.EnsureShapeModelLoaded(_tool, "模型保存后加载", true);
+            bool snapshotSaved = vml.Main.BackupCurrentAoiProjectFilesAfterSave();
+            string filename = System.IO.Path.GetFileName(data.modelfilename);
+            if (loaded && snapshotSaved)
+            {
+                ShowModelPublishResult($"配方与 {filename} 已发布并加载，可继续编辑", MessageBoxIcon.Success);
+            }
+            else if (loaded)
+            {
+                ShowModelPublishResult(
+                    $"配方与 {filename} 已发布并加载；工程快照同步失败，请检查运行日志",
+                    MessageBoxIcon.Warning);
             }
             else
             {
-                UpdateModelStatus("保存模型文件失败");
+                ShowModelPublishResult(
+                    $"配方与 {filename} 已发布；在线模型重载失败，请检查运行日志并点击“加载已发布模型”重试",
+                    MessageBoxIcon.Error);
             }
+        }
+
+        /// <summary>
+        /// 将当前会话区域转换为 ToolModel 配方，作为 XML 与 .shm 发布事务的候选版本。
+        /// 此时只更新内存工具；XML 原子保存和模型发布由调用方依次确认。
+        /// </summary>
+        /// <param name="errorMessage">示教图尺寸或特征集合无效时的可读原因。</param>
+        /// <returns>候选配方已写入当前 ToolModel 时返回 true。</returns>
+        private bool TryStageSessionRecipe(out string errorMessage)
+        {
+            errorMessage = string.Empty;
+            if (!TryGetSessionImageSize(out int imageWidth, out int imageHeight, out errorMessage))
+            {
+                return false;
+            }
+
+            List<TemplateFeatureDefinition> features = vml.PositionDetectViewModel.ExportTemplateFeatureDefinitions();
+            if (features.Count == 0)
+            {
+                errorMessage = "当前会话没有可发布的模板特征";
+                return false;
+            }
+
+            _tool.TemplateFeatures = CloneTemplateFeatures(features);
+            _tool.TemplateFeatureImageWidth = imageWidth;
+            _tool.TemplateFeatureImageHeight = imageHeight;
+            return true;
+        }
+
+        /// <summary>
+        /// 将当前 ToolModel 恢复为本窗口最近一次发布成功的模板配方。
+        /// 用于候选 XML 保存失败或 .shm 发布失败后的内存回退，不改变在线模型句柄。
+        /// </summary>
+        private void RestorePublishedRecipeToTool()
+        {
+            _tool.TemplateFeatures = CloneTemplateFeatures(_publishedTemplateFeatures);
+            _tool.TemplateFeatureImageWidth = _publishedTemplateImageWidth;
+            _tool.TemplateFeatureImageHeight = _publishedTemplateImageHeight;
+        }
+
+        /// <summary>
+        /// 在 .shm 发布失败后把 Tool XML 恢复到最近一次发布配方，使工程 XML 与继续生效的模型文件保持同一版本。
+        /// </summary>
+        /// <param name="errorMessage">恢复保存失败时的工程保护或文件系统原因。</param>
+        /// <returns>ToolModel 内存与对应 Tool XML 均恢复完成时返回 true。</returns>
+        private bool TryRestorePublishedRecipeXml(out string errorMessage)
+        {
+            RestorePublishedRecipeToTool();
+            return vml.Main.TrySaveCurrentToolRecipeForModelPublish(_tool, out errorMessage);
         }
 
         /// <summary>
@@ -247,7 +450,7 @@ namespace BusbarCompressionSystem.Model.FaraVision
         /// <returns>ROI 可用于匹配返回 true；未设置时显示操作提示并返回 false。</returns>
         private bool EnsurePositionRoiReady()
         {
-            var roi = vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool.PositionROI;
+            var roi = _tool.PositionROI;
             if (roi == null || !roi.IsValidRectangle())
             {
                 string message = "模板匹配ROI未设置，请先在工具设置界面点击“模板匹配ROI-选择”，框选搜索范围后再设基准点。";
@@ -334,7 +537,7 @@ namespace BusbarCompressionSystem.Model.FaraVision
                     return;
                 }
 
-                var tool = vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool;
+                var tool = _tool;
                 var shapmatchresult = MatchWithToolSettings(tool.Image, tool);
 
                 var Result_Data = tool.ShapeMatch.Analysis_Result(shapmatchresult);
@@ -402,7 +605,7 @@ namespace BusbarCompressionSystem.Model.FaraVision
         {
             try
             {
-                var tool = vml.Main.DataModel.FaraVisionDataModel.Processmodel.tool;
+                var tool = _tool;
                 if (tool.TestMode == TestModes.模板定位)
                 {
                     ShowBasePointResult("模板定位参考位姿请使用模板图保存，现场图入口仅用于模板匹配基准X/Y。");
@@ -421,7 +624,6 @@ namespace BusbarCompressionSystem.Model.FaraVision
                     HObject image = null;
                     try
                     {
-                        HOperatorSet.GenEmptyObj(out image);
                         HOperatorSet.ReadImage(out image, ofd.FileName);
 
                         var shapmatchresult = MatchWithToolSettings(image, tool);
@@ -485,7 +687,7 @@ namespace BusbarCompressionSystem.Model.FaraVision
         {
             try
             {
-                var tool = vml?.Main?.DataModel?.FaraVisionDataModel?.Processmodel?.tool;
+                var tool = _tool;
                 if (tool == null)
                 {
                     UpdateModelStatus("当前工具未就绪");
@@ -497,7 +699,8 @@ namespace BusbarCompressionSystem.Model.FaraVision
                 bool loaded = vml.Main.EnsureShapeModelLoaded(tool, "手动重载", true);
                 if (fileExists && loaded)
                 {
-                    UpdateModelStatus($"已重载 {System.IO.Path.GetFileName(shmfilename)}");
+                    vml.PositionDetectViewModel.DisplayPublishedModelContours(shmfilename, out string contourSummary);
+                    UpdateModelStatus($"已重载 {System.IO.Path.GetFileName(shmfilename)}；{contourSummary}");
                 }
                 else if (!fileExists && tool.ShapeMatch.ModelLoaded)
                 {

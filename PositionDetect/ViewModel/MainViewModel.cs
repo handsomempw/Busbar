@@ -5,8 +5,9 @@ using System.Windows.Media;
 using System.Windows;
 using System;
 using System.Diagnostics;
-using Microsoft.Win32;
 using System.IO;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace PositionDetect.ViewModel
 {
@@ -18,6 +19,10 @@ namespace PositionDetect.ViewModel
     {
         public DATA DATA { get; set; } = new DATA();
 
+        /// <summary>
+        /// 显示当前示教图并恢复原图坐标范围，作为区域编辑、列表选中和已发布模型轮廓的共同底图。
+        /// 该方法只刷新模型设置窗口，不修改特征配方、临时模型或工程文件。
+        /// </summary>
         public void showtest()
         {
             HTuple hv_width = null, hv_height = null;
@@ -25,6 +30,7 @@ namespace PositionDetect.ViewModel
             try
             {
                 HOperatorSet.GetImageSize(DATA.image, out hv_width, out hv_height);
+                DATA.HWindow.HalconWindow.ClearWindow();
                 DATA.HWindow.HalconWindow.SetPart(0, 0, (int)hv_height - 1, (int)hv_width - 1);
                 DATA.HWindow.HalconWindow.DispObj(DATA.image);
 
@@ -36,6 +42,216 @@ namespace PositionDetect.ViewModel
                 hv_width?.Dispose();
                 hv_height?.Dispose();
             }
+        }
+
+        /// <summary>
+        /// 从 Tool XML 中的几何配方重建本次模型设置会话。
+        /// 每个定义生成独立 HALCON Region；无效项跳过并返回诊断，已发布 .shm 和 ToolModel 原始集合保持当前状态。
+        /// </summary>
+        /// <param name="definitions">当前 Tool 保存的模板特征定义；允许为空，旧工程按空配方进入。</param>
+        /// <param name="warningMessage">存在无效定义时返回跳过数量和首个原因，供模型状态栏提示。</param>
+        /// <returns>完成恢复的包含区与排除区总数。</returns>
+        public int RestoreTemplateFeatures(IEnumerable<TemplateFeatureDefinition> definitions, out string warningMessage)
+        {
+            warningMessage = string.Empty;
+            int skippedCount = 0;
+            string firstError = null;
+
+            DATA.SuppressTemplateRecipeChangeTracking = true;
+            try
+            {
+                ClearTemplateFeatureRegions();
+                foreach (TemplateFeatureDefinition definition in definitions ?? Enumerable.Empty<TemplateFeatureDefinition>())
+                {
+                    if (TryCreateTemplateFeatureItem(definition, out TemplateFeatureItem item, out string errorMessage))
+                    {
+                        DATA.Objects.Add(item);
+                    }
+                    else
+                    {
+                        skippedCount++;
+                        if (string.IsNullOrWhiteSpace(firstError))
+                        {
+                            firstError = errorMessage;
+                        }
+                    }
+                }
+
+                if (skippedCount > 0)
+                {
+                    warningMessage = $"有 {skippedCount} 个示教区域未恢复：{firstError}";
+                }
+
+                return DATA.Objects.Count;
+            }
+            finally
+            {
+                DATA.SuppressTemplateRecipeChangeTracking = false;
+                DATA.IsTemplateRecipeDirty = false;
+                DATA.ROImode = false;
+            }
+        }
+
+        /// <summary>
+        /// 导出当前会话中的模板特征几何配方，供模型发布前写入对应 Tool XML。
+        /// 返回深拷贝，后续窗口增删区域不会直接修改工具已发布配方。
+        /// </summary>
+        /// <returns>按界面列表顺序排列的独立几何定义集合。</returns>
+        public List<TemplateFeatureDefinition> ExportTemplateFeatureDefinitions()
+        {
+            return DATA.Objects
+                .Where(item => item?.Definition != null && item.Region != null)
+                .Select(item => item.Definition.Clone())
+                .ToList();
+        }
+
+        /// <summary>
+        /// 清空当前会话的包含区与排除区，进入重新示教状态。
+        /// 正式 .shm 和 ToolModel 已发布配方继续生效，直到操作员完成预览并再次发布模型。
+        /// </summary>
+        public void StartNewTemplateTeaching()
+        {
+            ClearTemplateFeatureRegions();
+            DATA.IsTemplateRecipeDirty = true;
+            DATA.ROImode = true;
+            showtest();
+        }
+
+        /// <summary>
+        /// 结束模型设置会话并释放临时区域、图像和模型句柄。
+        /// Tool XML 中的几何配方、工程 .shm 和在线 ShapeMatch 句柄由主工程继续持有。
+        /// </summary>
+        public void DisposeTemplateFeatureSession()
+        {
+            DATA.SuppressTemplateRecipeChangeTracking = true;
+            try
+            {
+                DATA.ROImode = false;
+                DATA.modelID = null;
+                ClearTemplateFeatureRegions();
+                DATA.image?.Dispose();
+                DATA.image = null;
+                DATA.HWindow = null;
+            }
+            finally
+            {
+                DATA.SuppressTemplateRecipeChangeTracking = false;
+                DATA.IsTemplateRecipeDirty = false;
+            }
+        }
+
+        /// <summary>
+        /// 释放当前列表中的 HALCON Region 并清空选择状态。
+        /// 调用方通过 SuppressTemplateRecipeChangeTracking 区分会话恢复/释放与操作员重新示教。
+        /// </summary>
+        private void ClearTemplateFeatureRegions()
+        {
+            foreach (TemplateFeatureItem item in DATA.Objects.ToList())
+            {
+                try
+                {
+                    item?.Region?.Dispose();
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"模板示教区域释放失败：{ex.Message}");
+                }
+            }
+
+            DATA.Objects.Clear();
+            DATA.selectedindex = -1;
+        }
+
+        /// <summary>
+        /// 将一个持久化几何定义转换为可显示、可参与建模的 HALCON Region。
+        /// 矩形和圆形坐标均按原图 px 校验，异常定义留在 Tool XML 中供诊断，本次会话跳过该项。
+        /// </summary>
+        /// <param name="definition">来自当前 Tool XML 的特征定义。</param>
+        /// <param name="item">转换成功后的会话区域项，Region 生命周期归模型窗口所有。</param>
+        /// <param name="errorMessage">几何参数无效或 HALCON 创建失败时的可读原因。</param>
+        /// <returns>true 表示区域可用于显示和建模；false 表示本次会话跳过该定义。</returns>
+        private static bool TryCreateTemplateFeatureItem(
+            TemplateFeatureDefinition definition,
+            out TemplateFeatureItem item,
+            out string errorMessage)
+        {
+            item = null;
+            errorMessage = string.Empty;
+            if (definition == null)
+            {
+                errorMessage = "特征定义为空";
+                return false;
+            }
+
+            HObject region = null;
+            try
+            {
+                TemplateFeatureDefinition clonedDefinition = definition.Clone();
+                if (clonedDefinition.ShapeType == TemplateFeatureShapeType.Rectangle)
+                {
+                    if (!AreFinite(clonedDefinition.Row1, clonedDefinition.Col1, clonedDefinition.Row2, clonedDefinition.Col2)
+                        || clonedDefinition.Row1 == clonedDefinition.Row2
+                        || clonedDefinition.Col1 == clonedDefinition.Col2)
+                    {
+                        errorMessage = "矩形坐标无效";
+                        return false;
+                    }
+
+                    HOperatorSet.GenRectangle1(
+                        out region,
+                        clonedDefinition.Row1,
+                        clonedDefinition.Col1,
+                        clonedDefinition.Row2,
+                        clonedDefinition.Col2);
+                }
+                else if (clonedDefinition.ShapeType == TemplateFeatureShapeType.Circle)
+                {
+                    if (!AreFinite(clonedDefinition.CenterRow, clonedDefinition.CenterCol, clonedDefinition.Radius)
+                        || clonedDefinition.Radius <= 0)
+                    {
+                        errorMessage = "圆形坐标或半径无效";
+                        return false;
+                    }
+
+                    HOperatorSet.GenCircle(
+                        out region,
+                        clonedDefinition.CenterRow,
+                        clonedDefinition.CenterCol,
+                        clonedDefinition.Radius);
+                }
+                else
+                {
+                    errorMessage = $"区域类型 {clonedDefinition.ShapeType} 暂无恢复入口";
+                    return false;
+                }
+
+                item = new TemplateFeatureItem
+                {
+                    Definition = clonedDefinition,
+                    Region = region
+                };
+                region = null;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                errorMessage = ex.Message;
+                return false;
+            }
+            finally
+            {
+                region?.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// 校验模板几何坐标是否为 HALCON 可接受的有限数值。
+        /// </summary>
+        /// <param name="values">待校验的原图坐标或半径，单位 px。</param>
+        /// <returns>全部数值均为有限数时返回 true。</returns>
+        private static bool AreFinite(params double[] values)
+        {
+            return values != null && values.All(value => !double.IsNaN(value) && !double.IsInfinity(value));
         }
 
         /// <summary>
@@ -94,6 +310,100 @@ namespace PositionDetect.ViewModel
         }
 
         /// <summary>
+        /// 在示教图上显示已保存模板模型的实际匹配轮廓，并叠加当前可编辑区域。
+        /// 该入口使用模型设置预览参数搜索一次，只提供进入窗口后的可视确认；在线模型句柄、基准点和生产判定保持由主工程管理。
+        /// </summary>
+        /// <param name="modelFilename">当前 Tool 的正式 .shm 完整路径。</param>
+        /// <param name="summary">轮廓显示结果、分值或失败原因，供模型状态栏展示。</param>
+        /// <returns>true 表示已发布模型在示教图中找到候选并绘制红色轮廓。</returns>
+        public bool DisplayPublishedModelContours(string modelFilename, out string summary)
+        {
+            summary = string.Empty;
+            showtest();
+            showregion();
+
+            if (string.IsNullOrWhiteSpace(modelFilename) || !File.Exists(modelFilename))
+            {
+                summary = "当前工具尚未发布模型文件";
+                return false;
+            }
+
+            HTuple modelId = null;
+            HTuple rows = null;
+            HTuple columns = null;
+            HTuple angles = null;
+            HTuple scores = null;
+            HTuple homMat2D = null;
+            HObject modelContours = null;
+            HObject transformedContours = null;
+            try
+            {
+                HOperatorSet.ReadShapeModel(modelFilename, out modelId);
+                ShapeMatch.GetFindShapeModelAngles(
+                    DATA.PreviewAllowAngleDelta,
+                    out double angleStartDeg,
+                    out double angleExtentDeg);
+
+                if (!ShapeMatch.TryFindShapeModelInRoi(
+                    DATA.image,
+                    modelId,
+                    1,
+                    DATA.PreviewRoiRow1,
+                    DATA.PreviewRoiCol1,
+                    DATA.PreviewRoiRow2,
+                    DATA.PreviewRoiCol2,
+                    angleStartDeg,
+                    angleExtentDeg,
+                    DATA.PreviewCandidateMinScore,
+                    out rows,
+                    out columns,
+                    out angles,
+                    out scores,
+                    out string searchError))
+                {
+                    summary = $"已发布模型轮廓显示失败：{searchError}";
+                    return false;
+                }
+
+                if (rows == null || rows.Length == 0)
+                {
+                    summary = "已发布模型在当前示教图和 PositionROI 内未找到候选";
+                    return false;
+                }
+
+                HOperatorSet.GetShapeModelContours(out modelContours, modelId, 1);
+                HOperatorSet.VectorAngleToRigid(0, 0, 0, rows[0], columns[0], angles[0], out homMat2D);
+                HOperatorSet.AffineTransContourXld(modelContours, out transformedContours, homMat2D);
+                DATA.HWindow.HalconWindow.SetDraw("margin");
+                DATA.HWindow.HalconWindow.SetLineWidth(2);
+                DATA.HWindow.HalconWindow.SetColor("red");
+                DATA.HWindow.HalconWindow.DispObj(transformedContours);
+
+                double score = scores[0].D;
+                summary = score >= DATA.PreviewMinScore
+                    ? $"已显示发布模型轮廓，分值={score:F3}"
+                    : $"已显示发布模型轮廓，分值={score:F3}，低于合格下限 {DATA.PreviewMinScore:F3}";
+                return true;
+            }
+            catch (Exception ex)
+            {
+                summary = $"已发布模型轮廓显示异常：{ex.Message}";
+                return false;
+            }
+            finally
+            {
+                rows?.Dispose();
+                columns?.Dispose();
+                angles?.Dispose();
+                scores?.Dispose();
+                homMat2D?.Dispose();
+                modelContours?.Dispose();
+                transformedContours?.Dispose();
+                ClearLocalShapeModel(ref modelId);
+            }
+        }
+
+        /// <summary>
         /// 绘制包含矩形并加入特征列表。
         /// </summary>
         public void drawrectangle()
@@ -103,13 +413,19 @@ namespace PositionDetect.ViewModel
             DATA.RectangleMmode = Brushes.Orange;
             double row1, col1, row2, col2;
             HObject rect = null;
-            HOperatorSet.GenEmptyObj(out rect);
             DATA.HWindow.HalconWindow.DrawRectangle1(out row1, out col1, out row2, out col2);
             HOperatorSet.GenRectangle1(out rect, row1, col1, row2, col2);
             DATA.Objects.Add(new TemplateFeatureItem
             {
-                ShapeName = "矩形",
-                IsExclude = false,
+                Definition = new TemplateFeatureDefinition
+                {
+                    ShapeType = TemplateFeatureShapeType.Rectangle,
+                    IsExclude = false,
+                    Row1 = row1,
+                    Col1 = col1,
+                    Row2 = row2,
+                    Col2 = col2
+                },
                 Region = rect
             });
             DATA.RectangleMmode = Brushes.White;
@@ -125,13 +441,18 @@ namespace PositionDetect.ViewModel
             DATA.CircleMode = Brushes.OrangeRed;
             double row, col, radius;
             HObject cir = null;
-            HOperatorSet.GenEmptyObj(out cir);
             DATA.HWindow.HalconWindow.DrawCircle(out row, out col, out radius);
             HOperatorSet.GenCircle(out cir, row, col, radius);
             DATA.Objects.Add(new TemplateFeatureItem
             {
-                ShapeName = "圆形",
-                IsExclude = false,
+                Definition = new TemplateFeatureDefinition
+                {
+                    ShapeType = TemplateFeatureShapeType.Circle,
+                    IsExclude = false,
+                    CenterRow = row,
+                    CenterCol = col,
+                    Radius = radius
+                },
                 Region = cir
             });
             DATA.CircleMode = Brushes.White;
@@ -148,54 +469,22 @@ namespace PositionDetect.ViewModel
             DATA.ExcludeRectangleMode = Brushes.MediumVioletRed;
             double row1, col1, row2, col2;
             HObject rect = null;
-            HOperatorSet.GenEmptyObj(out rect);
             DATA.HWindow.HalconWindow.DrawRectangle1(out row1, out col1, out row2, out col2);
             HOperatorSet.GenRectangle1(out rect, row1, col1, row2, col2);
             DATA.Objects.Add(new TemplateFeatureItem
             {
-                ShapeName = "矩形",
-                IsExclude = true,
+                Definition = new TemplateFeatureDefinition
+                {
+                    ShapeType = TemplateFeatureShapeType.Rectangle,
+                    IsExclude = true,
+                    Row1 = row1,
+                    Col1 = col1,
+                    Row2 = row2,
+                    Col2 = col2
+                },
                 Region = rect
             });
             DATA.ExcludeRectangleMode = Brushes.White;
-        }
-
-        /// <summary>
-        /// 预览包含区减排除区后的最终建模域，供操作员在生成模型前确认保留边缘范围。
-        /// 该操作只刷新 HALCON 窗口，不生成或保存形状模型。
-        /// </summary>
-        public void showreduce()
-        {
-            HTuple hv_width = null;
-            HTuple hv_height = null;
-            HObject ReduceImage = null;
-            HObject domain = null;
-
-            try
-            {
-                DATA.HWindow.HalconWindow.ClearWindow();
-                HOperatorSet.GetImageSize(DATA.image, out hv_width, out hv_height);
-
-                if (!TryBuildTemplateDomain(out domain, out string domainError))
-                {
-                    MessageBoxX.Show(domainError, "提示", MessageBoxButton.OK, MessageBoxIcon.Warning);
-                    return;
-                }
-
-                HOperatorSet.GenEmptyObj(out ReduceImage);
-                HOperatorSet.ReduceDomain(DATA.image, domain, out ReduceImage);
-                DATA.HWindow.HalconWindow.SetPart(0, 0, (int)hv_height - 1, (int)hv_width - 1);
-                DATA.HWindow.HalconWindow.DispObj(ReduceImage);
-            }
-            catch
-            {; }
-            finally
-            {
-                hv_width?.Dispose();
-                hv_height?.Dispose();
-                ReduceImage?.Dispose();
-                domain?.Dispose();
-            }
         }
 
         /// <summary>
@@ -218,12 +507,12 @@ namespace PositionDetect.ViewModel
             HObject ReduceImage = null;
             HObject domain = null;
 
-            HObject ho_ModelContours, ho_ContoursAffinTrans;
+            HObject ho_ModelContours = null;
+            HObject ho_ContoursAffinTrans = null;
 
             HTuple hv_Row = null, hv_Column = null, hv_Angle = null, hv_Score = null;
+            HTuple hv_HomMat2D = null;
 
-            HOperatorSet.GenEmptyObj(out ho_ModelContours);
-            HOperatorSet.GenEmptyObj(out ho_ContoursAffinTrans);
             Stopwatch stopwatch = Stopwatch.StartNew();
             HTuple modelID = null;
             try
@@ -252,7 +541,6 @@ namespace PositionDetect.ViewModel
 
                 ShapeMatch.GetFindShapeModelAngles(DATA.PreviewAllowAngleDelta, out double angleStartDeg, out double angleExtentDeg);
 
-                HOperatorSet.GenEmptyObj(out ReduceImage);
                 HOperatorSet.ReduceDomain(DATA.image, domain, out ReduceImage);
                 DATA.HWindow.HalconWindow.SetPart(0, 0, (int)hv_height - 1, (int)hv_width - 1);
                 DATA.HWindow.HalconWindow.DispObj(ReduceImage);
@@ -296,7 +584,6 @@ namespace PositionDetect.ViewModel
                     return false;
                 }
 
-                ho_ModelContours.Dispose();
                 HOperatorSet.GetShapeModelContours(out ho_ModelContours, modelID, 1);
 
                 DATA.HWindow.HalconWindow.SetLineWidth(2);
@@ -315,16 +602,11 @@ namespace PositionDetect.ViewModel
 
                 double score = hv_Score[0].D;
                 double angleDeg = hv_Angle[0].D * 180.0 / Math.PI;
-                HTuple hv_HomMat2D = new HTuple();
-                hv_HomMat2D.Dispose();
                 HOperatorSet.VectorAngleToRigid(0, 0, 0, hv_Row, hv_Column, hv_Angle, out hv_HomMat2D);
-                ho_ContoursAffinTrans.Dispose();
                 HOperatorSet.AffineTransContourXld(ho_ModelContours, out ho_ContoursAffinTrans,
                     hv_HomMat2D);
                 DATA.HWindow.HalconWindow.SetColor("red");
                 DATA.HWindow.HalconWindow.DispObj(ho_ContoursAffinTrans);
-                hv_HomMat2D.Dispose();
-
                 DATA.HWindow.HalconWindow.SetDraw("margin");
                 DATA.HWindow.HalconWindow.SetColor("green");
                 DrawDomainOutlines(domain);
@@ -355,6 +637,7 @@ namespace PositionDetect.ViewModel
                 hv_Column?.Dispose();
                 hv_Angle?.Dispose();
                 hv_Score?.Dispose();
+                hv_HomMat2D?.Dispose();
                 hv_width?.Dispose();
                 hv_height?.Dispose();
                 domain?.Dispose();
@@ -371,19 +654,27 @@ namespace PositionDetect.ViewModel
         /// <param name="shapeModelId">待释放的临时模型句柄；释放后置空。</param>
         private static void ClearLocalShapeModel(ref HTuple shapeModelId)
         {
-            if (shapeModelId != null && shapeModelId.Length > 0)
+            if (shapeModelId == null)
             {
-                try
+                return;
+            }
+
+            try
+            {
+                if (shapeModelId.Length > 0)
                 {
                     HOperatorSet.ClearShapeModel(shapeModelId);
                 }
-                catch
-                {
-                    // 清理失败只影响尚未发布的临时句柄，预览失败状态和正式 .shm 文件保持不变。
-                }
             }
-
-            shapeModelId = null;
+            catch
+            {
+                // 清理失败只影响尚未发布的临时句柄，预览失败状态和正式 .shm 文件保持不变。
+            }
+            finally
+            {
+                shapeModelId.Dispose();
+                shapeModelId = null;
+            }
         }
 
         /// <summary>
@@ -532,6 +823,10 @@ namespace PositionDetect.ViewModel
             }
         }
 
+        /// <summary>
+        /// 经操作员确认后删除当前选中的示教区域并释放对应 HALCON Region。
+        /// 特征集合变化会使临时模型失效并标记会话待发布，正式 .shm 和 Tool XML 保持当前版本。
+        /// </summary>
         public void deletelistitem()
         {
             if (DATA.selectedindex < 0 || DATA.selectedindex >= DATA.Objects.Count)
@@ -560,43 +855,36 @@ namespace PositionDetect.ViewModel
         /// 将已预览的 HALCON 形状模型发布到工程目录。
         /// 模型先写入同目录临时文件并读回校验，再替换正式 .shm；工程切换、软件异常退出或存储介质写入异常发生在保存过程时，原有正式模型保持可用。
         /// </summary>
-        /// <returns>正式 .shm 完成发布返回 true；特征、预览模型、目标路径或文件校验异常时返回 false。</returns>
-        public bool OutputModel()
+        /// <param name="errorMessage">特征、预览模型、目标路径或文件校验异常时返回可供发布事务展示的原因。</param>
+        /// <returns>正式 .shm 完成发布返回 true。</returns>
+        public bool OutputModel(out string errorMessage)
         {
+            errorMessage = string.Empty;
             if (!DATA.HasTemplateFeatures)
             {
-                MessageBoxX.Show("请先完成模板特征圈选，再预览生成模型。", "提示", MessageBoxButton.OK, MessageBoxIcon.Warning);
+                errorMessage = "请先完成模板特征圈选，再预览生成模型";
                 return false;
             }
 
             if (DATA.modelID == null || DATA.modelID.Length == 0)
             {
-                MessageBoxX.Show("请先预览再保存模型");
+                errorMessage = "当前没有预览成功的临时模型";
                 return false;
             }
 
             string filename = DATA.modelfilename;
             if (string.IsNullOrWhiteSpace(filename))
             {
-                SaveFileDialog saveFileDialog = new SaveFileDialog();
-                saveFileDialog.Filter = "*.shm|*.shm";
-                if (saveFileDialog.ShowDialog() != true)
-                {
-                    return false;
-                }
-
-                filename = saveFileDialog.FileName;
+                errorMessage = "当前工具的模型文件路径为空";
+                return false;
             }
 
-            string errorMessage;
             if (!TryWriteShapeModelAtomically(DATA.modelID, filename, out errorMessage))
             {
-                MessageBoxX.Show($"模型文件保存失败：{errorMessage}", "提示", MessageBoxButton.OK, MessageBoxIcon.Warning);
                 return false;
             }
 
             DATA.modelfilename = filename;
-            NoticeBox.Show($"{filename}", "模型导出成功", MessageBoxIcon.Success, true, 3000);
             return true;
         }
 
@@ -690,14 +978,21 @@ namespace PositionDetect.ViewModel
             }
             finally
             {
-                if (validationModelId != null && validationModelId.Length > 0)
+                if (validationModelId != null)
                 {
                     try
                     {
-                        HOperatorSet.ClearShapeModel(validationModelId);
+                        if (validationModelId.Length > 0)
+                        {
+                            HOperatorSet.ClearShapeModel(validationModelId);
+                        }
                     }
                     catch
                     {
+                    }
+                    finally
+                    {
+                        validationModelId.Dispose();
                     }
                 }
             }

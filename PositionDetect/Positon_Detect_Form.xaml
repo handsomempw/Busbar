@@ -23,52 +23,49 @@
             <RowDefinition Height="auto"/>
         </Grid.RowDefinitions>
         <halcon:HWindowControlWPF Name="HWindow" Grid.Row="0" Grid.RowSpan="2" />
-        <StackPanel Grid.Row="0" Grid.Column="1" Grid.RowSpan="2" Width="220">
+        <Grid Grid.Row="0" Grid.Column="1" Grid.RowSpan="2" Width="220">
             <GroupBox Header="特征选择">
                 <Grid Margin="10">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="auto"/>
                         <RowDefinition Height="auto"/>
                         <RowDefinition Height="auto"/>
-                        <RowDefinition Height="auto"/>
                         <RowDefinition Height="*"/>
+                        <RowDefinition Height="auto"/>
+                        <RowDefinition Height="auto"/>
                     </Grid.RowDefinitions>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition/>
                         <ColumnDefinition/>
                     </Grid.ColumnDefinitions>
-                    <Button Grid.Row="0" Grid.Column="0" Margin="5" Padding="10" Grid.ColumnSpan="2" Content="{Binding  DATA.ROIModeStr}"  Click="Button_Click"
-                            ToolTip="开启模板特征圈选。绿=包含区，品红=排除区。每画完一个区域后在图像窗口点鼠标右键完成。"/>
-                    <Button Grid.Row="1" Grid.Column="0" Margin="5" Padding="8" Content="画包含矩形" IsEnabled="{Binding DATA.ROImode}" Background="{Binding DATA.RectangleMmode}" Click="Button_Click_1"
+                    <Button Grid.Row="0" Grid.Column="0" Margin="5" Padding="10" Grid.ColumnSpan="2" Content="{Binding DATA.ROIModeStr}" Click="ToggleFeatureEditing_Click"
+                            ToolTip="继续编辑已保存特征或暂停本轮圈选。绿=包含区，品红=排除区；暂停后仍可预览和发布。"/>
+                    <Button Grid.Row="1" Grid.Column="0" Margin="5" Padding="8" Content="画包含矩形" IsEnabled="{Binding DATA.ROImode}" Background="{Binding DATA.RectangleMmode}" Click="DrawIncludeRectangle_Click"
                             ToolTip="左键拖出要学习的轮廓区域，合适后点鼠标右键完成。"/>
-                    <Button Grid.Row="1" Grid.Column="1" Margin="5" Padding="8" Content="画包含圆形" IsEnabled="{Binding DATA.ROImode}" Background="{Binding DATA.CircleMode}" Click="Button_Click_2"
+                    <Button Grid.Row="1" Grid.Column="1" Margin="5" Padding="8" Content="画包含圆形" IsEnabled="{Binding DATA.ROImode}" Background="{Binding DATA.CircleMode}" Click="DrawIncludeCircle_Click"
                             ToolTip="左键拖出圆形包含区，合适后点鼠标右键完成。"/>
                     <Button Grid.Row="2" Grid.Column="0" Margin="5" Padding="8" Grid.ColumnSpan="2" Content="画排除矩形" IsEnabled="{Binding DATA.ROImode}" Background="{Binding DATA.ExcludeRectangleMode}" Click="DrawExcludeRectangle_Click"
                             ToolTip="框住反光、字符、阴影等不要的区域；建模时从包含区中挖掉。列表中显示为“排除-矩形”。"/>
-                    <TextBlock Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="2" Margin="5,0" FontSize="11" Foreground="#666"
-                               Text="绿=包含，品红=排除；Delete 删除选中项"/>
-                    <ListBox Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="2" Margin="5" Padding="6" MinHeight="120" ItemsSource="{Binding DATA.Objects}"
+                    <ListBox Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="2" Margin="5" Padding="6" MinHeight="130" ItemsSource="{Binding DATA.Objects}"
                              SelectedIndex="{Binding DATA.selectedindex}"
-                             SelectionChanged="ListBox_SelectionChanged" KeyDown="ListBox_KeyDown"
-                             PreviewMouseRightButtonDown="ListBox_PreviewMouseRightButtonDown">
+                             SelectionChanged="FeatureList_SelectionChanged" KeyDown="FeatureList_KeyDown"
+                             PreviewMouseRightButtonDown="FeatureList_PreviewMouseRightButtonDown">
                         <ListBox.ContextMenu>
                             <ContextMenu>
                                 <MenuItem Header="删除选中特征" Click="DeleteSelectedFeature_Click"/>
                             </ContextMenu>
                         </ListBox.ContextMenu>
                     </ListBox>
+                    <Button Grid.Row="4" Grid.Column="0" Margin="5" Padding="8" Grid.ColumnSpan="2" Content="删除选中特征"
+                            Click="DeleteSelectedFeature_Click"
+                            ToolTip="删除列表中当前选中的包含区或排除区；删除后需要重新预览并发布。"/>
+                    <Button Grid.Row="5" Grid.Column="0" Margin="5" Padding="8" Grid.ColumnSpan="2" Content="重新示教"
+                            IsEnabled="{Binding DATA.HasAnyTemplateFeatures}" Click="ResetTemplateFeatures_Click"
+                            ToolTip="清空当前会话中的包含区和排除区。已发布模型继续生效，重新预览并发布后才更新工程模型。"/>
                 </Grid>
             </GroupBox>
 
-            <GroupBox Header="生成" >
-                <Button Grid.Row="0" Grid.Column="0" Margin="5" Padding="10" Content="预览生成模型" IsEnabled="{Binding DATA.CanPreviewModel}" Click="Button_Click_5"
-                        ToolTip="按“包含区减排除区”生成临时模型。红色=实际模型边缘，黄=最终建模域，青=包含边界，品红=排除边界。"/>
-            </GroupBox>
-            <GroupBox Header="导出" >
-                <Button Grid.Row="0" Grid.Column="0" Margin="5" Padding="10" Content="保存模型文件" IsEnabled="{Binding DATA.CanSaveModel}" Click="Button_Click_3"
-                        ToolTip="把当前预览成功的模型保存为 shm 文件，在线检测会加载该文件。"/>
-            </GroupBox>
-        </StackPanel>
+        </Grid>
 
     </Grid>
 </UserControl>

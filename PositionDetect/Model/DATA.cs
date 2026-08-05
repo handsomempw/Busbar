@@ -1,12 +1,8 @@
 ﻿using GalaSoft.MvvmLight;
 using HalconDotNet;
-using System;
-using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using System.Windows.Media;
 using System.Xml.Serialization;
 
@@ -19,11 +15,24 @@ namespace PositionDetect
             Objects.CollectionChanged += Objects_CollectionChanged;
         }
 
+        /// <summary>
+        /// 当前模型设置会话独立持有的示教图副本。
+        /// 特征坐标、预览模型和已发布轮廓都使用该图的原始 px 坐标；窗口关闭时统一释放。
+        /// </summary>
         public HObject image = null;
+
+        /// <summary>
+        /// 模型设置窗口内的 HALCON 显示控件，只承载示教交互和预览，不参与在线检测显示。
+        /// </summary>
         public HWindowControlWPF HWindow { get; set; }
         //public HSmartWindowControlWPF HWindow { get; set; }
 
         private bool _ROImode = false;
+
+        /// <summary>
+        /// 当前会话是否接受新的特征圈选。
+        /// 暂停状态保留已恢复和已绘制区域，并继续允许预览及发布；该值不写入 Tool XML。
+        /// </summary>
         public bool ROImode
         {
             set
@@ -38,7 +47,15 @@ namespace PositionDetect
         }
         public string ROIModeStr
         {
-            get { return _ROImode ? "圈选中：右键完成当前特征" : "1 开始圈选模板特征"; }
+            get
+            {
+                if (_ROImode)
+                {
+                    return "暂停圈选";
+                }
+
+                return HasAnyTemplateFeatures ? "继续编辑特征" : "开始圈选特征";
+            }
         }
 
 
@@ -47,6 +64,35 @@ namespace PositionDetect
         /// </summary>
         public ObservableCollection<TemplateFeatureItem> Objects { set; get; } = new ObservableCollection<TemplateFeatureItem>();
 
+        /// <summary>
+        /// 会话恢复或关闭释放区域时暂停脏状态跟踪，避免资源生命周期动作被识别为操作员修改。
+        /// 只由 PositionDetectViewModel 在批量重建和释放 HALCON Region 时使用。
+        /// </summary>
+        internal bool SuppressTemplateRecipeChangeTracking { get; set; }
+
+        private bool _isTemplateRecipeDirty;
+
+        /// <summary>
+        /// 当前模型设置会话是否包含尚未发布的特征增删。
+        /// 该状态只控制退出确认和状态提示，不写入工程 XML，也不改变已发布 .shm 或在线判定。
+        /// </summary>
+        [XmlIgnore]
+        public bool IsTemplateRecipeDirty
+        {
+            get { return _isTemplateRecipeDirty; }
+            set
+            {
+                if (_isTemplateRecipeDirty != value)
+                {
+                    _isTemplateRecipeDirty = value;
+                    RaisePropertyChanged(() => IsTemplateRecipeDirty);
+                }
+            }
+        }
+
+        /// <summary>
+        /// 特征列表当前选中项，用于红色强调和删除目标定位；-1 表示当前没有选中区域。
+        /// </summary>
         public int selectedindex { set; get; } = -1;
         [XmlIgnore]
         public SolidColorBrush CircleMode { set; get; } = Brushes.White;
@@ -111,11 +157,19 @@ namespace PositionDetect
         }
 
         /// <summary>
+        /// 特征列表中是否存在任意包含区或排除区，供“重新示教”入口控制启用状态。
+        /// </summary>
+        public bool HasAnyTemplateFeatures
+        {
+            get { return Objects != null && Objects.Count > 0; }
+        }
+
+        /// <summary>
         /// 模型预览入口状态。操作员完成至少一个包含区特征后才允许生成临时模型。
         /// </summary>
         public bool CanPreviewModel
         {
-            get { return ROImode && HasTemplateFeatures; }
+            get { return HasTemplateFeatures; }
         }
 
         /// <summary>
@@ -123,7 +177,7 @@ namespace PositionDetect
         /// </summary>
         public bool CanSaveModel
         {
-            get { return ROImode && HasTemplateFeatures && modelID != null; }
+            get { return HasTemplateFeatures && modelID != null; }
         }
 
         private HTuple _modelID = null;
@@ -147,13 +201,23 @@ namespace PositionDetect
         }
 
 
+        /// <summary>
+        /// 当前 Tool 正式 .shm 的完整路径。
+        /// “保存并发布”始终写入该固定工程路径，避免模型文件与 Tool 序号脱离。
+        /// </summary>
         public string modelfilename { set; get; } = string.Empty;
 
         private void Objects_CollectionChanged(object sender, NotifyCollectionChangedEventArgs e)
         {
             modelID = null;
             LastPreviewSummary = string.Empty;
+            if (!SuppressTemplateRecipeChangeTracking)
+            {
+                IsTemplateRecipeDirty = true;
+            }
             RaisePropertyChanged(() => HasTemplateFeatures);
+            RaisePropertyChanged(() => HasAnyTemplateFeatures);
+            RaisePropertyChanged(() => ROIModeStr);
             RaisePropertyChanged(() => CanPreviewModel);
             RaisePropertyChanged(() => CanSaveModel);
         }
@@ -164,16 +228,25 @@ namespace PositionDetect
         /// <param name="shapeModelId">待释放的 HALCON 形状模型句柄。</param>
         private static void ClearShapeModelHandle(HTuple shapeModelId)
         {
-            if (shapeModelId != null && shapeModelId.Length > 0)
+            if (shapeModelId == null)
             {
-                try
+                return;
+            }
+
+            try
+            {
+                if (shapeModelId.Length > 0)
                 {
                     HOperatorSet.ClearShapeModel(shapeModelId);
                 }
-                catch
-                {
-                    // 清理失败只影响已作废的预览句柄，窗口关闭和重新圈选继续完成，正式 .shm 文件保持不变。
-                }
+            }
+            catch
+            {
+                // 清理失败只影响已作废的预览句柄，窗口关闭和重新圈选继续完成，正式 .shm 文件保持不变。
+            }
+            finally
+            {
+                shapeModelId.Dispose();
             }
         }
 

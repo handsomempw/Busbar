@@ -8,10 +8,11 @@
         p:WindowXCaption.Background="#666666"
         p:WindowXCaption.Height="45"  
         WindowStartupLocation="CenterScreen"
+           Loaded="WindowX_Loaded"
            Closing="WindowX_Closing"
        p:WindowXCaption.Foreground="WhiteSmoke"
             xmlns:ctr="clr-namespace:PositionDetect;assembly=PositionDetect"
-        Title="模型设置文件" Height="560" Width="900" MinHeight="520" MinWidth="860">
+        Title="模板模型设置" Height="580" Width="900" MinHeight="540" MinWidth="860">
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition/>
@@ -23,23 +24,20 @@
                 <TextBlock DockPanel.Dock="Top" Name="ModelStatusText" Margin="4,0,4,6" FontWeight="Bold" Foreground="#444"
                            Text="模型状态：未导出"/>
                 <WrapPanel DockPanel.Dock="Bottom" HorizontalAlignment="Center">
-                    <Button Margin="4" Padding="12,6" MinWidth="120" Background="#666666" Foreground="White"
-                            p:ButtonHelper.CornerRadius="10" Name="selectFeature" Click="selectFeature_Click"
-                            ToolTip="开启模板特征圈选。绿=包含区，品红=排除矩形。每画完一个区域后在图像窗口点鼠标右键完成。">1 选择特征</Button>
                     <Button Margin="4" Padding="12,6" MinWidth="130" Background="Orange" Foreground="White"
                             p:ButtonHelper.CornerRadius="10" Name="previewGenerateModel" Click="previewGenerateModel_Click"
                             IsEnabled="{Binding Source={StaticResource Locator},Path=PositionDetectViewModel.DATA.CanPreviewModel}"
-                            ToolTip="按包含区减排除区生成临时模型。红色=实际模型边缘；状态栏显示分值、角度、耗时。">2 预览生成模型</Button>
+                            ToolTip="按包含区减排除区生成临时模型。红色=实际模型边缘；状态栏显示分值、角度和耗时。">预览生成模型</Button>
                     <Button Margin="4" Padding="12,6" MinWidth="130" Background="SeaGreen" Foreground="White"
                             p:ButtonHelper.CornerRadius="10" Name="exportModel" Click="exportModel_Click"
                             IsEnabled="{Binding Source={StaticResource Locator},Path=PositionDetectViewModel.DATA.CanSaveModel}"
-                            ToolTip="把当前预览成功的模型保存为 Tool序号.shm，在线检测会读取该文件。">3 保存模型文件</Button>
+                            ToolTip="把当前示教配方写入 Tool XML 的配方节点，并发布同序号 .shm；其他工具参数仍由设置页保存，成功后立即重载在线模型并同步工程快照。">保存并发布</Button>
                     <Button Margin="4" Padding="12,6" MinWidth="130" Background="OrangeRed" Foreground="White"
                             p:ButtonHelper.CornerRadius="10" Name="loadshmfromfile" Click="loadshmfromfile_Click"
-                            ToolTip="立即读取工程目录下的 Tool序号.shm；软件启动、照片测试和在线检测会自动检查加载。">4 加载当前模型</Button>
+                            ToolTip="立即读取工程目录下的 Tool序号.shm；软件启动、照片测试和在线检测仍会自动检查加载。">加载已发布模型</Button>
                     <Button Margin="4" Padding="12,6" MinWidth="150" Background="#333333" Foreground="White"
                             p:ButtonHelper.CornerRadius="10" Name="getinitpositionbymodelimage" Click="getinitpositionbymodelimage_Click"
-                            ToolTip="用当前工具的角度偏差与候选搜索下限做一次匹配，并写入基准；结果会显示分值、角度、耗时。">5 用模板图设基准点</Button>
+                            ToolTip="用当前工具的角度偏差与候选搜索下限做一次匹配，并写入基准；结果会显示分值、角度和耗时。">用模板图设基准点</Button>
                     <Button Margin="4" Padding="12,6" MinWidth="150" Background="#555555" Foreground="White"
                             p:ButtonHelper.CornerRadius="10" Name="getinitpositonfromimagefile" Click="getinitpositonfromimagefile_Click"
                             ToolTip="选择一张现场图片，按当前工具参数匹配后写入基准X/Y；失败时会显示原因、分值与耗时。">用现场图设基准点</Button>

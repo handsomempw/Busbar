@@ -88,6 +88,29 @@ namespace BusbarCompressionSystem.Model.FaraVision.Tool
         public string ModelFileName { set; get; } = string.Empty;
 
         /// <summary>
+        /// 当前工具的模板示教配方，保存包含矩形、包含圆形和排除矩形的原图坐标。
+        /// 模型设置重新进入时据此恢复可编辑区域；在线检测继续读取同一 Tool 序号的 .shm，配方本身不参与生产判定。
+        /// 旧工程缺少该节点时按空集合加载，已发布 .shm 继续保持原有运行口径。
+        /// </summary>
+        [XmlArray("模板示教特征")]
+        [XmlArrayItem("特征")]
+        public List<PositionDetect.TemplateFeatureDefinition> TemplateFeatures { get; set; }
+            = new List<PositionDetect.TemplateFeatureDefinition>();
+
+        /// <summary>
+        /// 保存模板示教配方时的原图宽度，单位 px。
+        /// 重新进入模型设置时用于识别示教图尺寸变化，防止把旧坐标直接套用到不同尺寸的图片。
+        /// </summary>
+        [XmlElement("模板示教图宽度")]
+        public int TemplateFeatureImageWidth { get; set; }
+
+        /// <summary>
+        /// 保存模板示教配方时的原图高度，单位 px；兼容口径与 <see cref="TemplateFeatureImageWidth"/> 一致。
+        /// </summary>
+        [XmlElement("模板示教图高度")]
+        public int TemplateFeatureImageHeight { get; set; }
+
+        /// <summary>
         /// 模板匹配合格分值下限（0~1）。
         /// FindShapeModel 返回候选后，由业务层用该值判定 OK/NG；设基准与预览保存同样使用该门禁。
         /// 写入工程 XML；默认 0.8 保持历史合格口径。
