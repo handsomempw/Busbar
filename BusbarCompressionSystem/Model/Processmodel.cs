@@ -441,6 +441,19 @@ namespace BusbarCompressionSystem.Model
                 LastResult = lastResult;
             }
         }
+
+        /// <summary>
+        /// 释放本工位卡片占用，回到可扫码进站状态。
+        /// 用于实测结算失败、会话与 PLC 产品码不一致后；不改写 PLC 寄存器，也不删除已落库的电测行。
+        /// </summary>
+        /// <param name="lastResult">保留在“最近结果”中的原因摘要，便于操作员对照运行日志；传空则写“--”。</param>
+        public void ReleaseForRescan(string lastResult = null)
+        {
+            CurrentSn = "--";
+            CurrentWoCode = "--";
+            WorkflowState = "等待扫码";
+            LastResult = string.IsNullOrWhiteSpace(lastResult) ? "--" : lastResult;
+        }
     }
 
 

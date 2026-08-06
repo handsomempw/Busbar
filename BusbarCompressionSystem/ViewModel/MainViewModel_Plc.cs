@@ -159,7 +159,19 @@ namespace BusbarCompressionSystem.ViewModel
                             #region 扫码触发
                             try
                             {
-                                if (ScanTrig == 1 & DataModel.Processmodel.Scan_Trig_IO.IOstatus == 0)
+                                if (DualYModeActive)
+                                {
+                                    // 双Y：启动/断线后须先见扫码触发回 0，再认 0→1，避免残留高电平误触发。
+                                    if (ObserveDualYRisingEdge(
+                                        ref _dualYY1ScanEdgeArmed,
+                                        ScanTrig,
+                                        DataModel.Processmodel.Scan_Trig_IO.IOstatus,
+                                        dualYStation1ScanResult.IsSuccess))
+                                    {
+                                        StartRuntimeWorker(ScannerProcess, "扫码处理");
+                                    }
+                                }
+                                else if (ScanTrig == 1 & DataModel.Processmodel.Scan_Trig_IO.IOstatus == 0)
                                 {
                                     StartRuntimeWorker(ScannerProcess, "扫码处理");
                                 }
@@ -186,8 +198,11 @@ namespace BusbarCompressionSystem.ViewModel
                             try
                             {
                                 if (DualYModeActive &&
-                                    DualYStation2ScanTrig == 1 &&
-                                    DataModel.Processmodel.DualYStation2Scan_Trig_IO.IOstatus == 0)
+                                    ObserveDualYRisingEdge(
+                                        ref _dualYY2ScanEdgeArmed,
+                                        DualYStation2ScanTrig,
+                                        DataModel.Processmodel.DualYStation2Scan_Trig_IO.IOstatus,
+                                        dualYStation2ScanResult.IsSuccess))
                                 {
                                     StartRuntimeWorker(DualYStation2ScannerProcess, "双Y-Y2扫码处理");
                                 }
@@ -202,15 +217,21 @@ namespace BusbarCompressionSystem.ViewModel
                             try
                             {
                                 if (DualYModeActive &&
-                                    DualYStation1FlowEndTrig == 1 &&
-                                    DataModel.Processmodel.DualYStation1FlowEnd_Trig_IO.IOstatus == 0)
+                                    ObserveDualYRisingEdge(
+                                        ref _dualYY1FlowEndEdgeArmed,
+                                        DualYStation1FlowEndTrig,
+                                        DataModel.Processmodel.DualYStation1FlowEnd_Trig_IO.IOstatus,
+                                        dualYStation1FlowEndResult.IsSuccess))
                                 {
                                     StartRuntimeWorker(() => DualYFlowEndProcess(1), "双Y-Y1结算");
                                 }
 
                                 if (DualYModeActive &&
-                                    DualYStation2FlowEndTrig == 1 &&
-                                    DataModel.Processmodel.DualYStation2FlowEnd_Trig_IO.IOstatus == 0)
+                                    ObserveDualYRisingEdge(
+                                        ref _dualYY2FlowEndEdgeArmed,
+                                        DualYStation2FlowEndTrig,
+                                        DataModel.Processmodel.DualYStation2FlowEnd_Trig_IO.IOstatus,
+                                        dualYStation2FlowEndResult.IsSuccess))
                                 {
                                     StartRuntimeWorker(() => DualYFlowEndProcess(2), "双Y-Y2结算");
                                 }
@@ -474,7 +495,8 @@ namespace BusbarCompressionSystem.ViewModel
                             #region 数据复制刷新
                             if (ModeTriggersPaused)
                             {
-                                // 模式未知或双Y部署拒绝标准模式时，模式相关沿判定回退为 -1，恢复后重新识别 0→1。
+                                // 模式未知或双Y部署拒绝标准模式时，模式相关沿判定回退为 -1，恢复后重新武装并识别 0→1。
+                                DisarmDualYScanAndFlowEndEdges();
                                 DataModel.Processmodel.Scan_Trig_IO.IOstatus = -1;
                                 DataModel.Processmodel.SecondScan_Trig_IO.IOstatus = -1;
                                 DataModel.Processmodel.LinkedScan_Trig_IO.IOstatus = -1;
@@ -487,7 +509,9 @@ namespace BusbarCompressionSystem.ViewModel
                             }
                             else
                             {
-                                DataModel.Processmodel.Scan_Trig_IO.IOstatus = ScanTrig;
+                                DataModel.Processmodel.Scan_Trig_IO.IOstatus = DualYModeActive && !dualYStation1ScanResult.IsSuccess
+                                    ? -1
+                                    : ScanTrig;
                                 DataModel.Processmodel.SecondScan_Trig_IO.IOstatus = SecondScanTrig;
                                 DataModel.Processmodel.LinkedScan_Trig_IO.IOstatus = linkedScanResult.IsSuccess ? LinkedScanTrig : -1;
                                 DataModel.Processmodel.DualYStation2Scan_Trig_IO.IOstatus = dualYStation2ScanResult.IsSuccess ? DualYStation2ScanTrig : -1;
@@ -512,6 +536,7 @@ namespace BusbarCompressionSystem.ViewModel
                     else
                     {
                         #region 通讯失败数据置为-1
+                        DisarmDualYScanAndFlowEndEdges();
                         DataModel.Processmodel.Scan_Trig_IO.IOstatus = -1;
                         DataModel.Processmodel.SecondScan_Trig_IO.IOstatus = -1;
                         DataModel.Processmodel.LinkedScan_Trig_IO.IOstatus = -1;

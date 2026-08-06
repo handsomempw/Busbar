@@ -105,6 +105,22 @@ namespace BusbarCompressionSystem.ViewModel
         private int _dualYStation1FlowEndProcessing = 0;
         private int _dualYStation2FlowEndProcessing = 0;
         /// <summary>
+        /// 双Y Y1 扫码触发沿是否已武装。启动或通讯中断后须先见到电平 0，才允许识别新的 0→1。
+        /// </summary>
+        private bool _dualYY1ScanEdgeArmed;
+        /// <summary>
+        /// 双Y Y2 扫码触发沿是否已武装。启动或通讯中断后须先见到电平 0，才允许识别新的 0→1。
+        /// </summary>
+        private bool _dualYY2ScanEdgeArmed;
+        /// <summary>
+        /// 双Y Y1 流程结束触发沿是否已武装。启动或通讯中断后须先见到电平 0，才允许识别新的 0→1。
+        /// </summary>
+        private bool _dualYY1FlowEndEdgeArmed;
+        /// <summary>
+        /// 双Y Y2 流程结束触发沿是否已武装。启动或通讯中断后须先见到电平 0，才允许识别新的 0→1。
+        /// </summary>
+        private bool _dualYY2FlowEndEdgeArmed;
+        /// <summary>
         /// 最近一次已记录的双Y模式日志状态：null=尚未记录或未知，true/false=已记录的线圈值。
         /// </summary>
         private bool? _lastDualYModeLogged = null;
@@ -400,18 +416,10 @@ namespace BusbarCompressionSystem.ViewModel
                 return new DualYStationScanResult(false, false, inactiveReason);
             }
 
-            DualYStationDisplayState stationDisplay = stationIndex == 1
-                ? DataModel.Processmodel.DualYStation1Display
-                : DataModel.Processmodel.DualYStation2Display;
-            if (stationDisplay.WorkflowState == "等待电测"
-                || stationDisplay.WorkflowState == "结果结算中"
-                || stationDisplay.WorkflowState == "结算失败"
-                || stationDisplay.WorkflowState == "结算异常"
-                || stationDisplay.WorkflowState == "归档处理中"
-                || stationDisplay.WorkflowState == "归档失败"
-                || stationDisplay.WorkflowState == "归档异常")
+            string occupiedSn;
+            if (TryGetDualYActiveSessionSn(stationIndex, out occupiedSn))
             {
-                string activeProductReason = $"Y{stationIndex}当前产品 {stationDisplay.CurrentSn} 流程尚未结束，已阻止覆盖扫码";
+                string activeProductReason = $"Y{stationIndex}当前产品 {occupiedSn} 流程尚未结束，已阻止覆盖扫码";
                 writeLog($"[双Y-工位{stationIndex}手动扫码] {activeProductReason}", true);
                 return new DualYStationScanResult(false, false, activeProductReason);
             }
@@ -445,19 +453,11 @@ namespace BusbarCompressionSystem.ViewModel
         private DualYStationScanResult ExecuteDualYStationScan(string scanRaw, int stationIndex, string source)
         {
             string scanError;
-            DualYStationDisplayState stationDisplay = stationIndex == 1
-                ? DataModel.Processmodel.DualYStation1Display
-                : DataModel.Processmodel.DualYStation2Display;
-            bool activeProductConflict = stationDisplay.WorkflowState == "等待电测"
-                || stationDisplay.WorkflowState == "结果结算中"
-                || stationDisplay.WorkflowState == "结算失败"
-                || stationDisplay.WorkflowState == "结算异常"
-                || stationDisplay.WorkflowState == "归档处理中"
-                || stationDisplay.WorkflowState == "归档失败"
-                || stationDisplay.WorkflowState == "归档异常";
+            string occupiedSn;
+            bool activeProductConflict = TryGetDualYActiveSessionSn(stationIndex, out occupiedSn);
             if (activeProductConflict)
             {
-                scanError = $"Y{stationIndex}当前产品 {stationDisplay.CurrentSn} 流程尚未结束，已阻止覆盖扫码";
+                scanError = $"Y{stationIndex}当前产品 {occupiedSn} 流程尚未结束，已阻止覆盖扫码";
             }
             else
             {
@@ -477,7 +477,7 @@ namespace BusbarCompressionSystem.ViewModel
 
             if (businessCompleted && !plcFeedbackCompleted)
             {
-                message = "扫码业务已完成，PLC结果反馈失败，请检查通信，避免重复扫码";
+                message = "扫码业务已完成，PLC结果反馈失败，请检查通信；本工位已建账，勿换工位重复扫码";
                 UpdateDualYStationDisplay(stationIndex, display => display.UpdateWorkflow("等待电测", "PLC扫码反馈失败"));
             }
             else if (!businessCompleted)
@@ -487,9 +487,10 @@ namespace BusbarCompressionSystem.ViewModel
                     message = $"{message}；PLC扫码NG反馈失败";
                 }
 
+                // 扫码失败不建会话：无有效会话时保持“等待扫码”，便于下一次直接重试。
                 if (!activeProductConflict)
                 {
-                    UpdateDualYStationDisplay(stationIndex, display => display.UpdateWorkflow("扫码失败", message));
+                    UpdateDualYStationDisplay(stationIndex, display => display.UpdateWorkflow("等待扫码", message));
                 }
                 writeLog($"[双Y-工位{stationIndex}{source}扫码] {message}", true);
             }
@@ -508,19 +509,10 @@ namespace BusbarCompressionSystem.ViewModel
         {
             bool feedbackCompleted = WriteDualYScanResultFeedback(stationIndex, false, source);
             string message = feedbackCompleted ? reason : $"{reason}；PLC扫码NG反馈失败";
-            DualYStationDisplayState stationDisplay = stationIndex == 1
-                ? DataModel.Processmodel.DualYStation1Display
-                : DataModel.Processmodel.DualYStation2Display;
-            bool preserveActiveProduct = stationDisplay.WorkflowState == "等待电测"
-                || stationDisplay.WorkflowState == "结果结算中"
-                || stationDisplay.WorkflowState == "结算失败"
-                || stationDisplay.WorkflowState == "结算异常"
-                || stationDisplay.WorkflowState == "归档处理中"
-                || stationDisplay.WorkflowState == "归档失败"
-                || stationDisplay.WorkflowState == "归档异常";
-            if (!preserveActiveProduct)
+            // 读码失败不建会话；仅在无有效会话时刷新为“等待扫码”，避免覆盖在制产品卡片。
+            if (!HasDualYActiveTestRunSession(stationIndex))
             {
-                UpdateDualYStationDisplay(stationIndex, display => display.UpdateWorkflow("扫码失败", message));
+                UpdateDualYStationDisplay(stationIndex, display => display.UpdateWorkflow("等待扫码", message));
             }
             writeLog($"[双Y-工位{stationIndex}{source}扫码] {message}", true);
         }
@@ -589,6 +581,123 @@ namespace BusbarCompressionSystem.ViewModel
                 DualYTestRunState state = stationIndex == 1 ? _dualYStation1TestRun : _dualYStation2TestRun;
                 state.Begin(sn, woCode, partNoId);
             }
+        }
+
+        /// <summary>
+        /// 清空指定双Y工位的内存扫码会话。已写入 SQLite 的电测行保留，供追溯查询；另一工位会话不受影响。
+        /// </summary>
+        /// <param name="stationIndex">需要释放会话的双Y物理工位号，取值 1 或 2。</param>
+        private void ClearDualYTestRun(int stationIndex)
+        {
+            lock (_dualYTestRunSync)
+            {
+                DualYTestRunState state = stationIndex == 1 ? _dualYStation1TestRun : _dualYStation2TestRun;
+                state.Begin(string.Empty, string.Empty, string.Empty);
+            }
+        }
+
+        /// <summary>
+        /// 释放指定双Y工位的 PC 侧占用：清空扫码会话并把卡片恢复为“等待扫码”。
+        /// 用于结算校验失败或结算异常后允许下一件扫码；不改写 PLC 产品码，也不撤销已落库电测行。
+        /// </summary>
+        /// <param name="stationIndex">需要释放的双Y物理工位号，取值 1 或 2。</param>
+        /// <param name="reason">写入运行日志的释放原因，便于对照现场节拍。</param>
+        /// <param name="lastResult">卡片“最近结果”展示的摘要；为空时沿用 reason。</param>
+        /// <param name="expectedSn">触发释放的 PLC 产品 SN；传入时仅在当前会话为空或与该 SN 一致时释放。</param>
+        /// <param name="expectedWoCode">触发释放的 PLC 工单号；与 expectedSn 一起限定旧流程事件的影响范围。</param>
+        private void ReleaseDualYStationForRescan(int stationIndex, string reason, string lastResult = null,
+            string expectedSn = null, string expectedWoCode = null)
+        {
+            if (!string.IsNullOrWhiteSpace(expectedSn))
+            {
+                lock (_dualYTestRunSync)
+                {
+                    DualYTestRunState state = stationIndex == 1 ? _dualYStation1TestRun : _dualYStation2TestRun;
+                    bool sessionMatches = string.IsNullOrWhiteSpace(state.Sn)
+                        || (string.Equals(state.Sn, expectedSn, StringComparison.Ordinal)
+                            && string.Equals(state.WoCode, expectedWoCode ?? string.Empty, StringComparison.Ordinal));
+                    if (!sessionMatches)
+                    {
+                        writeLog($"[双Y-工位{stationIndex}] 忽略旧流程释放请求，当前会话={state.Sn}/{state.WoCode}，PLC事件={expectedSn}/{expectedWoCode}", true);
+                        return;
+                    }
+                }
+            }
+
+            ClearDualYTestRun(stationIndex);
+            string displayResult = string.IsNullOrWhiteSpace(lastResult) ? reason : lastResult;
+            UpdateDualYStationDisplay(stationIndex, display => display.ReleaseForRescan(displayResult));
+            writeLog($"[双Y-工位{stationIndex}] 已释放工位供重新扫码，原因={reason}", true);
+        }
+
+        /// <summary>
+        /// 判断指定双Y工位是否仍有有效扫码会话。会话以内存中的产品 SN 为准，与界面文案无关；
+        /// 有会话时禁止覆盖扫码，结算成功或失败释放后允许下一件进站。
+        /// </summary>
+        /// <param name="stationIndex">双Y物理工位号，取值 1 或 2。</param>
+        /// <returns>当前工位扫码会话 SN 非空时返回 true。</returns>
+        private bool HasDualYActiveTestRunSession(int stationIndex)
+        {
+            string occupiedSn;
+            return TryGetDualYActiveSessionSn(stationIndex, out occupiedSn);
+        }
+
+        /// <summary>
+        /// 读取指定双Y工位当前有效扫码会话的产品 SN，供覆盖扫码拦截提示使用。
+        /// </summary>
+        /// <param name="stationIndex">双Y物理工位号，取值 1 或 2。</param>
+        /// <param name="sn">存在有效会话时返回会话 SN；否则为空字符串。</param>
+        /// <returns>存在有效会话时返回 true。</returns>
+        private bool TryGetDualYActiveSessionSn(int stationIndex, out string sn)
+        {
+            lock (_dualYTestRunSync)
+            {
+                DualYTestRunState state = stationIndex == 1 ? _dualYStation1TestRun : _dualYStation2TestRun;
+                sn = state.Sn ?? string.Empty;
+                return !string.IsNullOrWhiteSpace(sn);
+            }
+        }
+
+        /// <summary>
+        /// 解除双Y扫码与流程结束触发沿武装。通讯失败或模式未知后再次连接时，必须先见到电平 0 才允许新的 0→1。
+        /// </summary>
+        private void DisarmDualYScanAndFlowEndEdges()
+        {
+            _dualYY1ScanEdgeArmed = false;
+            _dualYY2ScanEdgeArmed = false;
+            _dualYY1FlowEndEdgeArmed = false;
+            _dualYY2FlowEndEdgeArmed = false;
+        }
+
+        /// <summary>
+        /// 观察双Y触发寄存器并判定是否应消费一次上升沿。
+        /// 电平为 0 时完成武装；未武装期间即使为 1 也不触发，避免重启后残留高电平被当成新请求。
+        /// </summary>
+        /// <param name="armed">对应触发通道的武装标志，见到 0 后置 true。</param>
+        /// <param name="currentTrig">本周期从 PLC 读到的触发值，1 表示请求，0 表示空闲。</param>
+        /// <param name="previousTrig">上一周期已刷新到界面 IO 的触发值，用于识别 0→1。</param>
+        /// <param name="signalKnown">本周期触发地址读取成功时为 true；读取失败时保持未武装，等待下一次确认电平 0。</param>
+        /// <returns>已武装且出现 0→1 时返回 true，调用方应启动对应业务。</returns>
+        private static bool ObserveDualYRisingEdge(ref bool armed, int currentTrig, int previousTrig, bool signalKnown)
+        {
+            if (!signalKnown)
+            {
+                armed = false;
+                return false;
+            }
+
+            if (currentTrig == 0)
+            {
+                armed = true;
+                return false;
+            }
+
+            if (!armed)
+            {
+                return false;
+            }
+
+            return currentTrig == 1 && previousTrig == 0;
         }
 
         /// <summary>
@@ -846,7 +955,8 @@ namespace BusbarCompressionSystem.ViewModel
         /// <summary>
         /// D1020/D1021 流程结束触发后的实测结算：从耐压工位产品码镜像区读取 SN/工单，
         /// 汇总耐压、阻值和压力后写 M3051/M3052，并立即释放工位供下一件产品扫码作业。
-        /// MES过程数据和正常产品报工使用本轮快照在后台执行，失败只记录日志，不改变实测结果，也不回写当前工位卡片。
+        /// MES过程数据和正常产品报工使用本轮快照在后台执行；后台归档失败只记录日志，不改变已提交的实测结果，也不回写当前工位卡片。
+        /// 会话校验失败或结算异常时清空本工位 PC 会话并刷新卡片为可重扫状态，避免失败态长期拦截下一件扫码；不改写 PLC 产品码寄存器。
         /// Y1 读 AddressSN+25（默认 D825），Y2 读 AddressSN+50（默认 D850）；与扫码写入区 D800/D950、流程结束触发 D1020/D1021 均分离。
         /// </summary>
         /// <param name="stationIndex">本次结算所属的双Y物理工位号，1 对应耐压1镜像区与 M3051，2 对应耐压2镜像区与 M3052。</param>
@@ -865,8 +975,6 @@ namespace BusbarCompressionSystem.ViewModel
             }
             bool settlementProcessingHeld = true;
 
-            UpdateDualYStationDisplay(stationIndex, display => display.UpdateWorkflow("结果结算中"));
-
             // 结算触发后先清除上一件实测结果；耐压、阻值和压力完成综合判定后再写入本件结果。
             WriteDualYStationTotalResult(stationIndex, false);
 
@@ -884,7 +992,24 @@ namespace BusbarCompressionSystem.ViewModel
                 if (!TryReadProductCodeFromPlc(snAddress, $"双Y-工位{stationIndex}流程结束", out snCode, out woCode, out rawCode, 3, 500))
                 {
                     writeLog($"[双Y-工位{stationIndex}结算] 产品编码读取失败，已中止实测结算。原始值=[{rawCode}]", true);
-                    UpdateDualYStationDisplay(stationIndex, display => display.UpdateWorkflow("结算失败", "产品码读取失败"));
+                    ReleaseDualYStationForRescan(stationIndex, "结算失败：产品码读取失败", "产品码读取失败");
+                    return;
+                }
+
+                bool isTvInspection = IsTvInspectionSn(snCode);
+                List<long> testRecordIds;
+                string sessionPartNoId;
+                string testRunError;
+                if (!TryGetDualYTestRunRecordIds(stationIndex, snCode, woCode, out testRecordIds, out sessionPartNoId, out testRunError))
+                {
+                    // PLC 残留产品码或流程结束信号时，PC 可能已无会话：只记异常并释放工位，不拿 PLC 旧码建新会话。
+                    writeLog($"[双Y结算] 当前工位测试记录校验失败，工位={stationIndex}, SN={snCode}, 原因={testRunError}", true);
+                    ReleaseDualYStationForRescan(
+                        stationIndex,
+                        $"结算失败：{testRunError}；PLC产品码={snCode}/{woCode}（已释放，可重新扫码）",
+                        testRunError,
+                        snCode,
+                        woCode);
                     return;
                 }
 
@@ -893,17 +1018,6 @@ namespace BusbarCompressionSystem.ViewModel
                     display.BeginProduct(snCode, woCode);
                     display.UpdateWorkflow("结果结算中");
                 });
-
-                bool isTvInspection = IsTvInspectionSn(snCode);
-                List<long> testRecordIds;
-                string sessionPartNoId;
-                string testRunError;
-                if (!TryGetDualYTestRunRecordIds(stationIndex, snCode, woCode, out testRecordIds, out sessionPartNoId, out testRunError))
-                {
-                    writeLog($"[双Y结算] 当前工位测试记录校验失败，工位={stationIndex}, SN={snCode}, 原因={testRunError}", true);
-                    UpdateDualYStationDisplay(stationIndex, display => display.UpdateWorkflow("结算失败", testRunError));
-                    return;
-                }
 
                 string partnoid = !string.IsNullOrWhiteSpace(sessionPartNoId)
                     ? sessionPartNoId.Trim()
@@ -930,7 +1044,7 @@ namespace BusbarCompressionSystem.ViewModel
                 if (pressureTargetIds.Count == 0)
                 {
                     writeLog($"[双Y结算] 压力目标行为空，工位={stationIndex}, SN={snCode}, WO={woCode}", true);
-                    UpdateDualYStationDisplay(stationIndex, display => display.UpdateWorkflow("结算失败", "本轮无可写入压力的电测行"));
+                    ReleaseDualYStationForRescan(stationIndex, "结算失败：本轮无可写入压力的电测行", "本轮无可写入压力的电测行");
                     return;
                 }
 
@@ -940,7 +1054,7 @@ namespace BusbarCompressionSystem.ViewModel
                 if (!pressureDbOk)
                 {
                     writeLog($"[双Y结算] SQLite压力写入失败，工位={stationIndex}, SN={snCode}, WO={woCode}", true);
-                    UpdateDualYStationDisplay(stationIndex, display => display.UpdateWorkflow("结算失败", "本轮压力数据写入失败"));
+                    ReleaseDualYStationForRescan(stationIndex, "结算失败：本轮压力数据写入失败", "本轮压力数据写入失败");
                     return;
                 }
                 UpdateDualYPressureRecords(
@@ -973,6 +1087,8 @@ namespace BusbarCompressionSystem.ViewModel
                     displayResult += $" / 点检:{(inspectionPassed ? "通过" : "不通过")}";
                 }
 
+                // 成功结算后清空本轮会话，避免下一件误用本件测试行；卡片保留 SN 与“测试完成”供操作员核对。
+                ClearDualYTestRun(stationIndex);
                 UpdateDualYStationDisplay(stationIndex, display =>
                 {
                     if (string.Equals(display.CurrentSn, snCode, StringComparison.Ordinal)
@@ -1006,7 +1122,7 @@ namespace BusbarCompressionSystem.ViewModel
                 WriteDualYStationTotalResult(stationIndex, false);
                 writeLog($"[双Y结算] 异常，工位={stationIndex}, {ex.Message}", true);
                 sqlite.WriteErrorLog("[双Y流程结束异常]实测结算失败", ex.Message, string.Empty, string.Empty);
-                UpdateDualYStationDisplay(stationIndex, display => display.UpdateWorkflow("结算异常", "请查看运行日志"));
+                ReleaseDualYStationForRescan(stationIndex, $"结算异常：{ex.Message}", "结算异常，请查看运行日志");
             }
             finally
             {
