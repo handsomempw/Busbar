@@ -5049,17 +5049,21 @@ namespace BusbarCompressionSystem.ViewModel
 
         /// <summary>
         /// 使用 HALCON 将 HObject 图像等比缩放至不超过 W×H 的尺寸。
+        /// 返回对象由调用方负责释放；输入图像保持由调用方管理。
         /// </summary>
+        /// <param name="W">目标最大宽度，单位为像素。</param>
+        /// <param name="H">目标最大高度，单位为像素。</param>
+        /// <param name="src">待缩放的 HALCON 图像。</param>
+        /// <returns>缩放后的图像；参数无效或 HALCON 处理失败时返回 null。</returns>
         public HObject GetReducedImage(double W, double H, HObject src)
         {
-            HObject dst;
+            HObject dst = null;
             HOperatorSet.GenEmptyObj(out dst);
+            HTuple width = null;
+            HTuple height = null;
 
             try
             {
-                HTuple width = new HTuple();
-                HTuple height = new HTuple();
-
                 HOperatorSet.GetImageSize(src, out width, out height);
                 double _wscale = W / width;
                 double _Hscale = H / height;
@@ -5076,11 +5080,16 @@ namespace BusbarCompressionSystem.ViewModel
                 //g.Dispose();
                 return dst;
             }
-            catch (Exception e)
+            catch
             {
+                dst?.Dispose();
                 return null;
             }
-
+            finally
+            {
+                width?.Dispose();
+                height?.Dispose();
+            }
         }
 
     }
