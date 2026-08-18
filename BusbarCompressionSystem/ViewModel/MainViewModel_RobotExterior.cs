@@ -218,6 +218,8 @@ namespace BusbarCompressionSystem.ViewModel
 
         /// <summary>
         /// 标准产线 CHECK 阶段的 MES 过程数据上传入口。
+        /// 上传前按当前 SN 的最新非 IR 记录ID确认本轮已形成 ACW/DCW 结果，参数下发失败留下的新占位行会阻止历史电测行进入MES；
+        /// 其它 SN 在耐压1、耐压2并行流程中产生的交错记录ID不参与当前产品判断，双Y仍按独立会话记录ID归档。
         /// CHECK1 按当前测试模式上传本轮应存在的 ACW/DCW/IR 过程行，用于补齐前段电测追溯；
         /// CHECK2 从同一模式口径中上传一条最终/AOI 快照行，用于保留第二工站最终判定，避免同一轮合格产品在 MES 过程表中重复生成多条最终行。
         /// </summary>
@@ -237,6 +239,18 @@ namespace BusbarCompressionSystem.ViewModel
             if (rows.Count == 0)
             {
                 writeLog($"[{stageTag}] MES过程数据上传失败，SN={sn}, WO={wocode}, 原因=本地未找到ACW/DCW/IR电测过程行", true);
+                return false;
+            }
+
+            long latestAttemptRecordId = sqlite.GetLatestStandardAttemptRecordId(wocode, partnoid, sn);
+            long latestWithstandRecordId = rows
+                .Where(row => !string.Equals(row.TestMode, "IR", StringComparison.OrdinalIgnoreCase))
+                .Select(row => row.Id)
+                .DefaultIfEmpty(-1)
+                .Max();
+            if (latestAttemptRecordId <= 0 || latestWithstandRecordId < latestAttemptRecordId)
+            {
+                writeLog($"[{stageTag}] MES过程数据上传跳过，SN={sn}, WO={wocode}, 原因=本轮未形成有效ACW/DCW记录，轮次记录ID={latestAttemptRecordId}, 最新耐压记录ID={latestWithstandRecordId}", true);
                 return false;
             }
 

@@ -1137,6 +1137,36 @@ namespace SQLITEDATABASE
         }
 
         /// <summary>
+        /// 读取标准产线同一 SN 最新非 IR 过程记录ID，作为本轮扫码、复测与CHECK上传之间的轮次边界。
+        /// 每个 SN 独立查询；耐压1、耐压2并行产生的其它产品记录即使ID交错，也不会改变当前产品的边界。
+        /// 空白占位行保留在边界内，用于识别“本轮已扫码但尚未形成ACW/DCW结果”的参数下发失败场景。
+        /// </summary>
+        /// <param name="WOCODE">当前产品工单号，用于定位本地工单数据库。</param>
+        /// <param name="PARTNOID">当前产品规格编码，用于保持数据库定位接口一致。</param>
+        /// <param name="SN">CHECK当前处理的产品序列号；查询条件只覆盖该SN。</param>
+        /// <returns>找到记录时返回同SN最新非IR记录ID；数据库或记录不可用时返回 -1，调用方应停止MES过程上传。</returns>
+        public static long GetLatestStandardAttemptRecordId(string WOCODE, string PARTNOID, string SN)
+        {
+            try
+            {
+                string connstring = CheckDataBase(WOCODE, PARTNOID, SN);
+                if (string.IsNullOrEmpty(connstring))
+                {
+                    WriteErrorLog("[追踪]GetLatestStandardAttemptRecordId-连接串为空", "CheckDataBase返回空", SN, WOCODE);
+                    return -1;
+                }
+
+                string escapedSn = EscapeSqlLiteral(SN);
+                return GetLatestBusbarRecordId(connstring, $"sn='{escapedSn}' AND {NonIrTvInfoCondition}");
+            }
+            catch (Exception ex)
+            {
+                WriteErrorLog("[数据库异常]GetLatestStandardAttemptRecordId失败", $"异常: {ex.Message}", SN, WOCODE);
+                return -1;
+            }
+        }
+
+        /// <summary>
         /// 检查产品是否为双测模式（同一SN有两条记录，分别带[ACW]和[DCW]前缀）
         /// </summary>
         /// <param name="WOCODE">工单号</param>
