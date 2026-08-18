@@ -1687,6 +1687,62 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
+        /// 单次耐压触发内允许的参数下发及回读校验总次数。
+        /// 该次数只覆盖仪器通信和参数校验，不重复启动电测，也不改变最终 PLC、SQLite、MES 和产品判定口径。
+        /// </summary>
+        private const int TvParameterDownloadMaxAttempts = 3;
+
+        /// <summary>
+        /// 参数下发重试间隔，单位毫秒。
+        /// 间隔用于等待仪器释放上一轮短连接及残余应答，不影响工艺参数中的上升、保持和下降时间。
+        /// </summary>
+        private const int TvParameterDownloadRetryDelayMs = 300;
+
+        /// <summary>
+        /// 在同一次耐压工位触发中执行参数下发和回读校验，偶发通信或回读不完整时最多完成三次总尝试。
+        /// 每次尝试均由 AT9620 建立独立连接；仪器会话忙碌时立即返回，由现有重复触发保护继续处理。
+        /// 全部尝试失败后仍由各工位入口执行原有 PLC 回写和耐压 NG 流程，本方法不启动电测、不落SQLite、不上传MES。
+        /// </summary>
+        /// <param name="meter">当前耐压工位对应的 AT9620 实例；每次尝试使用实例中已经设置好的 ACW 或 DCW 参数。</param>
+        /// <param name="stationLabel">现场日志中的耐压工位名称，例如“耐压1”或“耐压2”。</param>
+        /// <param name="testType">本轮参数模式，值为 ACW 或 DCW，用于区分操作日志和故障追溯。</param>
+        /// <returns>任一次参数下发及回读校验成功时返回成功结果；全部失败时返回最后一次失败结果。</returns>
+        private global::AT9620.Result DownloadTvParametersWithRetry(AT9620.AT9620 meter, string stationLabel, string testType)
+        {
+            if (meter == null)
+            {
+                return new global::AT9620.Result { Error = "仪器实例为空" };
+            }
+
+            global::AT9620.Result lastResult = null;
+            for (int attempt = 1; attempt <= TvParameterDownloadMaxAttempts; attempt++)
+            {
+                lastResult = meter.Download();
+                if (lastResult.Success)
+                {
+                    if (attempt > 1)
+                    {
+                        writeLog($"[{stationLabel}-{testType}] 参数下发第{attempt}/{TvParameterDownloadMaxAttempts}次校验成功");
+                    }
+                    return lastResult;
+                }
+
+                if (IsTvMeterSessionBusyError(lastResult.Error))
+                {
+                    return lastResult;
+                }
+
+                if (attempt < TvParameterDownloadMaxAttempts)
+                {
+                    writeLog($"[{stationLabel}-{testType}] 参数下发第{attempt}/{TvParameterDownloadMaxAttempts}次失败，将自动重试: {lastResult.Error}", true);
+                    Thread.Sleep(TvParameterDownloadRetryDelayMs);
+                }
+            }
+
+            return lastResult ?? new global::AT9620.Result { Error = "参数下发未返回结果" };
+        }
+
+        /// <summary>
         /// 执行ACW交流耐压测试（TV1工位）
         /// </summary>
         /// <remarks>
@@ -1707,7 +1763,7 @@ namespace BusbarCompressionSystem.ViewModel
                 // 触发前统一下发参数，避免设备参数未同步
                 writeLog($"[耐压1-ACW] 开始下发ACW参数");
                 DataModel.Settingmodel.AT9620_1.TVParameter = DataModel.Processmodel.ACWParameter;
-                var downloadResult = DataModel.Settingmodel.AT9620_1.Download();
+                var downloadResult = DownloadTvParametersWithRetry(DataModel.Settingmodel.AT9620_1, "耐压1", "ACW");
                 if (!downloadResult.Success)
                 {
                     if (SkipTvProcessWhenMeterBusy("耐压1", "ACW", downloadResult.Error))
@@ -1755,7 +1811,7 @@ namespace BusbarCompressionSystem.ViewModel
                 // 触发前统一下发参数，避免设备参数未同步
                 writeLog($"[耐压1-DCW] 开始下发DCW参数");
                 DataModel.Settingmodel.AT9620_1.TVParameter = DataModel.Processmodel.DCWParameter;
-                var downloadResult = DataModel.Settingmodel.AT9620_1.Download();
+                var downloadResult = DownloadTvParametersWithRetry(DataModel.Settingmodel.AT9620_1, "耐压1", "DCW");
                 if (!downloadResult.Success)
                 {
                     if (SkipTvProcessWhenMeterBusy("耐压1", "DCW", downloadResult.Error))
@@ -2089,7 +2145,7 @@ namespace BusbarCompressionSystem.ViewModel
                 // 触发前统一下发参数，避免设备参数未同步
                 writeLog($"[耐压2-ACW] 开始下发ACW参数");
                 DataModel.Settingmodel.AT9620_2.TVParameter = DataModel.Processmodel.ACWParameter;
-                var downloadResult = DataModel.Settingmodel.AT9620_2.Download();
+                var downloadResult = DownloadTvParametersWithRetry(DataModel.Settingmodel.AT9620_2, "耐压2", "ACW");
                 if (!downloadResult.Success)
                 {
                     if (SkipTvProcessWhenMeterBusy("耐压2", "ACW", downloadResult.Error))
@@ -2137,7 +2193,7 @@ namespace BusbarCompressionSystem.ViewModel
                 // 触发前统一下发参数，避免设备参数未同步
                 writeLog($"[耐压2-DCW] 开始下发DCW参数");
                 DataModel.Settingmodel.AT9620_2.TVParameter = DataModel.Processmodel.DCWParameter;
-                var downloadResult = DataModel.Settingmodel.AT9620_2.Download();
+                var downloadResult = DownloadTvParametersWithRetry(DataModel.Settingmodel.AT9620_2, "耐压2", "DCW");
                 if (!downloadResult.Success)
                 {
                     if (SkipTvProcessWhenMeterBusy("耐压2", "DCW", downloadResult.Error))
@@ -2404,7 +2460,7 @@ namespace BusbarCompressionSystem.ViewModel
 
                 writeLog($"[耐压3-ACW] 开始下发ACW参数");
                 DataModel.Settingmodel.AT9620_3.TVParameter = DataModel.Processmodel.ACWParameter;
-                var downloadResult = DataModel.Settingmodel.AT9620_3.Download();
+                var downloadResult = DownloadTvParametersWithRetry(DataModel.Settingmodel.AT9620_3, "耐压3", "ACW");
                 if (!downloadResult.Success)
                 {
                     if (SkipTvProcessWhenMeterBusy("耐压3", "ACW", downloadResult.Error))
@@ -2445,7 +2501,7 @@ namespace BusbarCompressionSystem.ViewModel
 
                 writeLog($"[耐压3-DCW] 开始下发DCW参数");
                 DataModel.Settingmodel.AT9620_3.TVParameter = DataModel.Processmodel.DCWParameter;
-                var downloadResult = DataModel.Settingmodel.AT9620_3.Download();
+                var downloadResult = DownloadTvParametersWithRetry(DataModel.Settingmodel.AT9620_3, "耐压3", "DCW");
                 if (!downloadResult.Success)
                 {
                     if (SkipTvProcessWhenMeterBusy("耐压3", "DCW", downloadResult.Error))
