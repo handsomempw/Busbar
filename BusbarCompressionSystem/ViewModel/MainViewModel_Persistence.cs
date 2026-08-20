@@ -426,6 +426,25 @@ namespace BusbarCompressionSystem.ViewModel
         {
             return TvStatusTranslator.Translate(status);
         }
+
+        /// <summary>
+        /// 生成耐压结果的本地追溯状态。
+        /// 仪器收到已知结束态时沿用状态映射；通信、参数回读、采样或超时异常使用固定“通信异常”标记，
+        /// 让 CHECK 阶段区分“仪器正常测试得到 NG”和“本轮没有形成仪器结果”，前者可按工艺报工，后者只留档并跳过报工。
+        /// </summary>
+        /// <param name="result">AT9620 本轮 Start 返回值，包含可信结束态标记。</param>
+        /// <param name="rawStatus">本轮仪器状态原文，用于正常结束态翻译。</param>
+        /// <param name="isAcw">true 表示 ACW，false 表示 DCW；用于写入模式前缀。</param>
+        /// <returns>带 ACW/DCW 前缀的本地追溯状态。</returns>
+        private static string BuildPersistedTvStatus(global::AT9620.Result result, string rawStatus, bool isAcw)
+        {
+            bool hasTrustedTerminalStatus = (result != null && result.Success)
+                || TvStatusTranslator.IsTrustedTerminalStatus(rawStatus);
+            string status = !hasTrustedTerminalStatus
+                ? TvStatusTranslator.CommunicationFailureStatus
+                : TvStatusTranslator.Translate(rawStatus);
+            return TvStatusTranslator.AddTestModePrefix(status, isAcw);
+        }
         #endregion
 
         #endregion

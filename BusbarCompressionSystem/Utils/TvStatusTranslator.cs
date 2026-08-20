@@ -55,6 +55,51 @@ namespace BusbarCompressionSystem.Utils
         public const string ACW_PREFIX = "[ACW]";
         public const string DCW_PREFIX = "[DCW]";
 
+        /// <summary>
+        /// 耐压仪未给出可信结束态时写入 SQLite 的固定状态。
+        /// 该状态只表示本轮没有形成仪器判定，不等同于耐压 NG；CHECK 阶段据此保留过程追溯并跳过 MES 报工。
+        /// </summary>
+        public const string CommunicationFailureStatus = "通信异常";
+
+        /// <summary>
+        /// 判断状态是否代表耐压通信或流程异常导致的无效测试结果。
+        /// ACW/DCW 模式前缀允许存在；普通仪器结束态不命中该规则。
+        /// </summary>
+        /// <param name="status">SQLite 或内存中的耐压状态文本，可带 ACW/DCW 模式前缀。</param>
+        /// <returns>状态表示未取得可信仪器结束结果时返回 true。</returns>
+        public static bool IsCommunicationFailure(string status)
+        {
+            string text = RemoveTestModePrefix(status)?.Trim() ?? string.Empty;
+            return text.StartsWith(CommunicationFailureStatus, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// 判断耐压状态是否属于仪器已知结束码。
+        /// 该白名单与 AT9620 结束状态保持一致，用于在主程序仅引用既有仪器程序集时识别正常测试结论。
+        /// </summary>
+        /// <param name="status">SQLite 或内存中的耐压状态文本，可带 ACW/DCW 模式前缀。</param>
+        /// <returns>状态属于 PASS、SHORT、ARC 等已知结束码时返回 true。</returns>
+        public static bool IsTrustedTerminalStatus(string status)
+        {
+            string text = RemoveTestModePrefix(status)?.Trim() ?? string.Empty;
+            switch (text.ToUpperInvariant())
+            {
+                case "PASS":
+                case "SHORT":
+                case "ARC":
+                case "GFI":
+                case "BREAKDOWN":
+                case "ERROR":
+                case "OV":
+                case "UPPER":
+                case "LOWER":
+                case "RISELOW":
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
         public static string Translate(string rawStatus)
         {
             if (string.IsNullOrWhiteSpace(rawStatus))

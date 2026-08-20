@@ -294,6 +294,39 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
+        /// 判断标准产线本轮耐压过程是否形成了可报工的仪器结果。
+        /// 缺少期望 ACW/DCW 行、状态标记为通信异常或本轮测试未完成时均跳过 MES 报工；
+        /// 过程数据继续按当前 CHECK 阶段保存，机器人仍按综合结果接收 OK/NG 分流。
+        /// </summary>
+        /// <param name="wocode">当前产品工单号，用于定位 SQLite 工单库。</param>
+        /// <param name="partnoid">当前产品规格编码。</param>
+        /// <param name="sn">当前产品序列号。</param>
+        /// <returns>本轮没有完整可信 ACW/DCW 结果时返回 true。</returns>
+        private bool ShouldSkipStandardReportForTv(string wocode, string partnoid, string sn)
+        {
+            if (IsAoiOnlyMode)
+            {
+                return false;
+            }
+
+            List<sqlite.ElectricalTestProcessRow> rows = sqlite.GetStandardElectricalTestProcessRows(wocode, partnoid, sn);
+            List<string> expectedModes = GetStandardExpectedElectricalModes(includeIr: false);
+            foreach (string mode in expectedModes)
+            {
+                sqlite.ElectricalTestProcessRow row = rows
+                    .Where(item => string.Equals(item.TestMode, mode, StringComparison.OrdinalIgnoreCase))
+                    .OrderByDescending(item => item.Id)
+                    .FirstOrDefault();
+                if (row == null || BusbarCompressionSystem.Utils.TvStatusTranslator.IsCommunicationFailure(row.TVInfo))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
         /// 判断标准 CHECK1 是否应把 IR 作为本轮 MES 过程数据上传对象。
         /// IR 仪器可用表示现场流程具备 IR 测试条件；SQLite 已存在 IR 行表示本轮产品已经产生绝缘电阻结果，两者任一成立都需要保留 IR 过程追溯。
         /// </summary>
@@ -896,7 +929,17 @@ namespace BusbarCompressionSystem.ViewModel
                             uploadAllModes: true);
                         #endregion
                         #region 汇报结果数据
-                        report(ss[1], ss[0], resultstr);
+                        if (ShouldSkipStandardReportForTv(
+                            DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE,
+                            DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID,
+                            DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN))
+                        {
+                            writeLog($"[CHECK1] 耐压本轮未取得仪器可信结束态，保留MES过程数据，跳过报工，SN={DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN}", true);
+                        }
+                        else
+                        {
+                            report(ss[1], ss[0], resultstr);
+                        }
                         #endregion
 
                         //}
@@ -1118,8 +1161,18 @@ namespace BusbarCompressionSystem.ViewModel
                             uploadAllModes: false);
 
                         #endregion
-                        #region 汇报结果数据                    
-                        report2(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, resultstr);
+                        #region 汇报结果数据
+                        if (ShouldSkipStandardReportForTv(
+                            DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE,
+                            DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID,
+                            DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN))
+                        {
+                            writeLog($"[CHECK2] 耐压本轮未取得仪器可信结束态，保留MES过程数据，跳过报工2，SN={DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN}", true);
+                        }
+                        else
+                        {
+                            report2(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, resultstr);
+                        }
                         #endregion
                     }
 

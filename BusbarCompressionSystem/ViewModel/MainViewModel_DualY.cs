@@ -91,6 +91,7 @@ namespace BusbarCompressionSystem.ViewModel
             internal bool RequireAcw { get; set; }
             internal bool RequireDcw { get; set; }
             internal bool IsTvInspection { get; set; }
+            internal bool HasTvCommunicationFailure { get; set; }
             internal List<long> TestRecordIds { get; set; } = new List<long>();
         }
 
@@ -1065,6 +1066,10 @@ namespace BusbarCompressionSystem.ViewModel
                 int checkCode = sqlite.CheckElectricalOnlyDualTest(
                     woCode, partnoid, snCode, DataModel.Processmodel.ResParameter.Max_Res,
                     requireAcw, requireDcw, testRecordIds);
+                List<sqlite.ElectricalTestProcessRow> settledRows = sqlite.GetElectricalTestProcessRowsByIds(
+                    woCode, partnoid, snCode, testRecordIds);
+                bool hasTvCommunicationFailure = settledRows.Any(row =>
+                    BusbarCompressionSystem.Utils.TvStatusTranslator.IsCommunicationFailure(row.TVInfo));
                 if (!pressureResult && checkCode == 0)
                 {
                     checkCode = 3;
@@ -1108,6 +1113,7 @@ namespace BusbarCompressionSystem.ViewModel
                     RequireAcw = requireAcw,
                     RequireDcw = requireDcw,
                     IsTvInspection = isTvInspection,
+                    HasTvCommunicationFailure = hasTvCommunicationFailure,
                     TestRecordIds = testRecordIds.ToList()
                 };
 
@@ -1150,10 +1156,11 @@ namespace BusbarCompressionSystem.ViewModel
                         snapshot.Sn, snapshot.WoCode, snapshot.PartNoId, snapshot.ResultText,
                         snapshot.RequireAcw, snapshot.RequireDcw, snapshot.TestRecordIds);
 
-                    if (snapshot.IsTvInspection)
+                    if (snapshot.IsTvInspection || snapshot.HasTvCommunicationFailure)
                     {
                         reportOk = true;
-                        writeLog($"[双Y后台归档] 耐压点检跳过报工，工位={snapshot.StationIndex}, SN={snapshot.Sn}, WO={snapshot.WoCode}, 结果={snapshot.ResultText}");
+                        string skipReason = snapshot.IsTvInspection ? "耐压点检" : "耐压未取得仪器可信结束态";
+                        writeLog($"[双Y后台归档] {skipReason}跳过报工，工位={snapshot.StationIndex}, SN={snapshot.Sn}, WO={snapshot.WoCode}, 结果={snapshot.ResultText}", true);
                     }
                     else
                     {

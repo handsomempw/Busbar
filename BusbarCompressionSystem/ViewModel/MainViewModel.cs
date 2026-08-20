@@ -1891,10 +1891,11 @@ namespace BusbarCompressionSystem.ViewModel
             }
 
             // 获取翻译后的状态并添加测试模式前缀
-            var rawTvInfo = DataModel.Processmodel.TVTestTestModel1.TVInfo;
-            var translatedTvInfo = GetLocalizedTvStatus(rawTvInfo);
             bool isACW = testType == "ACW";
-            var localizedTvInfo1 = Utils.TvStatusTranslator.AddTestModePrefix(translatedTvInfo, isACW);
+            var localizedTvInfo1 = BuildPersistedTvStatus(
+                r,
+                DataModel.Processmodel.TVTestTestModel1.TVInfo,
+                isACW);
             DataModel.Processmodel.TVTestTestModel1.TVInfo = localizedTvInfo1;
 
             string wocode = DataModel.Processmodel.TVTestTestModel1.Productinfo.WOCODE;
@@ -2067,6 +2068,11 @@ namespace BusbarCompressionSystem.ViewModel
 
             DataModel.Processmodel.TVTestTestModel1.TVMaxVoltage = 0;
             DataModel.Processmodel.TVTestTestModel1.TVMaxCurrent = 0;
+            DataModel.Processmodel.TVTestTestModel1.Status = string.Empty;
+            DataModel.Processmodel.TVTestTestModel1.TVInfo = string.Empty;
+            DataModel.Processmodel.TVTestTestModel1.Voltage = 0;
+            DataModel.Processmodel.TVTestTestModel1.Current = 0;
+            DataModel.Processmodel.TVTestTestModel1.Time = 0;
 
 
             var r = RunTvMeterStartWithDiagnostics(DataModel.Settingmodel.AT9620_1, DataModel.Processmodel.TVTestTestModel1.Productinfo?.SN, DataModel.Processmodel.CurrentTV1TestModeDisplay);
@@ -2075,7 +2081,10 @@ namespace BusbarCompressionSystem.ViewModel
                 return;
             }
 
-            var localizedTvInfo1 = GetLocalizedTvStatus(DataModel.Processmodel.TVTestTestModel1.TVInfo);
+            var localizedTvInfo1 = BuildPersistedTvStatus(
+                r,
+                DataModel.Processmodel.TVTestTestModel1.TVInfo,
+                DataModel.Processmodel.CurrentTV1TestModeDisplay == "ACW");
             DataModel.Processmodel.TVTestTestModel1.TVInfo = localizedTvInfo1;
 
             bool updateTvResult = sqlite.UpdateTV(DataModel.Processmodel.TVTestTestModel1.Productinfo.WOCODE,
@@ -2273,10 +2282,11 @@ namespace BusbarCompressionSystem.ViewModel
             }
 
             // 获取翻译后的状态并添加测试模式前缀
-            var rawTvInfo = DataModel.Processmodel.TVTestTestModel2.TVInfo;
-            var translatedTvInfo = GetLocalizedTvStatus(rawTvInfo);
             bool isACW = testType == "ACW";
-            var localizedTvInfo2 = Utils.TvStatusTranslator.AddTestModePrefix(translatedTvInfo, isACW);
+            var localizedTvInfo2 = BuildPersistedTvStatus(
+                r,
+                DataModel.Processmodel.TVTestTestModel2.TVInfo,
+                isACW);
             DataModel.Processmodel.TVTestTestModel2.TVInfo = localizedTvInfo2;
 
             string wocode = DataModel.Processmodel.TVTestTestModel2.Productinfo.WOCODE;
@@ -2388,13 +2398,21 @@ namespace BusbarCompressionSystem.ViewModel
 
             DataModel.Processmodel.TVTestTestModel2.TVMaxVoltage = 0;
             DataModel.Processmodel.TVTestTestModel2.TVMaxCurrent = 0;
+            DataModel.Processmodel.TVTestTestModel2.Status = string.Empty;
+            DataModel.Processmodel.TVTestTestModel2.TVInfo = string.Empty;
+            DataModel.Processmodel.TVTestTestModel2.Voltage = 0;
+            DataModel.Processmodel.TVTestTestModel2.Current = 0;
+            DataModel.Processmodel.TVTestTestModel2.Time = 0;
             var r = RunTvMeterStartWithDiagnostics(DataModel.Settingmodel.AT9620_2, DataModel.Processmodel.TVTestTestModel2.Productinfo?.SN, DataModel.Processmodel.CurrentTV2TestModeDisplay);
             if (!r.Success && SkipTvProcessWhenMeterBusy("耐压2", DataModel.Processmodel.CurrentTV2TestModeDisplay, r.Error))
             {
                 return;
             }
 
-            var localizedTvInfo2 = GetLocalizedTvStatus(DataModel.Processmodel.TVTestTestModel2.TVInfo);
+            var localizedTvInfo2 = BuildPersistedTvStatus(
+                r,
+                DataModel.Processmodel.TVTestTestModel2.TVInfo,
+                DataModel.Processmodel.CurrentTV2TestModeDisplay == "ACW");
             DataModel.Processmodel.TVTestTestModel2.TVInfo = localizedTvInfo2;
 
             bool updateTvResult = sqlite.UpdateTV(DataModel.Processmodel.TVTestTestModel2.Productinfo.WOCODE,
@@ -2571,10 +2589,11 @@ namespace BusbarCompressionSystem.ViewModel
                 writeLog($"[耐压3-{testType}] 失败原因: {r.Error}", true);
             }
 
-            var rawTvInfo = DataModel.Processmodel.TVTestTestModel3.TVInfo;
-            var translatedTvInfo = GetLocalizedTvStatus(rawTvInfo);
             bool isACW = testType == "ACW";
-            var localizedTvInfo3 = Utils.TvStatusTranslator.AddTestModePrefix(translatedTvInfo, isACW);
+            var localizedTvInfo3 = BuildPersistedTvStatus(
+                r,
+                DataModel.Processmodel.TVTestTestModel3.TVInfo,
+                isACW);
             DataModel.Processmodel.TVTestTestModel3.TVInfo = localizedTvInfo3;
 
             string wocode = DataModel.Processmodel.TVTestTestModel3.Productinfo.WOCODE;
