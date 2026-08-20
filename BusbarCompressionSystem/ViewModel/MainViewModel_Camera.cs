@@ -976,16 +976,9 @@ namespace BusbarCompressionSystem.ViewModel
                         #endregion
 
                         #region 保存图片
-                        if (tool.TestMode == TestModes.模板定位)
-                        {
-                            // 模板定位是同指令 ROI 矫正的辅助状态，产品 OK/NG 图片归类由判定工具承担。
-                            tool.LastResultImagePath = null;
-                        }
-                        else
-                        {
                         try
                         {
-                            string resultFolder = tool.ToolStatus == ToolStatus.OK ? "OK" : "NG";
+                            string resultFolder = ResolveToolResultImageFolder(tool);
                             bool shouldSave = tool.ToolStatus == ToolStatus.OK
                                 ? DataModel.FaraVisionDataModel.Settingmodel.ImageSaveSetting.SaveOK
                                 : DataModel.FaraVisionDataModel.Settingmodel.ImageSaveSetting.SaveNG;
@@ -1009,20 +1002,19 @@ namespace BusbarCompressionSystem.ViewModel
                                         partNoId,
                                         captureTime,
                                         resultFolder),
-                                    $"{specification}-{SanitizeImagePathPart(sn, "NOSN")}-{tool.Index:00}-{toolName}-{tool.ToolStatus}-{captureTime:yyyyMMddHHmmssFFF}.jpg");
+                                    $"{specification}-{SanitizeImagePathPart(sn, "NOSN")}-{SanitizeImagePathPart(currentRcmd, "NOCMD")}-{tool.Index:00}-{toolName}-{tool.TestMode}-{tool.ToolStatus}-{captureTime:yyyyMMddHHmmssFFF}.jpg");
                                 string dir = Path.GetDirectoryName(savefilename);
                                 if (!Directory.Exists(dir))
                                 {
                                     Directory.CreateDirectory(dir);
                                 }
-                                HOperatorSet.WriteImage(Image, "jpg", 0, savefilename);
+                                SaveToolResultImage(Image, tool, currentRcmd, savefilename);
                                 tool.LastResultImagePath = savefilename;
                             }
                         }
                         catch (Exception ex)
                         {
                             writeLog($"视觉->保存照片:保存失败：{ex.ToString()}", false);
-                        }
                         }
 
                         #endregion
@@ -1305,6 +1297,199 @@ namespace BusbarCompressionSystem.ViewModel
             {
                 remeasureImage?.Dispose();
             }
+        }
+
+        /// <summary>
+        /// 按当前工具状态生成图片归档目录。
+        /// 模板定位属于同指令的辅助定位工具，单独归档到“定位”目录；其他工具沿用产品 OK/NG 目录，
+        /// 图片目录分类只影响追溯文件位置；工具判定、指令汇总与 PLC/MES 通信保持既有口径。
+        /// </summary>
+        /// <param name="tool">当前完成检测的视觉工具。</param>
+        /// <returns>用于图片归档的结果目录名。</returns>
+        private static string ResolveToolResultImageFolder(ToolModel tool)
+        {
+            if (tool?.TestMode == TestModes.模板定位)
+            {
+                return "定位";
+            }
+
+            return tool?.ToolStatus == ToolStatus.OK ? "OK" : "NG";
+        }
+
+        /// <summary>
+        /// 保存一张包含当前工具 ROI 与检测结果的原图标注版。
+        /// 算法输入保持原始 HALCON 图像；标注在独立 HALCON 窗口中完成，前后工具保持各自独立的检测输入，
+        /// 结果图片保持原图像素尺寸。窗口绘制异常时保存原图，现场可继续通过图片追溯。
+        /// </summary>
+        /// <param name="image">当前相机周期的原始 HALCON 图像，坐标单位为像素。</param>
+        /// <param name="tool">当前工具及其运行态结果；工程配置保持当前保存值。</param>
+        /// <param name="command">当前 AOI 触发指令，用于结果图中的追溯文字。</param>
+        /// <param name="savefilename">结果图 JPG 完整路径。</param>
+        private void SaveToolResultImage(HObject image, ToolModel tool, string command, string savefilename)
+        {
+            HWindow resultWindow = null;
+            HObject resultImage = null;
+            try
+            {
+                HTuple width;
+                HTuple height;
+                HOperatorSet.GetImageSize(image, out width, out height);
+                int imageWidth = width.I;
+                int imageHeight = height.I;
+                width.Dispose();
+                height.Dispose();
+
+                resultWindow = new HWindow(0, 0, imageWidth, imageHeight, IntPtr.Zero, "invisible", "");
+                resultWindow.SetPart(0, 0, imageHeight - 1, imageWidth - 1);
+                resultWindow.DispObj(image);
+                DrawToolResultOverlay(resultWindow, tool, command);
+                HOperatorSet.SetWindowParam(resultWindow, "flush", "true");
+                HOperatorSet.DumpWindowImage(out resultImage, resultWindow);
+                HOperatorSet.WriteImage(resultImage, "jpg", 0, savefilename);
+            }
+            catch (Exception ex)
+            {
+                // 标注窗口依赖 HALCON 图形资源；异常时保存原图，现场可继续获得本次图片追溯。
+                writeLog($"视觉->结果图标注失败，回退保存原图：{ex.Message}", false);
+                HOperatorSet.WriteImage(image, "jpg", 0, savefilename);
+            }
+            finally
+            {
+                resultImage?.Dispose();
+                resultWindow?.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// 在独立结果窗口上绘制工具级追溯信息。
+        /// 各工具只读取当前检测周期已经生成的 ROI 和运行态结果字段，避免保存图片时重复执行算法。
+        /// 该图层服务落盘图片；工具状态计算保持检测阶段结果，AOI 后续工具保持原始图像输入。
+        /// </summary>
+        /// <param name="hwindow">已显示原图的结果窗口。</param>
+        /// <param name="tool">当前工具，包含 ROI、工具类型和运行态结果。</param>
+        /// <param name="command">当前 AOI 触发指令。</param>
+        private void DrawToolResultOverlay(HWindow hwindow, ToolModel tool, string command)
+        {
+            if (hwindow == null || tool == null)
+            {
+                return;
+            }
+
+            try
+            {
+                switch (tool.TestMode)
+                {
+                    case TestModes.面积:
+                        {
+                            ROI roi = ShouldApplyLocatorCorrectionForTool(tool)
+                                ? ResolveEffectiveRoi(tool.DimensionROI, out _, out _)
+                                : tool.DimensionROI;
+                            DrawRoiOverlay(hwindow, roi, "green");
+                            DrawToolText(hwindow, roi, command,
+                                $"面积={tool.ActualDimension:F0}px²\n范围={tool.MinDimension:F0}~{tool.MaxDimension:F0}px²\n结果={tool.ToolStatus}");
+                            break;
+                        }
+                    case TestModes.尺寸测量:
+                        {
+                            ROI roi1 = ShouldApplyLocatorCorrectionForTool(tool)
+                                ? ResolveEffectiveRoi(tool.MeasureObject1ROI, out _, out _)
+                                : tool.MeasureObject1ROI;
+                            ROI roi2 = ShouldApplyLocatorCorrectionForTool(tool)
+                                ? ResolveEffectiveRoi(tool.MeasureObject2ROI, out _, out _)
+                                : tool.MeasureObject2ROI;
+                            DrawRoiOverlay(hwindow, roi1, "green");
+                            DrawRoiOverlay(hwindow, roi2, "yellow");
+                            DrawToolText(hwindow, roi1, command,
+                                $"尺寸={tool.ActualMeasureValue:F3}mm\n像素={tool.LastMeasurePixelValue:F2}px\n范围={tool.MinMeasureValue:F3}~{tool.MaxMeasureValue:F3}mm\n结果={tool.ToolStatus}");
+                            break;
+                        }
+                    case TestModes.直线检测:
+                        {
+                            DrawRoiOverlay(hwindow, tool.LineDetectROI, "green");
+                            DrawToolText(hwindow, tool.LineDetectROI, command,
+                                $"角度={tool.ActualLineAngle:F2}°\n偏差={tool.ActualAngleDeviation:F2}°\n命中率={tool.LastEdgeHitRatio:P0}\n分数={tool.LastLineDetectScore:F2}\n结果={tool.ToolStatus}");
+                            break;
+                        }
+                    case TestModes.模板匹配:
+                    case TestModes.模板定位:
+                        {
+                            DrawRoiOverlay(hwindow, tool.PositionROI, "green");
+                            if (tool.ActualX != 0 || tool.ActualY != 0)
+                            {
+                                hwindow.SetColor("cyan");
+                                hwindow.SetLineWidth(2);
+                                hwindow.DispCross(tool.ActualY, tool.ActualX, 12, 0);
+                            }
+                            DrawToolText(hwindow, tool.PositionROI, command,
+                                $"Score={tool.ActualScore:F3}\n位置=({tool.ActualX:F1},{tool.ActualY:F1})\n角度={tool.ActualAngle:F2}°\nΔX={tool.DeltaX:F3}mm\nΔY={tool.DeltaY:F3}mm\n结果={tool.ToolStatus}");
+                            break;
+                        }
+                    case TestModes.二维码:
+                        {
+                            DrawRoiOverlay(hwindow, tool.BarCodeROI, "green");
+                            DrawToolText(hwindow, tool.BarCodeROI, command,
+                                $"二维码={tool.BarcodeStr}\n结果={tool.ToolStatus}");
+                            break;
+                        }
+                }
+            }
+            catch (Exception ex)
+            {
+                writeLog($"视觉->结果图绘制失败[{tool.Name}]：{ex.Message}", false);
+            }
+        }
+
+        /// <summary>
+        /// 在结果图上绘制工具生效 ROI，支持矩形、线段和圆形坐标。
+        /// 坐标直接使用 HALCON 原图像素坐标，供现场通过图片核对工程配置与本次定位后的搜索范围。
+        /// </summary>
+        /// <param name="hwindow">当前结果图片窗口。</param>
+        /// <param name="roi">需要绘制的工具 ROI，坐标单位为 px。</param>
+        /// <param name="color">HALCON 颜色名称。</param>
+        private static void DrawRoiOverlay(HWindow hwindow, ROI roi, string color)
+        {
+            if (hwindow == null || roi == null)
+            {
+                return;
+            }
+
+            hwindow.SetColor(color);
+            hwindow.SetLineWidth(3);
+            hwindow.SetDraw("margin");
+            if (roi.Type == ROIType.Circle && roi.CircleRadius > 0)
+            {
+                hwindow.DispCircle(roi.CircleCenterRow, roi.CircleCenterCol, roi.CircleRadius);
+            }
+            else if (roi.Type == ROIType.Line)
+            {
+                hwindow.DispLine((double)roi.Row1, (double)roi.Col1, (double)roi.Row2, (double)roi.Col2);
+            }
+            else if (roi.Row1 != roi.Row2 && roi.Col1 != roi.Col2)
+            {
+                hwindow.DispRectangle1((double)roi.Row1, (double)roi.Col1, (double)roi.Row2, (double)roi.Col2);
+            }
+        }
+
+        /// <summary>
+        /// 在 ROI 附近写入当前指令与工具检测值，帮助现场从单张图片确认结果来源。
+        /// 文本进入追溯图片；工具状态、日志字段与对外通信保持当前结果。
+        /// </summary>
+        /// <param name="hwindow">当前结果图片窗口。</param>
+        /// <param name="roi">文本锚点 ROI，可为空。</param>
+        /// <param name="command">当前 AOI 触发指令。</param>
+        /// <param name="detail">工具类型对应的检测值和判定文本。</param>
+        private static void DrawToolText(HWindow hwindow, ROI roi, string command, string detail)
+        {
+            if (hwindow == null)
+            {
+                return;
+            }
+
+            int row = roi == null ? 20 : Math.Max(5, Math.Min(roi.Row1, roi.Row2) + 5);
+            int col = roi == null ? 5 : Math.Max(5, Math.Min(roi.Col1, roi.Col2) + 5);
+            hwindow.SetColor("white");
+            hwindow.SetFont("Courier New-16");
+            hwindow.DispText($"指令={command ?? string.Empty}\n{detail}", "image", row, col, "white", "box", "true");
         }
 
         /// <summary>
