@@ -175,6 +175,7 @@
     <Compile Include="Model\SettingModel.cs" />
     <Compile Include="Utils\ConfigXmlSaveHelper.cs" />
     <Compile Include="Utils\DynamicPasswordAuthService.cs" />
+    <Compile Include="Utils\DynamicPasswordAuditLogger.cs" />
     <Compile Include="Utils\DualYDeploymentBootstrap.cs" />
     <Compile Include="Utils\ShutdownWatchdog.cs" />
     <Compile Include="Utils\TvStatusTranslator.cs" />

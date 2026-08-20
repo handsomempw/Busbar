@@ -699,6 +699,20 @@ namespace BusbarCompressionSystem.ViewModel
             }
         }
 
+        /// <summary>
+        /// 在 AOI 工程保存后生成本次授权会话的参数差异，写入本地专用审计文件并异步上报生产认证服务。
+        /// 审计失败只记录结果，不改变已完成的工程保存和现场检测状态。
+        /// </summary>
+        /// <param name="oldTool">打开编辑窗口前的工具快照，作为变更前值。</param>
+        /// <param name="newTool">已完成工程保存的当前工具参数，作为变更后值。</param>
+        /// <param name="toolFileIndex">当前工具在工程中的一基序号，对应 ToolN.xml。</param>
+        /// <param name="prjName">当前 AOI 工程名称，用于现场检索。</param>
+        /// <param name="authorizerName">动态密码服务返回的授权人姓名。</param>
+        /// <param name="authorizerNo">动态密码服务返回的授权人工号。</param>
+        /// <param name="reason">本次权限申请原因。</param>
+        /// <param name="privilegeLevel">本次授权的权限等级。</param>
+        /// <param name="periodMinutes">本次授权的有效期，单位为分钟。</param>
+        /// <param name="requestedReceivers">申请动态密码时通知的审批人列表。</param>
         private void ReportToolParameterDiff(
             ToolModel oldTool,
             ToolModel newTool,
@@ -713,6 +727,7 @@ namespace BusbarCompressionSystem.ViewModel
         {
             try
             {
+                string auditId = DataModel.FaraVisionDataModel.Settingmodel.PermissionAuditId;
                 var datas = new List<OperationData>();
 
                 // 上下文信息（不做 old/new 对比，仅用于追溯）
@@ -759,6 +774,7 @@ namespace BusbarCompressionSystem.ViewModel
                 bool hasRealDiff = datas.Any(d => d.DataType != "上下文");
                 if (!hasRealDiff)
                 {
+                    DynamicPasswordAuditLogger.Write(auditId, "参数审计", $"工程保存完成, 未检测到参数修改, 工程={prjName}, 工具序号={toolFileIndex}, 授权人={authorizerName}({authorizerNo})");
                     return;
                 }
 
@@ -794,7 +810,8 @@ namespace BusbarCompressionSystem.ViewModel
 
                 // UI仅提示概要信息，详细变更写入日志文件
                 writeLog($"[动态密码][参数审计] 触发上报：工程={prjName}, 工具序号={toolFileIndex}, 参数变更={diffCount}, 上下文={contextCount}, 合计={totalCount}", true);
-                WriteParameterAuditDetailToFile(prjName, toolFileIndex, authorizerName, authorizerNo, reason, requestedReceivers, datas);
+                DynamicPasswordAuditLogger.Write(auditId, "参数审计", $"工程保存完成, 参数变更={diffCount}, 工程={prjName}, 工具序号={toolFileIndex}, 授权人={authorizerName}({authorizerNo}), 原因={reason}");
+                WriteParameterAuditDetailToFile(auditId, prjName, toolFileIndex, authorizerName, authorizerNo, reason, requestedReceivers, datas);
 
                 Task.Run(() =>
                 {
@@ -804,10 +821,12 @@ namespace BusbarCompressionSystem.ViewModel
                         const bool useTestAuthentication = false;
                         OperationLog opLog = new OperationLog(useTestAuthentication);
                         opLog.Log(record);
+                        DynamicPasswordAuditLogger.Write(auditId, "服务端上报", $"结果=成功, 工程={prjName}, 工具序号={toolFileIndex}, 参数变更={diffCount}");
                         writeLog($"[动态密码][参数审计] 已上报：工程={prjName}, 工具序号={toolFileIndex}, 参数变更={diffCount}, 上下文={contextCount}, 合计={totalCount}", true);
                     }
                     catch (Exception ex)
                     {
+                        DynamicPasswordAuditLogger.Write(auditId, "服务端上报", $"结果=失败, 工程={prjName}, 工具序号={toolFileIndex}, 原因={ex.Message}");
                         writeLog($"[动态密码][参数审计] 上报失败：{ex.Message}", true);
                     }
                 });
@@ -825,7 +844,20 @@ namespace BusbarCompressionSystem.ViewModel
             return diffs;
         }
 
+        /// <summary>
+        /// 将授权上下文和参数差异逐项写入 <c>日志\动态密码审计</c>，供现场按日期和 AuditId 追溯。
+        /// 明细不进入通用界面日志，避免设备运行信息被大量参数内容淹没。
+        /// </summary>
+        /// <param name="auditId">当前授权会话关联编号。</param>
+        /// <param name="prjName">当前 AOI 工程名称。</param>
+        /// <param name="toolFileIndex">当前工具在工程中的一基序号。</param>
+        /// <param name="authorizerName">动态密码授权人姓名。</param>
+        /// <param name="authorizerNo">动态密码授权人工号。</param>
+        /// <param name="reason">权限申请原因。</param>
+        /// <param name="requestedReceivers">动态密码申请通知的审批人列表。</param>
+        /// <param name="datas">服务器上报与本地审计共用的上下文和参数差异集合。</param>
         private void WriteParameterAuditDetailToFile(
+            string auditId,
             string prjName,
             int toolFileIndex,
             string authorizerName,
@@ -836,16 +868,15 @@ namespace BusbarCompressionSystem.ViewModel
         {
             try
             {
-                // 明细仅写入日志文件，界面不展示（showdatarecord=false）
-                writeLog($"[动态密码][参数审计][明细] 工程={prjName}, 工具序号={toolFileIndex}, 授权人={authorizerName}({authorizerNo}), 原因={reason}", false);
+                DynamicPasswordAuditLogger.Write(auditId, "参数审计明细", $"工程={prjName}, 工具序号={toolFileIndex}, 授权人={authorizerName}({authorizerNo}), 原因={reason}");
                 if (!string.IsNullOrWhiteSpace(requestedReceivers))
                 {
-                    writeLog($"[动态密码][参数审计][明细] 通知接收人={requestedReceivers}", false);
+                    DynamicPasswordAuditLogger.Write(auditId, "参数审计明细", $"通知接收人={requestedReceivers}");
                 }
 
                 if (datas == null || datas.Count == 0)
                 {
-                    writeLog("[动态密码][参数审计][明细] 无明细数据", false);
+                    DynamicPasswordAuditLogger.Write(auditId, "参数审计明细", "无明细数据");
                     return;
                 }
 
@@ -857,7 +888,7 @@ namespace BusbarCompressionSystem.ViewModel
                     string dataType = d?.DataType ?? string.Empty;
                     string name = d?.DataName ?? string.Empty;
 
-                    writeLog($"[动态密码][参数审计][明细] {dataType}|{name}: {oldValue} -> {newValue}", false);
+                    DynamicPasswordAuditLogger.Write(auditId, "参数变更", $"{dataType}|{name}: {oldValue} -> {newValue}");
                 }
             }
             catch

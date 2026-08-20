@@ -216,6 +216,11 @@ namespace BusbarCompressionSystem
                     }
                 }
 
+                DynamicPasswordAuditLogger.Write(
+                    vml.Main.DataModel.FaraVisionDataModel.Settingmodel.PermissionAuditId,
+                    "权限关闭",
+                    $"方式=软件退出, 工程保存={(projectSaved ? "成功" : "失败")}");
+
                 // 工程保存完成后再释放动态密码授权，保留保存审计需要的授权人上下文。
                 DisposeAoiPermissionAuthService();
 
@@ -536,7 +541,9 @@ namespace BusbarCompressionSystem
         {
             if (vml.Main.DataModel.FaraVisionDataModel.Settingmodel.permission)
             {
+                string auditId = vml.Main.DataModel.FaraVisionDataModel.Settingmodel.PermissionAuditId;
                 bool saved = TrySaveBeforePermissionClose();
+                DynamicPasswordAuditLogger.Write(auditId, "权限关闭", $"方式=手动, 工程保存={(saved ? "成功" : "失败")}");
 
                 vml.Main.DataModel.FaraVisionDataModel.Settingmodel.permission = false;
                 DisposeAoiPermissionAuthService();
@@ -605,6 +612,7 @@ namespace BusbarCompressionSystem
                     // 验证通过：打开权限，并保持 service 存活以便监听“密码过期”事件自动回收权限
                     aoiPermissionCts = cts;
                     aoiPermissionAuthService = service;
+                    vml.Main.DataModel.FaraVisionDataModel.Settingmodel.PermissionAuditId = service.AuditId;
                     cts = null;
                     service = null;
 
@@ -632,6 +640,8 @@ namespace BusbarCompressionSystem
                         Dispatcher.Invoke(() =>
                         {
                             bool saved = TrySaveBeforePermissionClose();
+                            string auditId = vml.Main.DataModel.FaraVisionDataModel.Settingmodel.PermissionAuditId;
+                            DynamicPasswordAuditLogger.Write(auditId, "权限关闭", $"方式=密码过期, 工程保存={(saved ? "成功" : "失败")}");
 
                             vml.Main.DataModel.FaraVisionDataModel.Settingmodel.permission = false;
                             DisposeAoiPermissionAuthService();
@@ -648,6 +658,10 @@ namespace BusbarCompressionSystem
                     aoiPermissionAuthService.PasswordExpired += aoiPermissionExpiredHandler;
 
                     vml.Main.DataModel.FaraVisionDataModel.Settingmodel.permission = true;
+                    DynamicPasswordAuditLogger.Write(
+                        vml.Main.DataModel.FaraVisionDataModel.Settingmodel.PermissionAuditId,
+                        "授权开启",
+                        $"授权人={window.VerifyInfo.AuthorizerName}({window.VerifyInfo.AuthorizerNo}), 权限等级={window.VerifyInfo.PrivilegeLevel}, 有效期={authSetting.PeriodMinutes}分钟, 原因=AOI工具编辑/参数修改");
 
                     string periodTip = authSetting.PeriodMinutes > 0 ? $"（有效期 {authSetting.PeriodMinutes} 分钟）" : string.Empty;
                     NoticeBox.Show($"动态密码验证通过，已开启编辑权限{periodTip}", "提示", MessageBoxIcon.Success, true, 4000);
@@ -688,6 +702,7 @@ namespace BusbarCompressionSystem
 
             var settingModel = vml.Main.DataModel.FaraVisionDataModel.Settingmodel;
             settingModel.PermissionGrantedAt = DateTime.Now;
+            settingModel.PermissionAuditId = DynamicPasswordAuditLogger.CreateAuditId();
             settingModel.PermissionAuthorizerName = "开发调试";
             settingModel.PermissionAuthorizerNo = string.Empty;
             settingModel.PermissionPrivilegeLevel = 0;
@@ -696,6 +711,7 @@ namespace BusbarCompressionSystem
             settingModel.PermissionRequestedReceivers = string.Empty;
             settingModel.permission = true;
 
+            DynamicPasswordAuditLogger.Write(settingModel.PermissionAuditId, "授权开启", "方式=本地开发调试, 授权人=开发调试");
             vml.Main.writeLog("[动态密码][开发调试] 已启用本地 AOI 编辑权限：开发配置已开启，当前 DEBUG 会话使用本地授权", true);
             NoticeBox.Show("Debug 调试会话已启用本地编辑权限", "提示", MessageBoxIcon.Info, true, 4000);
             return true;
@@ -818,6 +834,7 @@ namespace BusbarCompressionSystem
                 vml.Main.DataModel.FaraVisionDataModel.Settingmodel.PermissionPrivilegeLevel = 0;
                 vml.Main.DataModel.FaraVisionDataModel.Settingmodel.PermissionPeriodMinutes = 0;
                 vml.Main.DataModel.FaraVisionDataModel.Settingmodel.PermissionReason = string.Empty;
+                vml.Main.DataModel.FaraVisionDataModel.Settingmodel.PermissionAuditId = string.Empty;
             }
             catch { }
         }

@@ -22,6 +22,11 @@ namespace BusbarCompressionSystem.Utils
         private bool disposed;
 
         /// <summary>
+        /// 本次动态密码申请、验证和权限回收共用的审计关联编号。
+        /// </summary>
+        public string AuditId { get; }
+
+        /// <summary>
         /// 动态密码过期事件（用于自动回收权限）
         /// </summary>
         public event EventHandler PasswordExpired;
@@ -36,6 +41,7 @@ namespace BusbarCompressionSystem.Utils
             }
 
             this.equipNo = equipNo;
+            AuditId = DynamicPasswordAuditLogger.CreateAuditId();
 
             // AOI 编辑权限属于现场受控操作，主程序每次均连接生产认证服务。
             const bool useTestAuthentication = false;
@@ -75,30 +81,45 @@ namespace BusbarCompressionSystem.Utils
                     throw new InvalidOperationException("动态密码认证配置：有效期分钟必须大于0");
                 }
 
+                DynamicPasswordAuditLogger.Write(AuditId, "申请开始", $"应用={applicationName}, 权限等级={privilegeLevel}, 有效期={periodMinutes}分钟, 原因={reason}");
+
                 List<Receiver> result;
-
-                // 接收人工号不为空时，按现场要求指定管理员；否则走系统自动选择
-                if (!string.IsNullOrWhiteSpace(setting.ReceiverNo))
+                try
                 {
-                    result = dynamicPassword.RequestPasswordManualReceiver(
-                        setting.ReceiverNo,
-                        equipNo,
-                        applicationName,
-                        privilegeLevel,
-                        periodMinutes,
-                        reason) ?? new List<Receiver>();
-                }
-                else
-                {
-                    result = dynamicPassword.RequestPassword(
-                        equipNo,
-                        applicationName,
-                        privilegeLevel,
-                        periodMinutes,
-                        reason) ?? new List<Receiver>();
-                }
+                    // 接收人工号不为空时，按现场要求指定管理员；否则走系统自动选择
+                    if (!string.IsNullOrWhiteSpace(setting.ReceiverNo))
+                    {
+                        result = dynamicPassword.RequestPasswordManualReceiver(
+                            setting.ReceiverNo,
+                            equipNo,
+                            applicationName,
+                            privilegeLevel,
+                            periodMinutes,
+                            reason) ?? new List<Receiver>();
+                    }
+                    else
+                    {
+                        result = dynamicPassword.RequestPassword(
+                            equipNo,
+                            applicationName,
+                            privilegeLevel,
+                            periodMinutes,
+                            reason) ?? new List<Receiver>();
+                    }
 
-                return (IReadOnlyList<Receiver>)result;
+                    DynamicPasswordAuditLogger.Write(AuditId, "申请结果", $"结果={(result.Count > 0 ? "成功" : "未找到接收人")}, 接收人数={result.Count}");
+                    return (IReadOnlyList<Receiver>)result;
+                }
+                catch (OperationCanceledException)
+                {
+                    DynamicPasswordAuditLogger.Write(AuditId, "申请取消", "操作已取消");
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    DynamicPasswordAuditLogger.Write(AuditId, "申请失败", ex.Message);
+                    throw;
+                }
             }, cancellationToken);
         }
 
@@ -122,26 +143,43 @@ namespace BusbarCompressionSystem.Utils
                     throw new InvalidOperationException("动态密码认证配置：应用名称不能为空");
                 }
 
-                // 注意：不要记录或打印动态密码本身（避免泄露）
-                var verifyResult = dynamicPassword.VerifyPassword(equipNo, applicationName, password);
+                DynamicPasswordAuditLogger.Write(AuditId, "验证开始", $"应用={applicationName}");
+                try
+                {
+                    // 注意：不要记录或打印动态密码本身（避免泄露）
+                    var verifyResult = dynamicPassword.VerifyPassword(equipNo, applicationName, password);
 
-                // 第三方库返回类型不强依赖：这里用 dynamic 映射必要字段
-                dynamic v = verifyResult;
-                bool ok = v != null && v.VerifyStatus;
-                string message = v != null ? (string)(v.VerifyMessage ?? string.Empty) : "验证失败（无返回结果）";
+                    // 第三方库返回类型不强依赖：这里用 dynamic 映射必要字段
+                    dynamic v = verifyResult;
+                    bool ok = v != null && v.VerifyStatus;
+                    string message = v != null ? (string)(v.VerifyMessage ?? string.Empty) : "验证失败（无返回结果）";
 
-                return new DynamicPasswordVerifyInfo(
-                    ok,
-                    message,
-                    v != null ? (string)(v.AuthorizerName ?? string.Empty) : string.Empty,
-                    v != null ? (string)(v.AuthorizerNo ?? string.Empty) : string.Empty,
-                    v != null ? (int)v.PrivilegeLevel : 0,
-                    v != null ? (string)(v.ApplicationName ?? string.Empty) : applicationName);
+                    var verifyInfo = new DynamicPasswordVerifyInfo(
+                        ok,
+                        message,
+                        v != null ? (string)(v.AuthorizerName ?? string.Empty) : string.Empty,
+                        v != null ? (string)(v.AuthorizerNo ?? string.Empty) : string.Empty,
+                        v != null ? (int)v.PrivilegeLevel : 0,
+                        v != null ? (string)(v.ApplicationName ?? string.Empty) : applicationName);
+                    DynamicPasswordAuditLogger.Write(AuditId, "验证结果", $"结果={(verifyInfo.VerifyStatus ? "成功" : "失败")}, 授权人={verifyInfo.AuthorizerName}({verifyInfo.AuthorizerNo}), 原因={verifyInfo.VerifyMessage}");
+                    return verifyInfo;
+                }
+                catch (OperationCanceledException)
+                {
+                    DynamicPasswordAuditLogger.Write(AuditId, "验证取消", "操作已取消");
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    DynamicPasswordAuditLogger.Write(AuditId, "验证异常", ex.Message);
+                    throw;
+                }
             }, cancellationToken);
         }
 
         private void OnPasswordExpired(object sender, EventArgs e)
         {
+            DynamicPasswordAuditLogger.Write(AuditId, "密码过期", "认证服务通知授权会话到期");
             // 密码过期后通过事件通知上层，便于自动回收“编辑权限”
             PasswordExpired?.Invoke(this, EventArgs.Empty);
         }
