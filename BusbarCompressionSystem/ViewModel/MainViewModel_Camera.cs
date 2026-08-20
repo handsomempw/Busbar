@@ -159,7 +159,8 @@ namespace BusbarCompressionSystem.ViewModel
                 App.Current.Dispatcher.BeginInvoke(new Action(() =>
                 {
                     OnReceiveProcess(DataModel.Settingmodel.HWindow1, myEventArgs.Image, myEventArgs.Height, myEventArgs.Width, 1);
-                    SaveImage(myEventArgs.Image, DataModel.Processmodel.TakePhotoTestModel.Productinfo.SN, "拍照留底", 1, "OK");
+                    Productinfo productInfo = DataModel.Processmodel.TakePhotoTestModel.Productinfo;
+                    SaveImage(myEventArgs.Image, productInfo?.SN, productInfo?.PartNOID, "拍照留底", 1, "OK");
                     DataModel.Settingmodel.camedata1.CameraModel.finished = true;
 
                     GC.Collect();
@@ -183,7 +184,8 @@ namespace BusbarCompressionSystem.ViewModel
                 App.Current.Dispatcher.BeginInvoke(new Action(() =>
                 {
                     OnReceiveProcess(DataModel.Settingmodel.HWindow2, myEventArgs.Image, myEventArgs.Height, myEventArgs.Width, 2);
-                    SaveImage(myEventArgs.Image, DataModel.Processmodel.TakePhotoTestModel.Productinfo.SN, "拍照留底", 2, "OK");
+                    Productinfo productInfo = DataModel.Processmodel.TakePhotoTestModel.Productinfo;
+                    SaveImage(myEventArgs.Image, productInfo?.SN, productInfo?.PartNOID, "拍照留底", 2, "OK");
                     DataModel.Settingmodel.camedata2.CameraModel.finished = true;
 
                     GC.Collect();
@@ -225,7 +227,8 @@ namespace BusbarCompressionSystem.ViewModel
                 App.Current.Dispatcher.BeginInvoke(new Action(() =>
                 {
                     OnReceiveProcess(DataModel.Settingmodel.HWindow3, myEventArgs.Image, myEventArgs.Height, myEventArgs.Width, 3);
-                    SaveImage(myEventArgs.Image, DataModel.Processmodel.TakePhotoTestModel.Productinfo.SN, "拍照留底", 3, "OK");
+                    Productinfo productInfo = DataModel.Processmodel.TakePhotoTestModel.Productinfo;
+                    SaveImage(myEventArgs.Image, productInfo?.SN, productInfo?.PartNOID, "拍照留底", 3, "OK");
                     DataModel.Settingmodel.camedata3.CameraModel.finished = true;
                     GC.Collect();
                 }));
@@ -982,44 +985,38 @@ namespace BusbarCompressionSystem.ViewModel
                         {
                         try
                         {
-                            if (tool.ToolStatus == ToolStatus.OK)
+                            string resultFolder = tool.ToolStatus == ToolStatus.OK ? "OK" : "NG";
+                            bool shouldSave = tool.ToolStatus == ToolStatus.OK
+                                ? DataModel.FaraVisionDataModel.Settingmodel.ImageSaveSetting.SaveOK
+                                : DataModel.FaraVisionDataModel.Settingmodel.ImageSaveSetting.SaveNG;
+                            if (shouldSave)
                             {
-                                if (DataModel.FaraVisionDataModel.Settingmodel.ImageSaveSetting.SaveOK)
+                                DateTime captureTime = DateTime.Now;
+                                Productinfo productInfo = DataModel.Processmodel.TakePhotoTestMode2.Productinfo;
+                                string sn = productInfo?.SN;
+                                string partNoId = productInfo?.PartNOID;
+                                if (string.IsNullOrWhiteSpace(sn))
                                 {
-
-                                    string savefilename = $"{DataModel.FaraVisionDataModel.Settingmodel.ImageSaveSetting.ImageSaveDir}\\外观检测\\{DateTime.Now.ToString("yyyyMMdd")}\\OK\\{DataModel.FaraVisionDataModel.Processmodel.BarcodeStr}-{tool.Index.ToString("00")}-{tool.Name}-{tool.ToolStatus}-{DateTime.Now.ToString("yyyyMMddHHmmssFFF")}.jpg";
-                                    try
-                                    {
-                                        savefilename = $"{DataModel.FaraVisionDataModel.Settingmodel.ImageSaveSetting.ImageSaveDir}\\外观检测\\{DateTime.Now.ToString("yyyyMMdd")}\\OK\\{DataModel.FaraVisionDataModel.Processmodel.SNList[DataModel.FaraVisionDataModel.Processmodel.Tools[i].ProductPositionNO]}-{tool.Index.ToString("00")}-{tool.Name}-{tool.ToolStatus}-{DateTime.Now.ToString("yyyyMMddHHmmssFFF")}.jpg";
-                                    }
-                                    catch {; }
-
-                                    string dir = Path.GetDirectoryName(savefilename);
-                                    if (!Directory.Exists(dir))
-                                    { Directory.CreateDirectory(dir); }
-                                    HOperatorSet.WriteImage(Image, "jpg", 0, savefilename);
-                                    // 运行态追溯：记录该工具本次落盘图片路径（便于对齐“日志记录 ↔ 图片文件”）
-                                    tool.LastResultImagePath = savefilename;
+                                    sn = DataModel.FaraVisionDataModel.Processmodel.BarcodeStr;
                                 }
-                            }
-                            else
-                            {
-                                if (DataModel.FaraVisionDataModel.Settingmodel.ImageSaveSetting.SaveNG)
+
+                                string specification = ResolveImageSpecificationName(partNoId);
+                                string toolName = SanitizeImagePathPart(tool.Name, "NOTOOL");
+                                string savefilename = Path.Combine(
+                                    BuildImageArchiveDirectory(
+                                        DataModel.FaraVisionDataModel.Settingmodel.ImageSaveSetting.ImageSaveDir,
+                                        "外观检测",
+                                        partNoId,
+                                        captureTime,
+                                        resultFolder),
+                                    $"{specification}-{SanitizeImagePathPart(sn, "NOSN")}-{tool.Index:00}-{toolName}-{tool.ToolStatus}-{captureTime:yyyyMMddHHmmssFFF}.jpg");
+                                string dir = Path.GetDirectoryName(savefilename);
+                                if (!Directory.Exists(dir))
                                 {
-                                    string savefilename = $"{DataModel.FaraVisionDataModel.Settingmodel.ImageSaveSetting.ImageSaveDir}\\外观检测\\{DateTime.Now.ToString("yyyyMMdd")}\\NG\\{DataModel.FaraVisionDataModel.Processmodel.BarcodeStr}-{tool.Index.ToString("00")}-{tool.Name}-{tool.ToolStatus}-{DateTime.Now.ToString("yyyyMMddHHmmssFFF")}.jpg";
-                                    try
-                                    {
-                                        savefilename = $"{DataModel.FaraVisionDataModel.Settingmodel.ImageSaveSetting.ImageSaveDir}\\外观检测\\{DateTime.Now.ToString("yyyyMMdd")}\\NG\\{DataModel.FaraVisionDataModel.Processmodel.SNList[DataModel.FaraVisionDataModel.Processmodel.Tools[i].ProductPositionNO]}-{tool.Index.ToString("00")}-{tool.Name}-{tool.ToolStatus}-{DateTime.Now.ToString("yyyyMMddHHmmssFFF")}.jpg";
-                                    }
-                                    catch {; }
-                                    string dir = Path.GetDirectoryName(savefilename);
-                                    if (!Directory.Exists(dir))
-                                    { Directory.CreateDirectory(dir); }
-                                    HOperatorSet.WriteImage(Image, "jpg", 0, savefilename);
-                                    // 运行态追溯：记录该工具本次落盘图片路径（便于对齐“日志记录 ↔ 图片文件”）
-                                    tool.LastResultImagePath = savefilename;
-
+                                    Directory.CreateDirectory(dir);
                                 }
+                                HOperatorSet.WriteImage(Image, "jpg", 0, savefilename);
+                                tool.LastResultImagePath = savefilename;
                             }
                         }
                         catch (Exception ex)
@@ -1312,32 +1309,32 @@ namespace BusbarCompressionSystem.ViewModel
 
         /// <summary>
         /// 生成尺寸测量找边失败后的落盘复测图片路径。
-        /// 图片放入 AOI 当天 NG 目录，文件名带 Remeasure 标记，便于和最终 OK/NG/NG2 图片区分。
+        /// 图片沿用 AOI 的规格目录和当天 NG 目录，文件名带 Remeasure 标记，便于和最终 OK/NG/NG2 图片区分。
         /// </summary>
         /// <param name="tool">当前尺寸测量工具，提供产品位置、工具序号和工具名。</param>
         /// <returns>用于写入和读回复测的 JPG 图片完整路径。</returns>
         private string BuildDimensionRemeasureImagePath(ToolModel tool)
         {
             string imageSaveDir = DataModel.FaraVisionDataModel.Settingmodel.ImageSaveSetting.ImageSaveDir;
-            if (string.IsNullOrWhiteSpace(imageSaveDir))
+            Productinfo productInfo = DataModel.Processmodel.TakePhotoTestMode2.Productinfo;
+            string sn = productInfo?.SN;
+            if (string.IsNullOrWhiteSpace(sn))
             {
-                imageSaveDir = Environment.CurrentDirectory;
+                sn = DataModel.FaraVisionDataModel.Processmodel.BarcodeStr;
             }
 
-            string sn = DataModel.FaraVisionDataModel.Processmodel.BarcodeStr ?? "UNKNOWN";
-            try
-            {
-                sn = DataModel.FaraVisionDataModel.Processmodel.SNList[tool.ProductPositionNO];
-            }
-            catch
-            {
-                if (string.IsNullOrWhiteSpace(sn))
-                {
-                    sn = "UNKNOWN";
-                }
-            }
-
-            return $"{imageSaveDir}\\外观检测\\{DateTime.Now:yyyyMMdd}\\NG\\{sn}-{tool.Index:00}-{tool.Name}-NG2-Remeasure-{DateTime.Now:yyyyMMddHHmmssFFF}.jpg";
+            string partNoId = productInfo?.PartNOID;
+            DateTime captureTime = DateTime.Now;
+            string specification = ResolveImageSpecificationName(partNoId);
+            string directory = BuildImageArchiveDirectory(
+                imageSaveDir,
+                "外观检测",
+                partNoId,
+                captureTime,
+                "NG");
+            return Path.Combine(
+                directory,
+                $"{specification}-{SanitizeImagePathPart(sn, "NOSN")}-{tool.Index:00}-{SanitizeImagePathPart(tool.Name, "NOTOOL")}-NG2-Remeasure-{captureTime:yyyyMMddHHmmssFFF}.jpg");
         }
 
         /// <summary>

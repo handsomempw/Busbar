@@ -3479,13 +3479,110 @@ namespace BusbarCompressionSystem.ViewModel
 
         #endregion
         #region 照片存储
-        public void SaveImage(HObject Image, string sn, string type, int index, string Result)
+
+        /// <summary>
+        /// 清理图片目录或文件名中的业务字段。规格、SN、工具名和结果字段统一使用该口径，
+        /// 避免 MES 或工程配置中的特殊字符导致现场追溯图片无法落盘。
+        /// </summary>
+        /// <param name="value">MES、工程配置或视觉工具提供的原始字段。</param>
+        /// <param name="fallback">原始字段为空或清理后为空时使用的稳定追溯标识。</param>
+        /// <returns>可作为 Windows 单级目录名或文件名片段的文本。</returns>
+        private static string SanitizeImagePathPart(string value, string fallback)
         {
-            string savefilename = $"{DataModel.Settingmodel.ImageSaveSetting.ImageSaveDir}\\{DateTime.Now.ToString("yyyyMMdd")}\\{type}\\{Result}\\{sn}-{index.ToString("00")}-{DateTime.Now.ToString("yyyyMMddHHmmssFFF")}.jpg";
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return fallback;
+            }
+
+            char[] invalidChars = Path.GetInvalidFileNameChars();
+            var builder = new StringBuilder(value.Length);
+            foreach (char character in value.Trim())
+            {
+                builder.Append(invalidChars.Contains(character) ? '_' : character);
+            }
+
+            string sanitized = builder.ToString().Trim().TrimEnd('.');
+            return string.IsNullOrWhiteSpace(sanitized) ? fallback : sanitized;
+        }
+
+        /// <summary>
+        /// 解析图片归档规格。当前产品的 MES 规格优先，运行中的产线规格和 AOI 工程名称依次兼容；
+        /// 全部为空时使用 UNKNOWN_SPEC，使点检或异常回图仍有明确归档位置。
+        /// </summary>
+        /// <param name="productPartNoId">扫码建账时冻结到当前产品上下文的 MES 规格编码。</param>
+        /// <returns>完成路径字符清理的规格目录名和文件名前缀。</returns>
+        private string ResolveImageSpecificationName(string productPartNoId)
+        {
+            string specification = productPartNoId;
+            if (string.IsNullOrWhiteSpace(specification))
+            {
+                specification = DataModel?.Processmodel?.PartNOID;
+            }
+            if (string.IsNullOrWhiteSpace(specification))
+            {
+                specification = DataModel?.FaraVisionDataModel?.Settingmodel?.Name;
+            }
+
+            return SanitizeImagePathPart(specification, "UNKNOWN_SPEC");
+        }
+
+        /// <summary>
+        /// 生成生产图片归档目录。拍照留底与 AOI 外观检测共享“类型/规格/日期/结果”层级，
+        /// 图片保存位置变化不影响检测判定、PLC、MES 和 SQLite 流程。
+        /// </summary>
+        /// <param name="imageSaveDir">图片保存配置中的根目录；为空时使用程序运行目录。</param>
+        /// <param name="imageType">拍照留底或外观检测等业务分类。</param>
+        /// <param name="productPartNoId">当前产品上下文中的 MES 规格编码。</param>
+        /// <param name="captureTime">本张图片的采集时间，用于生成日期目录。</param>
+        /// <param name="result">OK、NG 等图片结果分类。</param>
+        /// <returns>包含业务类型、规格、日期和结果的图片目录。</returns>
+        private string BuildImageArchiveDirectory(
+            string imageSaveDir,
+            string imageType,
+            string productPartNoId,
+            DateTime captureTime,
+            string result)
+        {
+            string rootDirectory = string.IsNullOrWhiteSpace(imageSaveDir)
+                ? Environment.CurrentDirectory
+                : imageSaveDir;
+            return Path.Combine(
+                rootDirectory,
+                SanitizeImagePathPart(imageType, "图片"),
+                ResolveImageSpecificationName(productPartNoId),
+                captureTime.ToString("yyyyMMdd"),
+                SanitizeImagePathPart(result, "UNKNOWN"));
+        }
+
+        /// <summary>
+        /// 保存拍照留底工位的原始图片。文件名同时携带规格、SN、相机序号和采集时间，
+        /// 单张图片离开归档目录后仍可关联到现场产品规格。
+        /// </summary>
+        /// <param name="image">相机回调提供的 HALCON 图像。</param>
+        /// <param name="sn">本轮拍照留底产品的 SN。</param>
+        /// <param name="partNoId">本轮扫码建账时冻结的 MES 规格编码。</param>
+        /// <param name="type">图片业务分类，拍照留底工位传入“拍照留底”。</param>
+        /// <param name="index">拍照相机序号，用于区分同一产品的多张留底图片。</param>
+        /// <param name="result">当前图片归档结果，现有拍照留底流程传入 OK。</param>
+        public void SaveImage(HObject image, string sn, string partNoId, string type, int index, string result)
+        {
+            DateTime captureTime = DateTime.Now;
+            string specification = ResolveImageSpecificationName(partNoId);
+            string directory = BuildImageArchiveDirectory(
+                DataModel.Settingmodel.ImageSaveSetting.ImageSaveDir,
+                type,
+                partNoId,
+                captureTime,
+                result);
+            string fileName =
+                $"{specification}-{SanitizeImagePathPart(sn, "NOSN")}-{index:00}-{captureTime:yyyyMMddHHmmssFFF}.jpg";
+            string savefilename = Path.Combine(directory, fileName);
             string dir = Path.GetDirectoryName(savefilename);
             if (!Directory.Exists(dir))
-            { Directory.CreateDirectory(dir); }
-            HOperatorSet.WriteImage(Image, "jpg", 0, savefilename);
+            {
+                Directory.CreateDirectory(dir);
+            }
+            HOperatorSet.WriteImage(image, "jpg", 0, savefilename);
         }
         #endregion
 
