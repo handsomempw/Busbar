@@ -78,6 +78,20 @@ namespace BusbarCompressionSystem.Model.Setting1
         [XmlElement("报工失败报警使能")]
         public bool ReportFailAlarmEnabled { get; set; } = true;
 
+        private bool _hideProductRecordPressureColumns;
+
+        /// <summary>
+        /// 主界面产品记录是否隐藏压力最大值、均值、最小值与压力结果四列。
+        /// 工程「配置数据.xml」保存该值；仅控制主界面表格列显示，压力采集、判定与落库口径不变。
+        /// 配置缺该节点时按不隐藏处理，保持历史界面仍可见压力栏。
+        /// </summary>
+        [XmlElement("隐藏产品记录压力栏")]
+        public bool HideProductRecordPressureColumns
+        {
+            get => _hideProductRecordPressureColumns;
+            set => Set(ref _hideProductRecordPressureColumns, value);
+        }
+
         /// <summary>
         /// 双Y电测部署的旧配置兼容值。首次升级时用于生成“配置\双Y电测配置.xml”；正式界面选型由独立配置接管，
         /// 运行中的产品流向仍以独立配置指定的 PLC 模式线圈为准。

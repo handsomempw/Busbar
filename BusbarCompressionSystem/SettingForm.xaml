@@ -8,7 +8,7 @@
         xmlns:sys="clr-namespace:System;assembly=mscorlib"
            xmlns:model="clr-namespace:BusbarCompressionSystem.Model"
         mc:Ignorable="d"
-        Title="仪器配置" Height="400" Width="420"
+        Title="仪器配置" Height="430" Width="420"
         WindowStartupLocation="CenterScreen"
         Loaded="WindowX_Loaded"    
         Closing="WindowX_Closing"
@@ -29,6 +29,7 @@
                     <RowDefinition/>
                     <RowDefinition/>
                     <RowDefinition/>
+                    <RowDefinition Height="auto"/>
                     <RowDefinition Height="auto"/>
                     <RowDefinition Height="auto"/>
                     <RowDefinition Height="auto"/>
@@ -67,11 +68,17 @@
                     报工失败报警使能（写禁止进站线圈 + 弹窗）
                 </CheckBox>
 
-                <TextBlock Grid.Row="5"  Grid.Column="0" Text="仪器扫描时间:"></TextBlock>
-                <TextBlock Grid.Row="5"  Grid.Column="1" Text="{Binding Processmodel.CheckData.TVMeterCheckTime}" ></TextBlock>
+                <CheckBox Grid.Row="5" Grid.Column="0" Grid.ColumnSpan="3" Margin="5,2"
+                          IsChecked="{Binding Settingmodel.SETTING_DATA.HideProductRecordPressureColumns}"
+                          ToolTip="勾选后主界面产品记录隐藏压力最大值/均值/最小值与压力结果；采集、判定与落库仍照常">
+                    隐藏产品记录压力栏（最大/均值/最小/结果）
+                </CheckBox>
+
+                <TextBlock Grid.Row="6"  Grid.Column="0" Text="仪器扫描时间:"></TextBlock>
+                <TextBlock Grid.Row="6"  Grid.Column="1" Text="{Binding Processmodel.CheckData.TVMeterCheckTime}" ></TextBlock>
                 
                 
-                <Button x:Name="config1"  Grid.Row="6" Grid.ColumnSpan="3" Margin="5"  Padding="10,5"
+                <Button x:Name="config1"  Grid.Row="7" Grid.ColumnSpan="3" Margin="5"  Padding="10,5"
                          p:ButtonHelper.CornerRadius="15" Foreground="White" Background="Orange"
                          Click="config1_Click"
                         >确定更新仪器配置</Button>

@@ -623,10 +623,15 @@
 
                     <DataGridTextColumn Header="阻值" Binding="{Binding Res}"></DataGridTextColumn>
 
-                    <DataGridTextColumn Header="压力最大值" Binding="{Binding Pressure_Max}"></DataGridTextColumn>
-                    <DataGridTextColumn Header="压力均值" Binding="{Binding Pressure_Average}"></DataGridTextColumn>
-                    <DataGridTextColumn Header="压力最小值" Binding="{Binding  Pressure_Min}"></DataGridTextColumn>
-                    <DataGridTextColumn Header="压力结果" Binding="{Binding Pressure_Result}"></DataGridTextColumn>
+                    <!-- 显示受「隐藏产品记录压力栏」配置控制；仅影响主界面列可见性，采集/判定/落库仍照常 -->
+                    <DataGridTextColumn Header="压力最大值" Binding="{Binding Pressure_Max}"
+                                        Visibility="{Binding Source={StaticResource Locator}, Path=Main.DataModel.Settingmodel.SETTING_DATA.HideProductRecordPressureColumns, Converter={StaticResource Bool2Visible_Converter_INV}}"/>
+                    <DataGridTextColumn Header="压力均值" Binding="{Binding Pressure_Average}"
+                                        Visibility="{Binding Source={StaticResource Locator}, Path=Main.DataModel.Settingmodel.SETTING_DATA.HideProductRecordPressureColumns, Converter={StaticResource Bool2Visible_Converter_INV}}"/>
+                    <DataGridTextColumn Header="压力最小值" Binding="{Binding  Pressure_Min}"
+                                        Visibility="{Binding Source={StaticResource Locator}, Path=Main.DataModel.Settingmodel.SETTING_DATA.HideProductRecordPressureColumns, Converter={StaticResource Bool2Visible_Converter_INV}}"/>
+                    <DataGridTextColumn Header="压力结果" Binding="{Binding Pressure_Result}"
+                                        Visibility="{Binding Source={StaticResource Locator}, Path=Main.DataModel.Settingmodel.SETTING_DATA.HideProductRecordPressureColumns, Converter={StaticResource Bool2Visible_Converter_INV}}"/>
 
 
                     <DataGridTextColumn Header="视觉检测结果" Binding="{Binding AppearanceInspection}"></DataGridTextColumn>
