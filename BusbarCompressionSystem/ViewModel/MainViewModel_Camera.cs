@@ -1329,6 +1329,7 @@ namespace BusbarCompressionSystem.ViewModel
         {
             HWindow resultWindow = null;
             HObject resultImage = null;
+            Bitmap annotatedImage = null;
             try
             {
                 HTuple width;
@@ -1342,10 +1343,22 @@ namespace BusbarCompressionSystem.ViewModel
                 resultWindow = new HWindow(0, 0, imageWidth, imageHeight, IntPtr.Zero, "invisible", "");
                 resultWindow.SetPart(0, 0, imageHeight - 1, imageWidth - 1);
                 resultWindow.DispObj(image);
-                DrawToolResultOverlay(resultWindow, tool, command);
+                DrawToolResultOverlay(resultWindow, tool);
                 HOperatorSet.SetWindowParam(resultWindow, "flush", "true");
                 HOperatorSet.DumpWindowImage(out resultImage, resultWindow);
-                HOperatorSet.WriteImage(resultImage, "jpg", 0, savefilename);
+
+                try
+                {
+                    Hobject2Bitmap.HobjectToBitmap24(resultImage, out annotatedImage);
+                    DrawToolText(annotatedImage, tool, command, BuildToolResultDetail(tool));
+                    annotatedImage.Save(savefilename, System.Drawing.Imaging.ImageFormat.Jpeg);
+                }
+                catch (Exception textEx)
+                {
+                    // ROI 已进入 resultImage；文字渲染环境异常时保留框选范围，确保现场仍能核对本次检测区域。
+                    writeLog($"视觉->结果图文字标注失败，保留ROI图片：{textEx.Message}", false);
+                    HOperatorSet.WriteImage(resultImage, "jpg", 0, savefilename);
+                }
             }
             catch (Exception ex)
             {
@@ -1355,20 +1368,21 @@ namespace BusbarCompressionSystem.ViewModel
             }
             finally
             {
+                annotatedImage?.Dispose();
                 resultImage?.Dispose();
                 resultWindow?.Dispose();
             }
         }
 
         /// <summary>
-        /// 在独立结果窗口上绘制工具级追溯信息。
-        /// 各工具只读取当前检测周期已经生成的 ROI 和运行态结果字段，避免保存图片时重复执行算法。
-        /// 该图层服务落盘图片；工具状态计算保持检测阶段结果，AOI 后续工具保持原始图像输入。
+        /// 在独立结果窗口上绘制工具级 ROI、十字和定位图层。
+        /// 该图层直接使用 HALCON 原图坐标，保证框选范围与算法本轮生效区域一致；文字由结果窗口转出的位图统一处理，
+        /// 避免生产电脑的 HALCON 字体列表影响追溯图片。该图层只作用于落盘图片，工具状态计算、AOI 后续工具输入、
+        /// 机器人回包和 PLC/MES 流程保持当前口径。
         /// </summary>
         /// <param name="hwindow">已显示原图的结果窗口。</param>
         /// <param name="tool">当前工具，包含 ROI、工具类型和运行态结果。</param>
-        /// <param name="command">当前 AOI 触发指令。</param>
-        private void DrawToolResultOverlay(HWindow hwindow, ToolModel tool, string command)
+        private void DrawToolResultOverlay(HWindow hwindow, ToolModel tool)
         {
             if (hwindow == null || tool == null)
             {
@@ -1385,8 +1399,6 @@ namespace BusbarCompressionSystem.ViewModel
                                 ? ResolveEffectiveRoi(tool.DimensionROI, out _, out _)
                                 : tool.DimensionROI;
                             DrawRoiOverlay(hwindow, roi, "green");
-                            DrawToolText(hwindow, roi, command,
-                                $"面积={tool.ActualDimension:F0}px²\n范围={tool.MinDimension:F0}~{tool.MaxDimension:F0}px²\n结果={tool.ToolStatus}");
                             break;
                         }
                     case TestModes.尺寸测量:
@@ -1399,15 +1411,11 @@ namespace BusbarCompressionSystem.ViewModel
                                 : tool.MeasureObject2ROI;
                             DrawRoiOverlay(hwindow, roi1, "green");
                             DrawRoiOverlay(hwindow, roi2, "yellow");
-                            DrawToolText(hwindow, roi1, command,
-                                $"尺寸={tool.ActualMeasureValue:F3}mm\n像素={tool.LastMeasurePixelValue:F2}px\n范围={tool.MinMeasureValue:F3}~{tool.MaxMeasureValue:F3}mm\n结果={tool.ToolStatus}");
                             break;
                         }
                     case TestModes.直线检测:
                         {
                             DrawRoiOverlay(hwindow, tool.LineDetectROI, "green");
-                            DrawToolText(hwindow, tool.LineDetectROI, command,
-                                $"角度={tool.ActualLineAngle:F2}°\n偏差={tool.ActualAngleDeviation:F2}°\n命中率={tool.LastEdgeHitRatio:P0}\n分数={tool.LastLineDetectScore:F2}\n结果={tool.ToolStatus}");
                             break;
                         }
                     case TestModes.模板匹配:
@@ -1420,15 +1428,11 @@ namespace BusbarCompressionSystem.ViewModel
                                 hwindow.SetLineWidth(2);
                                 hwindow.DispCross(tool.ActualY, tool.ActualX, 12, 0);
                             }
-                            DrawToolText(hwindow, tool.PositionROI, command,
-                                $"Score={tool.ActualScore:F3}\n位置=({tool.ActualX:F1},{tool.ActualY:F1})\n角度={tool.ActualAngle:F2}°\nΔX={tool.DeltaX:F3}mm\nΔY={tool.DeltaY:F3}mm\n结果={tool.ToolStatus}");
                             break;
                         }
                     case TestModes.二维码:
                         {
                             DrawRoiOverlay(hwindow, tool.BarCodeROI, "green");
-                            DrawToolText(hwindow, tool.BarCodeROI, command,
-                                $"二维码={tool.BarcodeStr}\n结果={tool.ToolStatus}");
                             break;
                         }
                 }
@@ -1471,25 +1475,71 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
-        /// 在 ROI 附近写入当前指令与工具检测值，帮助现场从单张图片确认结果来源。
-        /// 文本进入追溯图片；工具状态、日志字段与对外通信保持当前结果。
+        /// 汇总当前工具已经完成的检测字段，用于生成落盘图片的左上角追溯文字。
+        /// 文字字段只读取本轮运行态，不重跑算法；工具状态、日志字段和对外通信保持当前结果。
         /// </summary>
-        /// <param name="hwindow">当前结果图片窗口。</param>
-        /// <param name="roi">文本锚点 ROI，可为空。</param>
-        /// <param name="command">当前 AOI 触发指令。</param>
-        /// <param name="detail">工具类型对应的检测值和判定文本。</param>
-        private static void DrawToolText(HWindow hwindow, ROI roi, string command, string detail)
+        /// <param name="tool">当前已完成检测的工具，提供工具类型和对应运行态检测值。</param>
+        /// <returns>用于结果图片的多行检测信息；未识别工具类型返回空文本。</returns>
+        private static string BuildToolResultDetail(ToolModel tool)
         {
-            if (hwindow == null)
+            if (tool == null)
+            {
+                return string.Empty;
+            }
+
+            switch (tool.TestMode)
+            {
+                case TestModes.面积:
+                    return $"面积={tool.ActualDimension:F0}px²\r\n范围={tool.MinDimension:F0}~{tool.MaxDimension:F0}px²\r\n结果={tool.ToolStatus}";
+                case TestModes.尺寸测量:
+                    return $"尺寸={tool.ActualMeasureValue:F3}mm\r\n像素={tool.LastMeasurePixelValue:F2}px\r\n范围={tool.MinMeasureValue:F3}~{tool.MaxMeasureValue:F3}mm\r\n结果={tool.ToolStatus}";
+                case TestModes.直线检测:
+                    return $"角度={tool.ActualLineAngle:F2}°\r\n偏差={tool.ActualAngleDeviation:F2}°\r\n命中率={tool.LastEdgeHitRatio:P0}\r\n分数={tool.LastLineDetectScore:F2}\r\n结果={tool.ToolStatus}";
+                case TestModes.模板匹配:
+                case TestModes.模板定位:
+                    return $"Score={tool.ActualScore:F3}\r\n位置=({tool.ActualX:F1},{tool.ActualY:F1})\r\n角度={tool.ActualAngle:F2}°\r\nΔX={tool.DeltaX:F3}mm\r\nΔY={tool.DeltaY:F3}mm\r\n结果={tool.ToolStatus}";
+                case TestModes.二维码:
+                    return $"二维码={tool.BarcodeStr}\r\n结果={tool.ToolStatus}";
+                default:
+                    return string.Empty;
+            }
+        }
+
+        /// <summary>
+        /// 在结果位图左上角写入当前指令、工具身份和检测值。
+        /// 固定锚点使同一相机、同一规格下的图片可直接横向比较；绿色透明文字保留原图可见区域，
+        /// ROI 继续负责定位范围追溯。GDI 字体来自 Windows 字体服务，避免 HALCON 隐藏窗口的字体列表影响落盘图片。
+        /// 文本只进入 JPEG 追溯证据，判定结果、日志字段和对外通信保持当前结果。
+        /// </summary>
+        /// <param name="resultBitmap">包含 HALCON ROI 图层的结果位图，坐标单位为 px。</param>
+        /// <param name="tool">当前已完成检测的工具，提供序号和名称以关联工程配置与落盘图片。</param>
+        /// <param name="command">机器人或测试流程传入的 AOI 触发指令。</param>
+        /// <param name="detail">工具类型对应的测量值、判定范围与结果文本。</param>
+        private static void DrawToolText(Bitmap resultBitmap, ToolModel tool, string command, string detail)
+        {
+            if (resultBitmap == null)
             {
                 return;
             }
 
-            int row = roi == null ? 20 : Math.Max(5, Math.Min(roi.Row1, roi.Row2) + 5);
-            int col = roi == null ? 5 : Math.Max(5, Math.Min(roi.Col1, roi.Col2) + 5);
-            hwindow.SetColor("white");
-            hwindow.SetFont("Courier New-16");
-            hwindow.DispText($"指令={command ?? string.Empty}\n{detail}", "image", row, col, "white", "box", "true");
+            int safeImageHeight = Math.Max(1, resultBitmap.Height);
+            int margin = Math.Max(20, Math.Min(60, safeImageHeight / 80));
+            int fontSize = Math.Max(28, Math.Min(48, safeImageHeight / 45));
+            string toolName = tool?.Name ?? string.Empty;
+            string toolIdentity = tool == null
+                ? "工具=未知"
+                : $"工具={tool.Index:00}-{toolName}";
+
+            using (Graphics graphics = Graphics.FromImage(resultBitmap))
+            using (var textFont = new System.Drawing.Font(
+                "Microsoft YaHei",
+                fontSize,
+                System.Drawing.FontStyle.Regular,
+                System.Drawing.GraphicsUnit.Pixel))
+            using (var textBrush = new SolidBrush(Color.Green))
+            {
+                graphics.DrawString($"指令={command ?? string.Empty}\r\n{toolIdentity}\r\n{detail}", textFont, textBrush, margin, margin);
+            }
         }
 
         /// <summary>
