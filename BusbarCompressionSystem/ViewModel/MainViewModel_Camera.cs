@@ -155,12 +155,15 @@ namespace BusbarCompressionSystem.ViewModel
                 LogCameraReceiveThrottled(1, onlyWhenExpectingShot: true);
 
                 MyEventArgs myEventArgs = e as MyEventArgs;
+                Productinfo productInfo = DataModel.Processmodel.TakePhotoTestModel.Productinfo;
+                string sn = productInfo?.SN;
+                string workOrderCode = productInfo?.WOCODE;
+                string partNoId = productInfo?.PartNOID;
 
                 App.Current.Dispatcher.BeginInvoke(new Action(() =>
                 {
                     OnReceiveProcess(DataModel.Settingmodel.HWindow1, myEventArgs.Image, myEventArgs.Height, myEventArgs.Width, 1);
-                    Productinfo productInfo = DataModel.Processmodel.TakePhotoTestModel.Productinfo;
-                    SaveImage(myEventArgs.Image, productInfo?.SN, productInfo?.PartNOID, "拍照留底", 1, "OK");
+                    SaveImage(myEventArgs.Image, sn, workOrderCode, partNoId, "拍照留底", 1, "OK");
                     DataModel.Settingmodel.camedata1.CameraModel.finished = true;
 
                     GC.Collect();
@@ -180,12 +183,15 @@ namespace BusbarCompressionSystem.ViewModel
                 LogCameraReceiveThrottled(2, onlyWhenExpectingShot: true);
 
                 MyEventArgs myEventArgs = e as MyEventArgs;
+                Productinfo productInfo = DataModel.Processmodel.TakePhotoTestModel.Productinfo;
+                string sn = productInfo?.SN;
+                string workOrderCode = productInfo?.WOCODE;
+                string partNoId = productInfo?.PartNOID;
 
                 App.Current.Dispatcher.BeginInvoke(new Action(() =>
                 {
                     OnReceiveProcess(DataModel.Settingmodel.HWindow2, myEventArgs.Image, myEventArgs.Height, myEventArgs.Width, 2);
-                    Productinfo productInfo = DataModel.Processmodel.TakePhotoTestModel.Productinfo;
-                    SaveImage(myEventArgs.Image, productInfo?.SN, productInfo?.PartNOID, "拍照留底", 2, "OK");
+                    SaveImage(myEventArgs.Image, sn, workOrderCode, partNoId, "拍照留底", 2, "OK");
                     DataModel.Settingmodel.camedata2.CameraModel.finished = true;
 
                     GC.Collect();
@@ -223,12 +229,15 @@ namespace BusbarCompressionSystem.ViewModel
                 LogCameraReceiveThrottled(3, onlyWhenExpectingShot: true);
 
                 MyEventArgs myEventArgs = e as MyEventArgs;
+                Productinfo productInfo = DataModel.Processmodel.TakePhotoTestModel.Productinfo;
+                string sn = productInfo?.SN;
+                string workOrderCode = productInfo?.WOCODE;
+                string partNoId = productInfo?.PartNOID;
 
                 App.Current.Dispatcher.BeginInvoke(new Action(() =>
                 {
                     OnReceiveProcess(DataModel.Settingmodel.HWindow3, myEventArgs.Image, myEventArgs.Height, myEventArgs.Width, 3);
-                    Productinfo productInfo = DataModel.Processmodel.TakePhotoTestModel.Productinfo;
-                    SaveImage(myEventArgs.Image, productInfo?.SN, productInfo?.PartNOID, "拍照留底", 3, "OK");
+                    SaveImage(myEventArgs.Image, sn, workOrderCode, partNoId, "拍照留底", 3, "OK");
                     DataModel.Settingmodel.camedata3.CameraModel.finished = true;
                     GC.Collect();
                 }));
@@ -978,31 +987,48 @@ namespace BusbarCompressionSystem.ViewModel
                         #region 保存图片
                         try
                         {
-                            string resultFolder = ResolveToolResultImageFolder(tool);
-                            bool shouldSave = tool.ToolStatus == ToolStatus.OK
-                                ? DataModel.FaraVisionDataModel.Settingmodel.ImageSaveSetting.SaveOK
-                                : DataModel.FaraVisionDataModel.Settingmodel.ImageSaveSetting.SaveNG;
+                            Productinfo productInfo = DataModel.Processmodel.TakePhotoTestMode2.Productinfo;
+                            string sn = productInfo?.SN;
+                            string workOrderCode = productInfo?.WOCODE;
+                            string partNoId = productInfo?.PartNOID;
+                            if (string.IsNullOrWhiteSpace(sn))
+                            {
+                                sn = DataModel.FaraVisionDataModel.Processmodel.BarcodeStr;
+                            }
+
+                            string archivePartNoId;
+                            string expectedResult;
+                            string inspectionType;
+                            bool isInspectionImage = TryResolveInspectionImageArchive(
+                                sn,
+                                workOrderCode,
+                                partNoId,
+                                out archivePartNoId,
+                                out expectedResult,
+                                out inspectionType);
+                            string resultFolder = isInspectionImage
+                                ? expectedResult
+                                : ResolveToolResultImageFolder(tool);
+                            bool shouldSave = isInspectionImage
+                                || (tool.ToolStatus == ToolStatus.OK
+                                    ? DataModel.FaraVisionDataModel.Settingmodel.ImageSaveSetting.SaveOK
+                                    : DataModel.FaraVisionDataModel.Settingmodel.ImageSaveSetting.SaveNG);
                             if (shouldSave)
                             {
                                 DateTime captureTime = DateTime.Now;
-                                Productinfo productInfo = DataModel.Processmodel.TakePhotoTestMode2.Productinfo;
-                                string sn = productInfo?.SN;
-                                string partNoId = productInfo?.PartNOID;
-                                if (string.IsNullOrWhiteSpace(sn))
-                                {
-                                    sn = DataModel.FaraVisionDataModel.Processmodel.BarcodeStr;
-                                }
-
-                                string specification = ResolveImageSpecificationName(partNoId);
+                                string specification = ResolveImageSpecificationName(archivePartNoId);
                                 string toolName = SanitizeImagePathPart(tool.Name, "NOTOOL");
+                                string inspectionIdentity = isInspectionImage
+                                    ? $"-{SanitizeImagePathPart(inspectionType, "点检")}-{expectedResult}标准件"
+                                    : string.Empty;
                                 string savefilename = Path.Combine(
                                     BuildImageArchiveDirectory(
                                         DataModel.FaraVisionDataModel.Settingmodel.ImageSaveSetting.ImageSaveDir,
-                                        "外观检测",
-                                        partNoId,
+                                        isInspectionImage ? "点检" : "外观检测",
+                                        archivePartNoId,
                                         captureTime,
                                         resultFolder),
-                                    $"{specification}-{SanitizeImagePathPart(sn, "NOSN")}-{SanitizeImagePathPart(currentRcmd, "NOCMD")}-{tool.Index:00}-{toolName}-{tool.TestMode}-{tool.ToolStatus}-{captureTime:yyyyMMddHHmmssFFF}.jpg");
+                                    $"{specification}-{SanitizeImagePathPart(sn, "NOSN")}{inspectionIdentity}-{SanitizeImagePathPart(currentRcmd, "NOCMD")}-{tool.Index:00}-{toolName}-{tool.TestMode}-{tool.ToolStatus}-{captureTime:yyyyMMddHHmmssFFF}.jpg");
                                 string dir = Path.GetDirectoryName(savefilename);
                                 if (!Directory.Exists(dir))
                                 {
@@ -1544,7 +1570,8 @@ namespace BusbarCompressionSystem.ViewModel
 
         /// <summary>
         /// 生成尺寸测量找边失败后的落盘复测图片路径。
-        /// 图片沿用 AOI 的规格目录和当天 NG 目录，文件名带 Remeasure 标记，便于和最终 OK/NG/NG2 图片区分。
+        /// 普通产品沿用 AOI 当天 NG 目录；点检标准件进入“点检/规格/日期/期望OK或NG”目录。
+        /// 文件名保留点检类型、期望类别、工具身份和 NG2-Remeasure 标记，便于核对标准件与实际找边结果。
         /// </summary>
         /// <param name="tool">当前尺寸测量工具，提供产品位置、工具序号和工具名。</param>
         /// <returns>用于写入和读回复测的 JPG 图片完整路径。</returns>
@@ -1559,17 +1586,30 @@ namespace BusbarCompressionSystem.ViewModel
             }
 
             string partNoId = productInfo?.PartNOID;
+            string archivePartNoId;
+            string expectedResult;
+            string inspectionType;
+            bool isInspectionImage = TryResolveInspectionImageArchive(
+                sn,
+                productInfo?.WOCODE,
+                partNoId,
+                out archivePartNoId,
+                out expectedResult,
+                out inspectionType);
             DateTime captureTime = DateTime.Now;
-            string specification = ResolveImageSpecificationName(partNoId);
+            string specification = ResolveImageSpecificationName(archivePartNoId);
             string directory = BuildImageArchiveDirectory(
                 imageSaveDir,
-                "外观检测",
-                partNoId,
+                isInspectionImage ? "点检" : "外观检测",
+                archivePartNoId,
                 captureTime,
-                "NG");
+                isInspectionImage ? expectedResult : "NG");
+            string inspectionIdentity = isInspectionImage
+                ? $"-{SanitizeImagePathPart(inspectionType, "点检")}-{expectedResult}标准件"
+                : string.Empty;
             return Path.Combine(
                 directory,
-                $"{specification}-{SanitizeImagePathPart(sn, "NOSN")}-{tool.Index:00}-{SanitizeImagePathPart(tool.Name, "NOTOOL")}-NG2-Remeasure-{captureTime:yyyyMMddHHmmssFFF}.jpg");
+                $"{specification}-{SanitizeImagePathPart(sn, "NOSN")}{inspectionIdentity}-{tool.Index:00}-{SanitizeImagePathPart(tool.Name, "NOTOOL")}-NG2-Remeasure-{captureTime:yyyyMMddHHmmssFFF}.jpg");
         }
 
         /// <summary>

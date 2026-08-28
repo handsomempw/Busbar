@@ -3821,10 +3821,11 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
-        /// 解析图片归档规格。当前产品的 MES 规格优先，运行中的产线规格和 AOI 工程名称依次兼容；
-        /// 全部为空时使用 UNKNOWN_SPEC，使点检或异常回图仍有明确归档位置。
+        /// 解析图片归档规格。当前产品或点检扫码上下文中的 MES 规格优先，
+        /// 运行中的产线规格和 AOI 工程名称依次兼容；全部为空时使用 UNKNOWN_SPEC，
+        /// 使异常回图仍有明确归档位置。
         /// </summary>
-        /// <param name="productPartNoId">扫码建账时冻结到当前产品上下文的 MES 规格编码。</param>
+        /// <param name="productPartNoId">本轮扫码建账时冻结的 MES 规格编码。</param>
         /// <returns>完成路径字符清理的规格目录名和文件名前缀。</returns>
         private string ResolveImageSpecificationName(string productPartNoId)
         {
@@ -3842,8 +3843,84 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
-        /// 生成生产图片归档目录。拍照留底与 AOI 外观检测共享“类型/规格/日期/结果”层级，
-        /// 图片保存位置变化不影响检测判定、PLC、MES 和 SQLite 流程。
+        /// 解析点检图片的归档身份。
+        /// 目录中的 OK/NG 表示标准件期望类型，耐压、IR、AOI 的实际测试结果继续由图片标注、
+        /// 文件名、PLC/CHECK 和 MES 记录表达，使误判图片仍归属于被验证的标准件类别。
+        /// </summary>
+        /// <param name="sn">本轮扫码识别的产品或点检 SN。</param>
+        /// <param name="workOrderCode">本轮 PLC 产品码携带的工单号，用于匹配当前点检扫码上下文。</param>
+        /// <param name="fallbackPartNoId">普通产品上下文或调用方提供的规格编码。</param>
+        /// <param name="archivePartNoId">返回图片使用的规格；点检优先采用当前扫码时 MES 冻结的规格。</param>
+        /// <param name="expectedResult">返回点检标准件期望类别，取值为 OK 或 NG。</param>
+        /// <param name="inspectionType">返回耐压、IR 或 AOI 点检类型，用于文件名追溯。</param>
+        /// <returns>SN 唯一命中一个已配置点检码时返回 true；普通产品或重复点检配置返回 false。</returns>
+        private bool TryResolveInspectionImageArchive(
+            string sn,
+            string workOrderCode,
+            string fallbackPartNoId,
+            out string archivePartNoId,
+            out string expectedResult,
+            out string inspectionType)
+        {
+            archivePartNoId = (fallbackPartNoId ?? string.Empty).Trim();
+            expectedResult = string.Empty;
+            inspectionType = string.Empty;
+
+            if (GetInspectionSnMatchCount(sn) != 1)
+            {
+                return false;
+            }
+
+            if (IsConfiguredInspectionSn(sn, DataModel.Settingmodel.SETTING_DATA.InspectionTVOKSN))
+            {
+                expectedResult = "OK";
+                inspectionType = "耐压";
+            }
+            else if (IsConfiguredInspectionSn(sn, DataModel.Settingmodel.SETTING_DATA.InspectionTVNGSN))
+            {
+                expectedResult = "NG";
+                inspectionType = "耐压";
+            }
+            else if (IsConfiguredInspectionSn(sn, DataModel.Settingmodel.SETTING_DATA.InspectionIROKSN))
+            {
+                expectedResult = "OK";
+                inspectionType = "IR";
+            }
+            else if (IsConfiguredInspectionSn(sn, DataModel.Settingmodel.SETTING_DATA.InspectionIRNGSN))
+            {
+                expectedResult = "NG";
+                inspectionType = "IR";
+            }
+            else if (IsConfiguredInspectionSn(sn, DataModel.Settingmodel.SETTING_DATA.InspectionAOIOKSN))
+            {
+                expectedResult = "OK";
+                inspectionType = "AOI";
+            }
+            else
+            {
+                expectedResult = "NG";
+                inspectionType = "AOI";
+            }
+
+            string normalizedSn = (sn ?? string.Empty).Trim();
+            string normalizedWorkOrderCode = (workOrderCode ?? string.Empty).Trim();
+            lock (_inspectionRunContextSync)
+            {
+                InspectionRunContext context;
+                if (_inspectionRunContexts.TryGetValue(normalizedSn, out context)
+                    && string.Equals(context.WorkOrderCode, normalizedWorkOrderCode, StringComparison.Ordinal)
+                    && !string.IsNullOrWhiteSpace(context.PartNoId))
+                {
+                    archivePartNoId = context.PartNoId.Trim();
+                }
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// 生成图片归档目录。普通拍照留底、AOI 外观检测和点检图片共享“类型/规格/日期/结果”层级，
+        /// 点检使用独立“点检”类型目录；路径分类只影响图片追溯，不改变检测判定、PLC、MES 和 SQLite 流程。
         /// </summary>
         /// <param name="imageSaveDir">图片保存配置中的根目录；为空时使用程序运行目录。</param>
         /// <param name="imageType">拍照留底或外观检测等业务分类。</param>
@@ -3870,27 +3947,44 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
-        /// 保存拍照留底工位的原始图片。文件名同时携带规格、SN、相机序号和采集时间，
-        /// 单张图片离开归档目录后仍可关联到现场产品规格。
+        /// 保存拍照留底工位的原始图片。普通产品沿用调用方提供的类型和结果；
+        /// 点检标准件强制写入“点检/规格/日期/期望OK或NG”，并在文件名保留点检类型。
+        /// 文件名同时携带规格、SN、相机序号和采集时间，单张图片离开归档目录后仍可追溯本轮身份。
         /// </summary>
         /// <param name="image">相机回调提供的 HALCON 图像。</param>
         /// <param name="sn">本轮拍照留底产品的 SN。</param>
-        /// <param name="partNoId">本轮扫码建账时冻结的 MES 规格编码。</param>
+        /// <param name="workOrderCode">本轮 PLC 产品码携带的工单号，用于点检扫码上下文匹配。</param>
+        /// <param name="partNoId">普通产品上下文中的规格编码；点检优先使用扫码时 MES 冻结的规格。</param>
         /// <param name="type">图片业务分类，拍照留底工位传入“拍照留底”。</param>
         /// <param name="index">拍照相机序号，用于区分同一产品的多张留底图片。</param>
-        /// <param name="result">当前图片归档结果，现有拍照留底流程传入 OK。</param>
-        public void SaveImage(HObject image, string sn, string partNoId, string type, int index, string result)
+        /// <param name="result">普通产品图片的归档结果；点检图片由标准件配置确定期望 OK/NG。</param>
+        public void SaveImage(HObject image, string sn, string workOrderCode, string partNoId, string type, int index, string result)
         {
             DateTime captureTime = DateTime.Now;
-            string specification = ResolveImageSpecificationName(partNoId);
+            string archivePartNoId;
+            string expectedResult;
+            string inspectionType;
+            bool isInspectionImage = TryResolveInspectionImageArchive(
+                sn,
+                workOrderCode,
+                partNoId,
+                out archivePartNoId,
+                out expectedResult,
+                out inspectionType);
+            string archiveType = isInspectionImage ? "点检" : type;
+            string archiveResult = isInspectionImage ? expectedResult : result;
+            string specification = ResolveImageSpecificationName(archivePartNoId);
             string directory = BuildImageArchiveDirectory(
                 DataModel.Settingmodel.ImageSaveSetting.ImageSaveDir,
-                type,
-                partNoId,
+                archiveType,
+                archivePartNoId,
                 captureTime,
-                result);
-            string fileName =
-                $"{specification}-{SanitizeImagePathPart(sn, "NOSN")}-{index:00}-{captureTime:yyyyMMddHHmmssFFF}.jpg";
+                archiveResult);
+            string inspectionIdentity = isInspectionImage
+                ? $"-{SanitizeImagePathPart(inspectionType, "点检")}-{expectedResult}标准件"
+                : string.Empty;
+            string fileName = $"{specification}-{SanitizeImagePathPart(sn, "NOSN")}{inspectionIdentity}"
+                + $"-{index:00}-{captureTime:yyyyMMddHHmmssFFF}.jpg";
             string savefilename = Path.Combine(directory, fileName);
             string dir = Path.GetDirectoryName(savefilename);
             if (!Directory.Exists(dir))
