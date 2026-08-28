@@ -349,10 +349,12 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
-        /// 加载耐压仪 TCP 通信参数（Fetch 短超时、重试次数与间隔、其它命令超时、发送后等待等），并通过
+        /// 加载耐压仪 TCP 通信参数（Fetch 短超时、重试次数与间隔、参数生效等待、其它命令超时等），并通过
         /// <see cref="ApplyHipotCommParametersToAllMeters"/> 写入各台 <see cref="AT9620.AT9620"/> 实例属性。
         /// 文件路径：<c>配置\耐压仪通信参数.xml</c>，与 <c>配置数据.xml</c> 分离，元素标签中文便于现场直接编辑。
         /// 若文件不存在：用默认 <see cref="HipotCommParameters"/> 经 <see cref="SaveXmlSafely{T}"/> 生成模板。
+        /// 既有配置中的 Fetch 与启动前查询次数低于 5 时迁移为 5 并回写，保证升级后各通信阶段具有一致的恢复窗口；
+        /// 现场配置的更高次数继续生效。
         /// 反序列化或 IO 异常时记录日志并回退为默认参数，避免软件无法启动。
         /// </summary>
         private void LoadHipotCommParameters()
@@ -369,6 +371,17 @@ namespace BusbarCompressionSystem.ViewModel
                     message => writeLog(message));
 
                 p = result.Data ?? new HipotCommParameters();
+                bool retryCountMigrated = false;
+                if (p.FetchMaxAttempts < 5)
+                {
+                    p.FetchMaxAttempts = 5;
+                    retryCountMigrated = true;
+                }
+                if (p.SetupQueryMaxAttempts < 5)
+                {
+                    p.SetupQueryMaxAttempts = 5;
+                    retryCountMigrated = true;
+                }
 
                 if (shouldCreateTemplate && !result.LoadFailed)
                 {
@@ -386,6 +399,12 @@ namespace BusbarCompressionSystem.ViewModel
                 else
                 {
                     writeLog($"已加载耐压仪通信参数: {xmlPath}");
+                }
+
+                if (retryCountMigrated && !result.LoadFailed && !shouldCreateTemplate)
+                {
+                    SaveXmlSafely(xmlPath, p);
+                    writeLog("耐压仪通信尝试次数已迁移为至少5次");
                 }
 
                 ApplyHipotCommParametersToAllMeters(p);
@@ -413,6 +432,9 @@ namespace BusbarCompressionSystem.ViewModel
                 m.FetchReceiveTimeoutMs = p.FetchReceiveTimeoutMs;
                 m.FetchMaxAttempts = p.FetchMaxAttempts;
                 m.FetchRetryDelayMs = p.FetchRetryDelayMs;
+                m.SetupQueryMaxAttempts = p.SetupQueryMaxAttempts;
+                m.SetupQueryRetryDelayMs = p.SetupQueryRetryDelayMs;
+                m.ParameterApplyDelayMs = p.ParameterApplyDelayMs;
                 m.OtherCommandReceiveTimeoutMs = p.OtherCommandReceiveTimeoutMs;
                 m.PostSendDelayMs = p.PostSendDelayMs;
             }
@@ -430,7 +452,8 @@ namespace BusbarCompressionSystem.ViewModel
         /// <summary>
         /// 生成耐压结果的本地追溯状态。
         /// 仪器收到已知结束态时沿用状态映射；通信、参数回读、采样或超时异常使用固定“通信异常”标记，
-        /// 让 CHECK 阶段区分“仪器正常测试得到 NG”和“本轮没有形成仪器结果”，前者可按工艺报工，后者只留档并跳过报工。
+        /// 让 CHECK 阶段区分“仪器正常测试得到 NG”和“本轮没有形成仪器结果”。
+        /// 标准 CHECK1 可将明确通信异常归入 NG3 待复测；CHECK2 与其它流程继续执行各自现有报工门禁。
         /// </summary>
         /// <param name="result">AT9620 本轮 Start 返回值，包含可信结束态标记。</param>
         /// <param name="rawStatus">本轮仪器状态原文，用于正常结束态翻译。</param>

@@ -1688,25 +1688,35 @@ namespace BusbarCompressionSystem.ViewModel
 
         /// <summary>
         /// 单次耐压触发内允许的参数下发及回读校验总次数。
-        /// 该次数只覆盖仪器通信和参数校验，不重复启动电测，也不改变最终 PLC、SQLite、MES 和产品判定口径。
+        /// 五次总尝试分别建立独立 TCP 连接，只覆盖仪器通信和参数校验，不重复启动电测，
+        /// 也不改变最终 PLC、SQLite、MES 和产品判定口径。
         /// </summary>
-        private const int TvParameterDownloadMaxAttempts = 3;
+        private const int TvParameterDownloadMaxAttempts = 5;
 
         /// <summary>
-        /// 参数下发重试间隔，单位毫秒。
-        /// 间隔用于等待仪器释放上一轮短连接及残余应答，不影响工艺参数中的上升、保持和下降时间。
+        /// 参数下发首次重试间隔，单位毫秒。
+        /// 后续等待按尝试序号递增并限制在 2400ms 内，用于等待仪器释放上一轮短连接及残余应答，
+        /// 不影响工艺参数中的上升、保持和下降时间。
         /// </summary>
         private const int TvParameterDownloadRetryDelayMs = 300;
 
         /// <summary>
-        /// 在同一次耐压工位触发中执行参数下发和回读校验，偶发通信或回读不完整时最多完成三次总尝试。
-        /// 每次尝试均由 AT9620 建立独立连接；仪器会话忙碌时立即返回，由现有重复触发保护继续处理。
-        /// 全部尝试失败后仍由各工位入口执行原有 PLC 回写和耐压 NG 流程，本方法不启动电测、不落SQLite、不上传MES。
+        /// 标准产线单次耐压触发允许用于参数下发和回读校验的总等待上限，单位毫秒。
+        /// 五轮完整尝试共用该时间窗；到达20秒后由工位入口记录通信异常，并以D=2通知PLC本次动作失败完成，
+        /// PLC可据此跳过双电测第二项。该上限不计入耐压仪启动后的上升、保持和下降时间。
+        /// </summary>
+        private const int TvParameterDownloadTimeoutMs = 20000;
+
+        /// <summary>
+        /// 在同一次耐压工位触发中执行参数下发和回读校验，最多完成五轮完整尝试，每轮只回读一次参数。
+        /// 五轮共用20秒总等待上限；每轮由 AT9620 建立独立连接，避免外层五轮与内层五次回读组合成25次查询。
+        /// 仪器会话忙碌时立即返回，由现有重复触发保护继续处理。最终失败由各工位入口记录通信异常并回写D=2，
+        /// 本方法不启动电测、不落SQLite、不上传MES。
         /// </summary>
         /// <param name="meter">当前耐压工位对应的 AT9620 实例；每次尝试使用实例中已经设置好的 ACW 或 DCW 参数。</param>
         /// <param name="stationLabel">现场日志中的耐压工位名称，例如“耐压1”或“耐压2”。</param>
         /// <param name="testType">本轮参数模式，值为 ACW 或 DCW，用于区分操作日志和故障追溯。</param>
-        /// <returns>任一次参数下发及回读校验成功时返回成功结果；全部失败时返回最后一次失败结果。</returns>
+        /// <returns>任一轮参数下发及单次回读校验成功时返回成功；五轮或20秒预算用尽时返回汇总失败原因。</returns>
         private global::AT9620.Result DownloadTvParametersWithRetry(AT9620.AT9620 meter, string stationLabel, string testType)
         {
             if (meter == null)
@@ -1715,14 +1725,26 @@ namespace BusbarCompressionSystem.ViewModel
             }
 
             global::AT9620.Result lastResult = null;
+            int completedAttempts = 0;
+            Stopwatch stopwatch = Stopwatch.StartNew();
             for (int attempt = 1; attempt <= TvParameterDownloadMaxAttempts; attempt++)
             {
-                lastResult = meter.Download();
+                int remainingMs = TvParameterDownloadTimeoutMs - (int)Math.Min(int.MaxValue, stopwatch.ElapsedMilliseconds);
+                if (remainingMs <= 0)
+                {
+                    break;
+                }
+
+                int receiveTimeoutMs = Math.Max(1, Math.Min(meter.OtherCommandReceiveTimeoutMs, remainingMs));
+                lastResult = meter.Download(
+                    parameterVerifyMaxAttempts: 1,
+                    parameterVerifyReceiveTimeoutMs: receiveTimeoutMs);
+                completedAttempts = attempt;
                 if (lastResult.Success)
                 {
                     if (attempt > 1)
                     {
-                        writeLog($"[{stationLabel}-{testType}] 参数下发第{attempt}/{TvParameterDownloadMaxAttempts}次校验成功");
+                        writeLog($"[{stationLabel}-{testType}] 参数下发第{attempt}/{TvParameterDownloadMaxAttempts}轮校验成功，总耗时={stopwatch.ElapsedMilliseconds}ms");
                     }
                     return lastResult;
                 }
@@ -1734,12 +1756,230 @@ namespace BusbarCompressionSystem.ViewModel
 
                 if (attempt < TvParameterDownloadMaxAttempts)
                 {
-                    writeLog($"[{stationLabel}-{testType}] 参数下发第{attempt}/{TvParameterDownloadMaxAttempts}次失败，将自动重试: {lastResult.Error}", true);
-                    Thread.Sleep(TvParameterDownloadRetryDelayMs);
+                    int retryDelayMs = Math.Min(
+                        TvParameterDownloadRetryDelayMs * (1 << (attempt - 1)),
+                        2400);
+                    int remainingAfterAttemptMs = TvParameterDownloadTimeoutMs
+                        - (int)Math.Min(int.MaxValue, stopwatch.ElapsedMilliseconds);
+                    if (remainingAfterAttemptMs <= 0)
+                    {
+                        break;
+                    }
+
+                    retryDelayMs = Math.Min(retryDelayMs, remainingAfterAttemptMs);
+                    writeLog($"[{stationLabel}-{testType}] 参数下发第{attempt}/{TvParameterDownloadMaxAttempts}轮失败，{retryDelayMs}ms后自动重试: {lastResult.Error}", true);
+                    Thread.Sleep(retryDelayMs);
                 }
             }
 
-            return lastResult ?? new global::AT9620.Result { Error = "参数下发未返回结果" };
+            string lastError = lastResult?.Error ?? "参数下发未返回结果";
+            bool timeoutReached = stopwatch.ElapsedMilliseconds >= TvParameterDownloadTimeoutMs;
+            return new global::AT9620.Result
+            {
+                Error = timeoutReached
+                    ? $"参数下发达到{TvParameterDownloadTimeoutMs / 1000}秒总等待上限，已完成{completedAttempts}/{TvParameterDownloadMaxAttempts}轮；末次原因={lastError}"
+                    : $"参数下发已完成{completedAttempts}/{TvParameterDownloadMaxAttempts}轮仍失败；末次原因={lastError}"
+            };
+        }
+
+        /// <summary>
+        /// 将标准产线参数下发失败记录为本轮电测通信异常，供 CHECK1、MES过程数据和最终报工识别。
+        /// 本方法只补齐当前产品的失败追溯记录，不启动耐压测试、不改变PLC工位握手和值守分流。
+        /// 双Y运行态继续由工位会话和测试记录ID管理，不进入标准产线占位行更新路径。
+        /// </summary>
+        /// <param name="stationIndex">耐压工位序号，1、2、3分别对应本站产品码和阻值PLC地址。</param>
+        /// <param name="stationLabel">操作日志中的耐压工位名称，例如“耐压1”。</param>
+        /// <param name="testType">参数下发模式，值为ACW或DCW，用于SQLite模式前缀和界面行定位。</param>
+        /// <param name="meterId">当前工位耐压仪编号，随通信异常过程记录上传MES。</param>
+        /// <param name="downloadError">五次参数下发最终失败说明，写入设备异常追踪日志。</param>
+        private void PersistTvParameterDownloadCommunicationFailure(
+            int stationIndex,
+            string stationLabel,
+            string testType,
+            string meterId,
+            string downloadError)
+        {
+            if (IsDualYElectricalTestModeActive())
+            {
+                writeLog($"[{stationLabel}-{testType}] 双Y参数下发失败沿用工位会话异常流程，原因={downloadError}", true);
+                return;
+            }
+
+            string sn;
+            string wocode;
+            string rawCode;
+            int productCodeAddress = DataModel.Settingmodel.AddressSN + 25 * stationIndex;
+            if (!TryReadProductCodeFromPlc(productCodeAddress, $"{stationLabel}-{testType}-参数失败追溯", out sn, out wocode, out rawCode))
+            {
+                writeLog($"[{stationLabel}-{testType}] 参数下发失败记录未绑定产品，PLC地址=D{productCodeAddress}，原因={downloadError}", true);
+                return;
+            }
+
+            string partnoid = DataModel.Processmodel.PartNOID;
+            float res = PLC_ReadFloat(DataModel.Settingmodel.AddressRes + (stationIndex - 1) * 2);
+            bool isAcw = string.Equals(testType, "ACW", StringComparison.OrdinalIgnoreCase);
+            string tvInfo = TvStatusTranslator.AddTestModePrefix(
+                $"{TvStatusTranslator.CommunicationFailureStatus}：参数下发失败",
+                isAcw);
+
+            bool isSecondTest = CheckIsSecondTest(wocode, partnoid, sn, isAcw, testType);
+            bool saved = isSecondTest
+                ? sqlite.InsertTV_SecondTest(
+                    wocode, partnoid, sn,
+                    DataModel.Settingmodel.SETTING_DATA.StationCode,
+                    DataModel.Settingmodel.SETTING_DATA.MachineID,
+                    res, 0, false, 0, tvInfo, meterId)
+                : sqlite.UpdateTV(wocode, partnoid, sn, res, 0, false, 0, tvInfo, meterId);
+
+            if (saved)
+            {
+                updatetv(sn, res, 0, false, 0, tvInfo, meterId, testType, wocode, partnoid);
+                writeLog($"[{stationLabel}-{testType}] 参数下发失败已记录为电测通讯异常，SN={sn}，CHECK1按NG3待复测处理", true);
+            }
+            else
+            {
+                writeLog($"[{stationLabel}-{testType}] 参数下发失败记录写入SQLite失败，SN={sn}，原因={downloadError}", true);
+            }
+
+            sqlite.WriteErrorLog(
+                "[耐压通讯异常]参数下发失败",
+                $"工位={stationLabel}, 模式={testType}, 仪器={meterId}, SQLite写入={(saved ? "成功" : "失败")}, 原因={downloadError}",
+                sn,
+                wocode);
+        }
+
+        /// <summary>
+        /// 识别标准产线双电测本轮首项是否已经形成失败结论。
+        /// 当前测试模式决定首项顺序；首项记录必须同时是当前 SN 最新非 IR 记录，避免历史复测结果影响新一轮产品。
+        /// 本方法只读取 SQLite 结果，不改变仪器、PLC、MES、阻值和压力状态；数据库未形成首项记录时继续执行既有第二项流程。
+        /// </summary>
+        /// <param name="wocode">当前工位产品码中的工单号，用于定位本地 SQLite 工单库。</param>
+        /// <param name="partnoid">当前产品规格编码，用于保持现有数据库定位口径。</param>
+        /// <param name="sn">当前工位产品码中的序列号，用于隔离并行工位和相邻产品。</param>
+        /// <param name="firstTestRow">识别成功时返回本轮首项实际测试记录；其它情况返回 null。</param>
+        /// <param name="communicationFailure">首项失败属于通信或流程异常时返回 true；仪器正常结束并判定 NG 时返回 false。</param>
+        /// <returns>双电测首项已经形成 NG 或通信异常记录时返回 true。</returns>
+        private bool TryGetStandardDualTestFirstFailure(
+            string wocode,
+            string partnoid,
+            string sn,
+            out sqlite.ElectricalTestProcessRow firstTestRow,
+            out bool communicationFailure)
+        {
+            firstTestRow = null;
+            communicationFailure = false;
+
+            if (IsDualYElectricalTestModeActive() || IsAoiOnlyMode)
+            {
+                return false;
+            }
+
+            string firstTestType;
+            switch (DataModel.Settingmodel.CurrentTestMode)
+            {
+                case AT9620.ElectricalTestMode.ACWThenDCW:
+                    firstTestType = "ACW";
+                    break;
+                case AT9620.ElectricalTestMode.DCWThenACW:
+                    firstTestType = "DCW";
+                    break;
+                default:
+                    return false;
+            }
+
+            List<sqlite.ElectricalTestProcessRow> rows = sqlite.GetStandardElectricalTestProcessRows(wocode, partnoid, sn);
+            sqlite.ElectricalTestProcessRow candidate = rows
+                .Where(row => string.Equals(row.TestMode, firstTestType, StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(row => row.Id)
+                .FirstOrDefault();
+            long latestAttemptRecordId = sqlite.GetLatestStandardAttemptRecordId(wocode, partnoid, sn);
+            if (candidate == null
+                || candidate.Id <= 0
+                || candidate.Id != latestAttemptRecordId
+                || candidate.TVResult
+                || string.IsNullOrWhiteSpace(candidate.TVInfo))
+            {
+                return false;
+            }
+
+            firstTestRow = candidate;
+            communicationFailure = TvStatusTranslator.IsCommunicationFailure(candidate.TVInfo);
+            return true;
+        }
+
+        /// <summary>
+        /// 在标准产线双电测第二项触发入口执行首项失败短路。
+        /// 首项耐压 NG 或通信异常已经足以确定本轮产品结论时，不再向仪器下发第二项参数，也不生成第二项测试记录；
+        /// 对应 D1007、D1009、D1011 只表达“本次触发处理完成”，实际耐压结果继续由 M3041/M3042、SQLite 和 CHECK 流程表达。
+        /// 首项参数或流程失败已通过 D=2 通知 PLC 跳过第二项；PLC 时序中已经到达上位机的第二项触发由本方法兜底完成，
+        /// 并以 D=1 表示该次跳过动作处理完成。
+        /// 单测、首项 PASS、点检、双Y以及无法确认本轮首项记录的场景继续执行既有测试流程。
+        /// </summary>
+        /// <param name="stationIndex">耐压工位序号；1、2、3分别映射完成信号 AddressStart+7、+9、+11。</param>
+        /// <param name="stationLabel">现场日志使用的工位名称，例如“耐压1”。</param>
+        /// <param name="testType">PLC 本次触发的测试模式，值为 ACW 或 DCW。</param>
+        /// <returns>第二项已按首项失败完成短路并回写 PLC 完成信号时返回 true。</returns>
+        private bool TrySkipStandardDualTestSecondStep(int stationIndex, string stationLabel, string testType)
+        {
+            string secondTestType;
+            switch (DataModel.Settingmodel.CurrentTestMode)
+            {
+                case AT9620.ElectricalTestMode.ACWThenDCW:
+                    secondTestType = "DCW";
+                    break;
+                case AT9620.ElectricalTestMode.DCWThenACW:
+                    secondTestType = "ACW";
+                    break;
+                default:
+                    return false;
+            }
+
+            if (IsDualYElectricalTestModeActive()
+                || !string.Equals(testType, secondTestType, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            string sn;
+            string wocode;
+            string rawCode;
+            int productCodeAddress = DataModel.Settingmodel.AddressSN + 25 * stationIndex;
+            if (!TryReadProductCodeFromPlc(
+                productCodeAddress,
+                $"{stationLabel}-{testType}-双测短路判断",
+                out sn,
+                out wocode,
+                out rawCode))
+            {
+                return false;
+            }
+
+            sqlite.ElectricalTestProcessRow firstTestRow;
+            bool communicationFailure;
+            if (!TryGetStandardDualTestFirstFailure(
+                wocode,
+                DataModel.Processmodel.PartNOID,
+                sn,
+                out firstTestRow,
+                out communicationFailure))
+            {
+                return false;
+            }
+
+            int completionAddressOffset = 5 + stationIndex * 2;
+            int completionAddress = DataModel.Settingmodel.AddressStart + completionAddressOffset;
+            bool completionWritten = PLC_write(completionAddress.ToString(), (UInt16)1);
+            string firstFailureType = communicationFailure ? "通信异常" : "耐压NG";
+            writeLog(
+                $"[{stationLabel}-{testType}] 双电测第二项因首项{firstFailureType}跳过，SN={sn}，首项={firstTestRow.TestMode}，"
+                + $"未下发参数、未启动仪器、未生成第二项记录，D{completionAddress}=1完成信号写入{(completionWritten ? "成功" : "失败")}",
+                !completionWritten);
+            sqlite.WriteErrorLog(
+                "[追踪]双测第二项跳过",
+                $"工位={stationLabel}, SN={sn}, 首项={firstTestRow.TestMode}, 首项结果={firstFailureType}, 第二项={testType}, 完成地址=D{completionAddress}, 写入={(completionWritten ? "成功" : "失败")}",
+                sn,
+                wocode);
+            return true;
         }
 
         /// <summary>
@@ -1751,6 +1991,11 @@ namespace BusbarCompressionSystem.ViewModel
         /// </remarks>
         public void TV1Process_ACW()
         {
+            if (TrySkipStandardDualTestSecondStep(1, "耐压1", "ACW"))
+            {
+                return;
+            }
+
             if (!TryBeginTvProcessIfIdle(DataModel.Settingmodel.AT9620_1, "耐压1", "ACW"))
             {
                 return;
@@ -1772,7 +2017,11 @@ namespace BusbarCompressionSystem.ViewModel
                     }
 
                     writeLog($"[耐压1-ACW] ❌ ACW参数下发失败: {downloadResult.Error}", true);
-                    // 参数下发失败视为该工位耐压 NG：通知 PLC 不要启用 IR
+                    PersistTvParameterDownloadCommunicationFailure(
+                        1, "耐压1", "ACW",
+                        DataModel.Settingmodel.SETTING_DATA.TVMeterID1,
+                        downloadResult.Error);
+                    // 参数流程失败：M3041写0禁止IR，D1007写2通知PLC失败完成并允许跳过双电测第二项。
                     WriteTvOkSignalForIrEnable(1, false);
                     PLC_write((DataModel.Settingmodel.AddressStart + 7).ToString(), (UInt16)2);
                     return;
@@ -1799,6 +2048,11 @@ namespace BusbarCompressionSystem.ViewModel
         /// </remarks>
         public void TV1Process_DCW()
         {
+            if (TrySkipStandardDualTestSecondStep(1, "耐压1", "DCW"))
+            {
+                return;
+            }
+
             if (!TryBeginTvProcessIfIdle(DataModel.Settingmodel.AT9620_1, "耐压1", "DCW"))
             {
                 return;
@@ -1820,7 +2074,11 @@ namespace BusbarCompressionSystem.ViewModel
                     }
 
                     writeLog($"[耐压1-DCW] ❌ DCW参数下发失败: {downloadResult.Error}", true);
-                    // 参数下发失败视为该工位耐压 NG：通知 PLC 不要启用 IR
+                    PersistTvParameterDownloadCommunicationFailure(
+                        1, "耐压1", "DCW",
+                        DataModel.Settingmodel.SETTING_DATA.TVMeterID1,
+                        downloadResult.Error);
+                    // 参数流程失败：M3041写0禁止IR，D1007写2通知PLC失败完成并允许跳过双电测第二项。
                     WriteTvOkSignalForIrEnable(1, false);
                     PLC_write((DataModel.Settingmodel.AddressStart + 7).ToString(), (UInt16)2);
                     return;
@@ -2142,6 +2400,11 @@ namespace BusbarCompressionSystem.ViewModel
         /// </remarks>
         public void TV2Process_ACW()
         {
+            if (TrySkipStandardDualTestSecondStep(2, "耐压2", "ACW"))
+            {
+                return;
+            }
+
             if (!TryBeginTvProcessIfIdle(DataModel.Settingmodel.AT9620_2, "耐压2", "ACW"))
             {
                 return;
@@ -2163,7 +2426,11 @@ namespace BusbarCompressionSystem.ViewModel
                     }
 
                     writeLog($"[耐压2-ACW] ❌ ACW参数下发失败: {downloadResult.Error}", true);
-                    // 参数下发失败视为该工位耐压 NG：通知 PLC 不要启用 IR
+                    PersistTvParameterDownloadCommunicationFailure(
+                        2, "耐压2", "ACW",
+                        DataModel.Settingmodel.SETTING_DATA.TVMeterID2,
+                        downloadResult.Error);
+                    // 参数流程失败：M3042写0禁止IR，D1009写2通知PLC失败完成并允许跳过双电测第二项。
                     WriteTvOkSignalForIrEnable(2, false);
                     PLC_write((DataModel.Settingmodel.AddressStart + 9).ToString(), (UInt16)2);
                     return;
@@ -2190,6 +2457,11 @@ namespace BusbarCompressionSystem.ViewModel
         /// </remarks>
         public void TV2Process_DCW()
         {
+            if (TrySkipStandardDualTestSecondStep(2, "耐压2", "DCW"))
+            {
+                return;
+            }
+
             if (!TryBeginTvProcessIfIdle(DataModel.Settingmodel.AT9620_2, "耐压2", "DCW"))
             {
                 return;
@@ -2211,7 +2483,11 @@ namespace BusbarCompressionSystem.ViewModel
                     }
 
                     writeLog($"[耐压2-DCW] ❌ DCW参数下发失败: {downloadResult.Error}", true);
-                    // 参数下发失败视为该工位耐压 NG：通知 PLC 不要启用 IR
+                    PersistTvParameterDownloadCommunicationFailure(
+                        2, "耐压2", "DCW",
+                        DataModel.Settingmodel.SETTING_DATA.TVMeterID2,
+                        downloadResult.Error);
+                    // 参数流程失败：M3042写0禁止IR，D1009写2通知PLC失败完成并允许跳过双电测第二项。
                     WriteTvOkSignalForIrEnable(2, false);
                     PLC_write((DataModel.Settingmodel.AddressStart + 9).ToString(), (UInt16)2);
                     return;
@@ -2467,6 +2743,11 @@ namespace BusbarCompressionSystem.ViewModel
         /// </summary>
         public void TV3Process_ACW()
         {
+            if (TrySkipStandardDualTestSecondStep(3, "耐压3", "ACW"))
+            {
+                return;
+            }
+
             if (!TryBeginTvProcessIfIdle(DataModel.Settingmodel.AT9620_3, "耐压3", "ACW"))
             {
                 return;
@@ -2487,6 +2768,11 @@ namespace BusbarCompressionSystem.ViewModel
                     }
 
                     writeLog($"[耐压3-ACW] ❌ ACW参数下发失败: {downloadResult.Error}", true);
+                    PersistTvParameterDownloadCommunicationFailure(
+                        3, "耐压3", "ACW",
+                        DataModel.Settingmodel.SETTING_DATA.TVMeterID3,
+                        downloadResult.Error);
+                    // 参数流程失败：D1011写2通知PLC失败完成并允许跳过双电测第二项；产品追溯由SQLite通信异常记录承接。
                     PLC_write((DataModel.Settingmodel.AddressStart + 11).ToString(), (UInt16)2);
                     return;
                 }
@@ -2508,6 +2794,11 @@ namespace BusbarCompressionSystem.ViewModel
         /// </summary>
         public void TV3Process_DCW()
         {
+            if (TrySkipStandardDualTestSecondStep(3, "耐压3", "DCW"))
+            {
+                return;
+            }
+
             if (!TryBeginTvProcessIfIdle(DataModel.Settingmodel.AT9620_3, "耐压3", "DCW"))
             {
                 return;
@@ -2528,6 +2819,11 @@ namespace BusbarCompressionSystem.ViewModel
                     }
 
                     writeLog($"[耐压3-DCW] ❌ DCW参数下发失败: {downloadResult.Error}", true);
+                    PersistTvParameterDownloadCommunicationFailure(
+                        3, "耐压3", "DCW",
+                        DataModel.Settingmodel.SETTING_DATA.TVMeterID3,
+                        downloadResult.Error);
+                    // 参数流程失败：D1011写2通知PLC失败完成并允许跳过双电测第二项；产品追溯由SQLite通信异常记录承接。
                     PLC_write((DataModel.Settingmodel.AddressStart + 11).ToString(), (UInt16)2);
                     return;
                 }

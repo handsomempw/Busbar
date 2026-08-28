@@ -57,15 +57,34 @@ namespace AT9620
 
         /// <summary>
         /// Fetch 指令最大尝试次数（含首次发送）。
-        /// 该值来自耐压仪独立配置文件，决定单次读取的完整重试窗口；默认值 3 保持现有现场节拍。
+        /// 该值来自耐压仪独立配置文件，决定单次读取的完整重试窗口；默认值 5 覆盖现场短时响应波动。
         /// </summary>
-        public int FetchMaxAttempts { get; set; } = 3;
+        public int FetchMaxAttempts { get; set; } = 5;
 
         /// <summary>
         /// Fetch 指令失败后到下一次重新发送前的间隔（毫秒）。
         /// 该值来自耐压仪独立配置文件，用于控制同一读数窗口内的重试节拍；默认值 100 保持现有现场节拍。
         /// </summary>
         public int FetchRetryDelayMs { get; set; } = 100;
+
+        /// <summary>
+        /// 参数回读与启动前步骤查询的最大尝试次数（含首次发送）。
+        /// 该值来自耐压仪独立配置文件；默认值 5，用于手动参数下发回读和测试启动前工艺确认。
+        /// 标准产线自动参数下发由工位统一组织五轮，每轮只使用一次回读；启动命令始终只发送一次。
+        /// </summary>
+        public int SetupQueryMaxAttempts { get; set; } = 5;
+
+        /// <summary>
+        /// 参数回读与启动前步骤查询的基础重试间隔，单位毫秒。
+        /// 后续等待按尝试序号递增并限制在 2000ms 内，为仪器步骤切换、参数应用和 TCP 重连预留时间。
+        /// </summary>
+        public int SetupQueryRetryDelayMs { get; set; } = 200;
+
+        /// <summary>
+        /// WP 参数发送成功后首次执行 rp? 回读前的等待时间，单位毫秒。
+        /// 默认值 300，只影响参数同步节拍，不改变耐压上升、保持和下降时间。
+        /// </summary>
+        public int ParameterApplyDelayMs { get; set; } = 300;
 
         /// <summary>
         /// 其它耐压命令单次接收超时（毫秒）。
@@ -408,10 +427,25 @@ namespace AT9620
         }
 
         /// <summary>
-        /// 下发当前 AT9620 工艺参数并回读校验。入口负责独占参数下发会话，工艺命令和比对口径沿用既有流程。
+        /// 下发当前 AT9620 工艺参数并按通信配置回读校验。
+        /// 手动下发和兼容调用使用 <see cref="SetupQueryMaxAttempts"/> 次回读机会；生产自动流程可通过带参数重载，
+        /// 将回读次数纳入工位统一重试预算。入口负责独占参数下发会话，不启动耐压测试。
         /// </summary>
         /// <returns>参数下发和回读比对结果；会话忙碌或连接失败时返回失败说明。</returns>
         public Result Download()
+        {
+            return Download(SetupQueryMaxAttempts, OtherCommandReceiveTimeoutMs);
+        }
+
+        /// <summary>
+        /// 下发当前 AT9620 工艺参数，并按调用方提供的回读预算完成本轮校验。
+        /// 标准产线每轮传入一次回读，使五轮完整下发最多产生五次参数校验；手动下发继续使用无参数入口的配置次数。
+        /// 该入口只约束本轮参数同步，不改变启动命令、测试时间、PLC完成状态和产品判定。
+        /// </summary>
+        /// <param name="parameterVerifyMaxAttempts">本轮参数写入后的回读校验次数，含首次查询；标准产线传入1。</param>
+        /// <param name="parameterVerifyReceiveTimeoutMs">本轮单次参数回读接收超时，单位毫秒；用于服从工位总等待上限。</param>
+        /// <returns>参数下发及任一次回读比对成功时返回成功；会话占用、连接、写入或校验失败时返回原因。</returns>
+        public Result Download(int parameterVerifyMaxAttempts, int parameterVerifyReceiveTimeoutMs)
         {
             string error;
             if (!TryBeginSession(InstrumentSessionState.Downloading, "Download", out error))
@@ -427,7 +461,7 @@ namespace AT9620
                     return new Result { Error = "连接失败" };
                 }
 
-                return _Download();
+                return _Download(parameterVerifyMaxAttempts, parameterVerifyReceiveTimeoutMs);
             }
             finally
             {
@@ -435,7 +469,24 @@ namespace AT9620
                 EndSession(InstrumentSessionState.Downloading);
             }
         }
+
+        /// <summary>
+        /// 已连接状态下按通信配置执行参数写入和回读校验，供历史调用方保持原有入口。
+        /// </summary>
+        /// <returns>参数写入及回读一致时返回成功；写入或校验失败时返回原因。</returns>
         public Result _Download()
+        {
+            return _Download(SetupQueryMaxAttempts, OtherCommandReceiveTimeoutMs);
+        }
+
+        /// <summary>
+        /// 已连接状态下执行一次参数同步流程。
+        /// 调用方决定本轮回读次数和接收超时，使生产工位可以在五轮完整下发与20秒等待上限内共享通信预算。
+        /// </summary>
+        /// <param name="parameterVerifyMaxAttempts">本轮参数写入后的回读校验次数，含首次查询。</param>
+        /// <param name="parameterVerifyReceiveTimeoutMs">本轮单次参数回读接收超时，单位毫秒。</param>
+        /// <returns>参数写入及任一次回读一致时返回成功；写入或校验失败时返回原因。</returns>
+        private Result _Download(int parameterVerifyMaxAttempts, int parameterVerifyReceiveTimeoutMs)
         {
 
             Result r = new Result();
@@ -503,25 +554,19 @@ namespace AT9620
                 return r;
             }
             WriteLog($"[参数下发] ✓ 参数下发成功");
-            Thread.Sleep(intervaltime);
+            Thread.Sleep(Math.Max(0, ParameterApplyDelayMs));
 
-            WriteLog($"[参数下发] 开始回读参数验证...");
-            var r3 = Get_String("rp? 1\n");
-            if (!r3.Success)
+            WriteLog("[参数下发] 开始回读参数验证...");
+            Result verifyResult = VerifyCurrentParametersWithRetry(
+                message => WriteLog($"[参数下发] {message}"),
+                retryTransportFailures: false,
+                reconnectBetweenAttempts: false,
+                maxAttempts: parameterVerifyMaxAttempts,
+                receiveTimeoutMs: parameterVerifyReceiveTimeoutMs);
+            if (!verifyResult.Success)
             {
-                WriteLog($"[参数下发] ❌ 回读参数失败: {r3.Error}");
-                r.Error = r3.Error;
-                return r;
-            }
-            WriteLog($"[参数下发] ✓ 回读参数成功: {r3.Value}");
-            
-            WriteLog($"[参数下发] 开始参数对比验证...");
-            var r4 = TVParameter.compare(r3.Value);
-            if (!r4.Success)
-            {
-                WriteLog($"[参数下发] ❌ 参数验证失败:");
-                WriteLog($"{r4.Error}");
-                r.Error = $"测试工艺参数不一致，请重新下发工艺参数\r\n{r4.Error}";
+                WriteLog($"[参数下发] ❌ 参数验证失败: {verifyResult.Error}");
+                r.Error = verifyResult.Error;
                 return r;
             }
             WriteLog($"[参数下发] ✓ 参数验证成功，所有参数一致");
@@ -533,6 +578,111 @@ namespace AT9620
             return r;
 
 
+        }
+
+        /// <summary>
+        /// 按通信配置复核仪器当前步骤参数，任一次回读与当前工艺一致即完成确认。
+        /// 参数下载路径在收到旧值时按递增间隔继续读取，Socket 失败交给外层完整下载建立新连接；
+        /// 启动前确认路径在每次失败后重连，清除延迟应答。该方法只执行 rp? 查询和本地参数比较。
+        /// </summary>
+        /// <param name="trace">接收每次回读、参数不一致和重连结果的诊断输出；允许为空。</param>
+        /// <param name="retryTransportFailures">通信读取失败后继续本层查询时为 true；交给外层完整下载重连时为 false。</param>
+        /// <param name="reconnectBetweenAttempts">后续查询前重新建立 TCP 连接时为 true；沿用当前连接复核参数生效状态时为 false。</param>
+        /// <param name="maxAttempts">本次确认允许的回读总次数，含首次查询。</param>
+        /// <param name="receiveTimeoutMs">单次回读接收超时，单位毫秒；生产自动流程可传入剩余时间预算。</param>
+        /// <returns>参数一致时返回成功及末次回读原文；尝试用尽时返回末次通信或参数差异说明。</returns>
+        private Result VerifyCurrentParametersWithRetry(
+            Action<string> trace,
+            bool retryTransportFailures,
+            bool reconnectBetweenAttempts,
+            int maxAttempts,
+            int receiveTimeoutMs)
+        {
+            int attempts = Math.Max(1, maxAttempts);
+            int configuredReceiveTimeoutMs = Math.Max(1, OtherCommandReceiveTimeoutMs);
+            int effectiveReceiveTimeoutMs = receiveTimeoutMs > 0
+                ? Math.Min(configuredReceiveTimeoutMs, receiveTimeoutMs)
+                : configuredReceiveTimeoutMs;
+            string lastError = "参数回读未返回结果";
+
+            for (int attempt = 1; attempt <= attempts; attempt++)
+            {
+                if (attempt > 1 && reconnectBetweenAttempts
+                    && !ReconnectForSetupQuery("参数回读", attempt, attempts, trace))
+                {
+                    lastError = $"参数回读第{attempt}/{attempts}次重连失败";
+                    continue;
+                }
+                if (attempt > 1 && !reconnectBetweenAttempts)
+                {
+                    int retryDelayMs = GetSetupQueryRetryDelayMs(attempt - 1);
+                    trace?.Invoke($"第{attempt}/{attempts}次回读将在{retryDelayMs}ms后执行");
+                    Thread.Sleep(retryDelayMs);
+                }
+
+                Result readResult = SendAndReceiveOnce("rp? 1\n", effectiveReceiveTimeoutMs);
+                if (!readResult.Success)
+                {
+                    lastError = readResult.Error ?? "参数回读失败";
+                    trace?.Invoke($"第{attempt}/{attempts}次回读失败: {lastError}");
+                    if (!retryTransportFailures)
+                    {
+                        return new Result { Error = lastError };
+                    }
+                    continue;
+                }
+
+                trace?.Invoke($"第{attempt}/{attempts}次回读成功: {readResult.Value}");
+                Result compareResult = TVParameter.compare(readResult.Value);
+                if (compareResult.Success)
+                {
+                    return new Result { Success = true, Value = readResult.Value };
+                }
+
+                lastError = compareResult.Error ?? "回读参数与当前工艺不一致";
+                trace?.Invoke($"第{attempt}/{attempts}次回读参数暂未生效: {lastError}");
+            }
+
+            return new Result
+            {
+                Error = $"测试工艺参数不一致或回读失败，已完成{attempts}次复核\r\n{lastError}"
+            };
+        }
+
+        /// <summary>
+        /// 为参数回读或启动前步骤查询重新建立 TCP 连接。
+        /// 先关闭旧连接，再按当前尝试序号递增等待，可清除超时连接中的延迟应答并给仪器保留恢复时间。
+        /// </summary>
+        /// <param name="queryName">查询名称，用于通信日志区分参数回读和步骤数量确认。</param>
+        /// <param name="attempt">即将执行的尝试序号，从 2 开始。</param>
+        /// <param name="attempts">本轮允许的总尝试次数。</param>
+        /// <param name="trace">接收重连等待和结果的诊断输出；允许为空。</param>
+        /// <returns>新 TCP 连接建立成功时返回 true。</returns>
+        private bool ReconnectForSetupQuery(string queryName, int attempt, int attempts, Action<string> trace)
+        {
+            DisconnectCore();
+            int retryDelayMs = GetSetupQueryRetryDelayMs(attempt - 1);
+            trace?.Invoke($"{queryName}第{attempt}/{attempts}次将在{retryDelayMs}ms后重连");
+            Thread.Sleep(retryDelayMs);
+
+            bool connected = connect(IP, Port);
+            if (!connected)
+            {
+                trace?.Invoke($"{queryName}第{attempt}/{attempts}次重连失败");
+            }
+            return connected;
+        }
+
+        /// <summary>
+        /// 计算参数与步骤查询的递增重试间隔。
+        /// </summary>
+        /// <param name="completedAttempt">刚完成的失败尝试序号，从 1 开始。</param>
+        /// <returns>下一次查询前的等待时间，单位毫秒，最大 2000ms。</returns>
+        private int GetSetupQueryRetryDelayMs(int completedAttempt)
+        {
+            int exponent = Math.Max(0, Math.Min(completedAttempt - 1, 10));
+            long delayMs = (long)Math.Max(0, SetupQueryRetryDelayMs) * (1L << exponent);
+            return (int)Math.Min(delayMs, 2000L);
         }
 
         /// <summary>
@@ -579,18 +729,16 @@ namespace AT9620
             // 步骤2：参数一致性验证
             // 从设备回读当前设置的参数，与本地TVParameter对象进行对比
             // 确保设备实际运行的参数与期望参数一致
-            var r2 = Get_String("rp? 1\n");
+            var r2 = VerifyCurrentParametersWithRetry(
+                message => Diag($"【启动前参数确认】{message}"),
+                retryTransportFailures: true,
+                reconnectBetweenAttempts: true,
+                maxAttempts: SetupQueryMaxAttempts,
+                receiveTimeoutMs: OtherCommandReceiveTimeoutMs);
             if (!r2.Success)
             {
                 Diag($"【启动中止】回读工艺参数失败：{r2.Error}");
                 r.Error = r2.Error;
-                return r;
-            }
-            var r3 = TVParameter.compare(r2.Value);
-            if (!r3.Success)
-            {
-                Diag($"【启动中止】本机工艺参数与仪器回读不一致");
-                r.Error = $"测试工艺参数不一致，请重新下发工艺参数\r\n{r3.Error}";
                 return r;
             }
 
@@ -815,7 +963,9 @@ namespace AT9620
         /// </item>
         /// <item>
         /// <description>
-        /// <c>rp?</c>、<c>FUNC:SOUR:STEP?</c> 等其它命令：只执行单轮收发，使用 <see cref="OtherCommandReceiveTimeoutMs"/>，不自动重试。
+        /// <c>rp?</c>、<c>FUNC:SOUR:STEP?</c> 等其它命令：本方法执行单轮收发并使用
+        /// <see cref="OtherCommandReceiveTimeoutMs"/>；参数下载和启动前确认入口按
+        /// <see cref="SetupQueryMaxAttempts"/> 组织重连与复核，避免测试启动命令被重复发送。
         /// </description>
         /// </item>
         /// </list>
@@ -907,34 +1057,41 @@ namespace AT9620
         public Resultint Get_StepNum()
         {
             Resultint r = new Resultint();
+            int attempts = Math.Max(1, SetupQueryMaxAttempts);
+            string lastError = "步骤数量查询未返回结果";
 
-            var re = Get_String("FUNC:SOUR:STEP?\n");
-            if (re.Success)
+            for (int attempt = 1; attempt <= attempts; attempt++)
             {
+                if (attempt > 1 && !ReconnectForSetupQuery("步骤数量查询", attempt, attempts, message => Diag($"【启动前步骤确认】{message}")))
+                {
+                    lastError = $"步骤数量查询第{attempt}/{attempts}次重连失败";
+                    continue;
+                }
+
+                var re = Get_String("FUNC:SOUR:STEP?\n");
+                if (!re.Success)
+                {
+                    lastError = re.Error ?? "步骤数量查询失败";
+                    Diag($"【启动前步骤确认】第{attempt}/{attempts}次查询失败：{lastError}");
+                    continue;
+                }
+
                 try
                 {
                     r.Value = Convert.ToInt32(re.Value.Split('-')[1].Replace("TOTAL", "").Trim());
                     r.Success = true;
+                    Diag($"【启动前步骤确认】第{attempt}/{attempts}次查询成功：步骤数={r.Value}");
+                    return r;
                 }
-                catch (Exception EX)
+                catch (Exception ex)
                 {
-
-                    r.Error = $"接收内容:{re.Value}\r\n {EX.ToString()}";
+                    lastError = $"接收内容:{re.Value}\r\n {ex}";
+                    Diag($"【启动前步骤确认】第{attempt}/{attempts}次格式异常：{ex.Message}");
                 }
-
-            }
-            else
-            {
-                r.Error = re.Error;
-                r.Success = re.Success;
-
             }
 
-
-
+            r.Error = $"步骤数量查询已完成{attempts}次尝试仍失败\r\n{lastError}";
             return r;
-
-
         }
         public Result Send(string cmd)
         {

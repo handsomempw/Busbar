@@ -57,7 +57,8 @@ namespace BusbarCompressionSystem.Utils
 
         /// <summary>
         /// 耐压仪未给出可信结束态时写入 SQLite 的固定状态。
-        /// 该状态只表示本轮没有形成仪器判定，不等同于耐压 NG；CHECK 阶段据此保留过程追溯并跳过 MES 报工。
+        /// 该状态表示本轮没有形成仪器判定；CHECK 阶段据此保留过程追溯，
+        /// 标准 CHECK1 可归入 NG3 待复测，CHECK2 与其它流程继续执行各自现有报工门禁。
         /// </summary>
         public const string CommunicationFailureStatus = "通信异常";
 
