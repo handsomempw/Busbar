@@ -790,8 +790,6 @@ namespace BusbarCompressionSystem.ViewModel
                         return;
                     }
 
-                    RecordRetestEntry(AoiRetestScope, "AOI", snCode, woCode, productPartNoId);
-
                     if (isInspectionSN)
                     {
                         // 从 ProductInfoRecords 取数并做综合判断的整体思路：
@@ -992,6 +990,20 @@ namespace BusbarCompressionSystem.ViewModel
                             MSG = "NG3";
                             resultstr = "电测通讯异常（待复测）";
                             writeLog($"[CHECK1] 电测通讯异常按NG3分流并报工，SN={DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN}", true);
+                        }
+
+                        // CHECK1=0 表示前置电测、阻值、压力和拍照留底均已满足 AOI 放行条件。
+                        // 在发送机器人 OK 前累计一次 AOI 入口；后续 A1/A2/A3 指令属于同一轮 AOI，不再重复计数。
+                        if (r == 0
+                            && !RecordRetestEntry(
+                                AoiRetestScope,
+                                "AOI",
+                                DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN,
+                                DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE,
+                                DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID))
+                        {
+                            // AOI 入口超限沿用 CHECK1 读码失败的交互约定：界面报警并结束本次机器人交互。
+                            return;
                         }
 
                         //if (MSG != "OK")

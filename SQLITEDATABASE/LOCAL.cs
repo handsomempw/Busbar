@@ -312,24 +312,29 @@ namespace SQLITEDATABASE
         }
 
         /// <summary>
-        /// 按工单数据库、产品 SN 和检测类别原子累计一次环节入口。
-        /// AOI 使用独立类别；ACW、DCW、IR 共用电测类别。独立统计表保持现有生产过程表结构和质量数据口径，
-        /// 工单数据库切换后自然进入对应工单的计数周期。
+        /// 按工单数据库、产品 SN 和检测类别原子校验并累计一次环节入口。
+        /// AOI 使用独立类别；ACW、DCW、IR 共用电测类别。当前次数达到上限时只返回拦截结果，不再写入次数，
+        /// 使“最多 5 次”对应 5 条已放行入口记录，超限扫码不会污染后续统计。
         /// </summary>
         /// <param name="WOCODE">当前产品工单号，用于定位本地工单数据库。</param>
         /// <param name="PARTNOID">当前产品规格编码，沿用数据库创建接口。</param>
         /// <param name="SN">环节开始前已校验的产品序列号。</param>
         /// <param name="processScope">统计类别；AOI 或 ELECTRICAL。</param>
-        /// <param name="entryCount">记录成功时返回当前工单内该 SN、该类别的累计入口次数。</param>
-        /// <returns>表结构准备、读取和累加事务全部完成时返回 true；异常时返回 false 并写入数据库异常日志。</returns>
+        /// <param name="maxEntryCount">量产模式允许放行的最大入口次数；调机模式不调用本方法。</param>
+        /// <param name="entryCount">返回当前工单内该 SN、该类别已放行的累计入口次数。</param>
+        /// <param name="allowed">返回本次扫码是否允许进入检测；达到上限时为 false。</param>
+        /// <returns>表结构准备、读取和事务处理完成时返回 true；异常时返回 false 并写入数据库异常日志。</returns>
         public static bool TryIncrementRetestEntryCount(
             string WOCODE,
             string PARTNOID,
             string SN,
             string processScope,
-            out int entryCount)
+            int maxEntryCount,
+            out int entryCount,
+            out bool allowed)
         {
             entryCount = 0;
+            allowed = true;
             string connectionString = CheckDataBase(WOCODE, PARTNOID, SN);
             if (string.IsNullOrEmpty(connectionString))
             {
@@ -379,27 +384,36 @@ namespace SQLITEDATABASE
                                 }
                             }
 
-                            entryCount = currentCount + 1;
-                            using (var saveCommand = new SQLiteCommand(
-                                "INSERT OR REPLACE INTO RetestEntryCounter(SN, PROCESS_SCOPE, ENTRY_COUNT, UPDATED_AT) " +
-                                "VALUES(@sn, @processScope, @entryCount, @updatedAt)",
-                                connection,
-                                transaction))
+                            if (currentCount >= maxEntryCount)
                             {
-                                saveCommand.Parameters.AddWithValue("@sn", SN ?? string.Empty);
-                                saveCommand.Parameters.AddWithValue("@processScope", processScope ?? string.Empty);
-                                saveCommand.Parameters.AddWithValue("@entryCount", entryCount);
-                                saveCommand.Parameters.AddWithValue("@updatedAt", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture));
-                                saveCommand.ExecuteNonQuery();
+                                entryCount = currentCount;
+                                allowed = false;
+                                transaction.Commit();
                             }
+                            else
+                            {
+                                entryCount = currentCount + 1;
+                                using (var saveCommand = new SQLiteCommand(
+                                    "INSERT OR REPLACE INTO RetestEntryCounter(SN, PROCESS_SCOPE, ENTRY_COUNT, UPDATED_AT) " +
+                                    "VALUES(@sn, @processScope, @entryCount, @updatedAt)",
+                                    connection,
+                                    transaction))
+                                {
+                                    saveCommand.Parameters.AddWithValue("@sn", SN ?? string.Empty);
+                                    saveCommand.Parameters.AddWithValue("@processScope", processScope ?? string.Empty);
+                                    saveCommand.Parameters.AddWithValue("@entryCount", entryCount);
+                                    saveCommand.Parameters.AddWithValue("@updatedAt", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture));
+                                    saveCommand.ExecuteNonQuery();
+                                }
 
-                            transaction.Commit();
+                                transaction.Commit();
+                            }
                         }
                     }
 
                     WriteErrorLog(
-                        "[数据库信息]复测次数-记录成功",
-                        $"类别={processScope}, 当前次数={entryCount}",
+                        allowed ? "[数据库信息]复测次数-记录成功" : "[数据库信息]复测次数-达到上限",
+                        $"类别={processScope}, 当前次数={entryCount}, 本次={(allowed ? "放行" : "拦截")}",
                         SN,
                         WOCODE);
                     return true;
@@ -407,6 +421,7 @@ namespace SQLITEDATABASE
                 catch (Exception ex)
                 {
                     entryCount = 0;
+                    allowed = true;
                     WriteErrorLog(
                         "[数据库异常]复测次数-记录失败",
                         $"类别={processScope}, 异常={ex.Message}",

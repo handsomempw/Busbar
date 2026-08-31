@@ -93,7 +93,7 @@
                             Height="30"
                             Content="量产"
                             p:ButtonHelper.CornerRadius="4"
-                            ToolTip="量产模式下AOI和电测分别按SN累计，最多5次，第6次记录报警"
+                            ToolTip="量产模式下AOI和电测分别按SN累计，最多5次，第6次拦截报警"
                             Click="ProductionModeButton_Click">
                         <Button.Style>
                             <Style TargetType="Button">

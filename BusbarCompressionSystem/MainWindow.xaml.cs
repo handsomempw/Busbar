@@ -762,7 +762,7 @@ namespace BusbarCompressionSystem
 
         /// <summary>
         /// 将 AOI 与电测复测管控切换到量产模式。
-        /// 量产模式按工单和 SN 分别累计 AOI、电测入口次数，超过配置上限后在界面输出报警并继续当前设备流程。
+        /// 量产模式按工单和 SN 分别累计 AOI、电测入口次数，第 6 次在扫码阶段拦截并在界面输出报警。
         /// </summary>
         /// <param name="sender">标题栏量产模式按钮。</param>
         /// <param name="e">按钮点击事件数据，当前流程不读取附加信息。</param>
@@ -781,7 +781,7 @@ namespace BusbarCompressionSystem
             }
 
             if (MessageBoxX.Show(
-                "确认切换到量产模式？\r\nAOI、电测每个工单SN最多5次，第6次仅报警并继续。",
+                "确认切换到量产模式？\r\nAOI、电测每个工单SN最多5次，第6次扫码拦截并报警。",
                 "切换复测模式",
                 MessageBoxButton.YesNo,
                 MessageBoxIcon.Question,
