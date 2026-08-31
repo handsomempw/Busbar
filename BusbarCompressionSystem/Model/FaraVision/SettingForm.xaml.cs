@@ -110,6 +110,11 @@ namespace BusbarCompressionSystem.Model.FaraVision
             {
                 if (!_isReadOnly)
                 {
+                    if (DimensionCompensationPanel != null)
+                    {
+                        DimensionCompensationPanel.Visibility = Visibility.Visible;
+                    }
+
                     // 按当前测量类型同步 ROI 类型（Line/Circle），无需用户再次切换下拉框
                     ApplyMeasureTypeToROIType();
                     t.NormalizeDimensionLineMetrologyParametersForProjectLoad(out _);
@@ -168,6 +173,11 @@ namespace BusbarCompressionSystem.Model.FaraVision
         private void ApplyReadOnlyState()
         {
             Title = "工具设置（只读查看）";
+            if (DimensionCompensationPanel != null)
+            {
+                // 固定补偿属于受控校正参数，普通查看会话隐藏其数值。
+                DimensionCompensationPanel.Visibility = Visibility.Collapsed;
+            }
             ApplyReadOnlyToElement(ToolParameterPanel);
         }
 
@@ -284,6 +294,22 @@ namespace BusbarCompressionSystem.Model.FaraVision
         private bool EnsureEditable()
         {
             return !_isReadOnly;
+        }
+
+        /// <summary>
+        /// 提交当前尺寸补偿输入框的待写回值。
+        /// 动态密码到期可能在输入框仍获得焦点时触发权限回收；主窗口保存工程前调用此方法，保证屏幕上的最后一次补偿输入进入 ToolModel。
+        /// 只读查看会话保持模型值和界面状态稳定。
+        /// </summary>
+        public void CommitDimensionCompensationEdit()
+        {
+            if (_isReadOnly || DimensionFixedCompensationTextBox == null)
+            {
+                return;
+            }
+
+            BindingExpression binding = DimensionFixedCompensationTextBox.GetBindingExpression(TextBox.TextProperty);
+            binding?.UpdateSource();
         }
 
         /// <summary>
@@ -1436,7 +1462,7 @@ namespace BusbarCompressionSystem.Model.FaraVision
                 // 不调用找边预览入口，避免简版预览覆盖红色测距线和调试图层。
                 double measureValue = vml.Main.MeasureDimension(t.Image, t, hwindow, true);
 
-                if (measureValue < 0)
+                if (t.LastRawMeasureValue < 0)
                 {
                     NoticeBox.Show("测量失败，请检查：\n1. ROI区域是否正确框选\n2. 边缘类型是否匹配\n3. 边缘灵敏度是否合适\n4. 是否已进行世界坐标校准", 
                         "测量失败", MessageBoxIcon.Error, true, 8000);
@@ -1444,7 +1470,7 @@ namespace BusbarCompressionSystem.Model.FaraVision
                 else
                 {
                     string status = (measureValue >= t.MinMeasureValue && measureValue <= t.MaxMeasureValue) ? "OK" : "NG";
-                    NoticeBox.Show($"测量结果: {measureValue:F3} mm\n状态: {status}\n范围: {t.MinMeasureValue} - {t.MaxMeasureValue} mm", 
+                    NoticeBox.Show(BuildDimensionMeasurementResultMessage(measureValue, status),
                         "测量结果", MessageBoxIcon.Info, true, 10000);
                 }
             }
@@ -1522,7 +1548,7 @@ namespace BusbarCompressionSystem.Model.FaraVision
                     // 检测照片只作为本次测量背景，不写回模板图；测量完成后保留完整测距图层。
                     double measureValue = vml.Main.MeasureDimension(image, t, hwindow, true);
 
-                    if (measureValue < 0)
+                    if (t.LastRawMeasureValue < 0)
                     {
                         NoticeBox.Show("测量失败，请检查：\n1. ROI区域是否正确框选\n2. 边缘类型是否匹配\n3. 边缘灵敏度是否合适\n4. 是否已进行世界坐标校准",
                             "测量失败", MessageBoxIcon.Error, true, 8000);
@@ -1530,7 +1556,7 @@ namespace BusbarCompressionSystem.Model.FaraVision
                     else
                     {
                         string status = (measureValue >= t.MinMeasureValue && measureValue <= t.MaxMeasureValue) ? "OK" : "NG";
-                        NoticeBox.Show($"测量结果: {measureValue:F3} mm\n状态: {status}\n范围: {t.MinMeasureValue} - {t.MaxMeasureValue} mm",
+                        NoticeBox.Show(BuildDimensionMeasurementResultMessage(measureValue, status),
                             "测量结果", MessageBoxIcon.Info, true, 10000);
                     }
                 }
@@ -1679,6 +1705,29 @@ namespace BusbarCompressionSystem.Model.FaraVision
                 line1.CopyFrom(line2);
                 NoticeBox.Show("直线2运行参数已复制到直线1", "参数复制", MessageBoxIcon.Success, true, 4000);
             }
+        }
+
+        /// <summary>
+        /// 生成手动尺寸测试结果提示。
+        /// 动态密码编辑会话展示原始值、固定补偿和最终值，供工程人员核对修正口径；
+        /// 普通只读会话只展示生产最终值、范围和状态，补偿参数保持隐藏。
+        /// </summary>
+        /// <param name="measureValue">本次补偿后的最终测量值，单位 mm。</param>
+        /// <param name="status">按最终测量值与工程上下限得到的 OK/NG 文本。</param>
+        /// <returns>符合当前授权会话显示边界的测量结果提示。</returns>
+        private string BuildDimensionMeasurementResultMessage(double measureValue, string status)
+        {
+            string resultSummary = $"测量结果: {measureValue:F3} mm\n状态: {status}\n范围: {t.MinMeasureValue} - {t.MaxMeasureValue} mm";
+            if (_isReadOnly)
+            {
+                return resultSummary;
+            }
+
+            return $"原始测量值: {t.LastRawMeasureValue:F3} mm\n" +
+                $"固定补偿值: {t.DimensionFixedCompensationMm:+0.000;-0.000;0.000} mm\n" +
+                $"最终测量值: {measureValue:F3} mm\n" +
+                $"状态: {status}\n" +
+                $"范围: {t.MinMeasureValue} - {t.MaxMeasureValue} mm";
         }
 
         /// <summary>

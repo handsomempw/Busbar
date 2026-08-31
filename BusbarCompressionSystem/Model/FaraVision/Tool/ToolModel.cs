@@ -587,10 +587,68 @@ namespace BusbarCompressionSystem.Model.FaraVision.Tool
         public DimensionLineMetrologyParameters DimensionLine2MetrologyParameters { set; get; } = new DimensionLineMetrologyParameters();
 
         /// <summary>
-        /// 实际测量值（单位：mm，通过DimensionK参数转换）
+        /// 最终测量值（单位：mm），由原始毫米测量值叠加固定补偿得到。
+        /// 主界面、结果图片、尺寸判定和结果日志使用该值；固定补偿默认值为 0，历史工程保持原有测量口径。
         /// </summary>
         [XmlElement("实际测量值mm")]
-        public double ActualMeasureValue { set; get; } = 0;
+        public double ActualMeasureValue
+        {
+            get { return _actualMeasureValue; }
+            set { Set(ref _actualMeasureValue, value); }
+        }
+
+        private double _actualMeasureValue;
+
+        /// <summary>
+        /// 尺寸测量固定补偿值（单位：mm）。
+        /// 工程 XML 按尺寸测量工具保存该参数；正常测量完成毫米换算后执行“原始测量值 + 固定补偿值”。
+        /// 正常毫米测量完成后应用该参数；校准模式、像素距离、找边结果和测量失败状态沿用原始口径；默认值 0 兼容历史工程。
+        /// </summary>
+        [XmlElement("尺寸测量固定补偿mm")]
+        public double DimensionFixedCompensationMm
+        {
+            get { return _dimensionFixedCompensationMm; }
+            set
+            {
+                double normalizedValue = double.IsNaN(value) || double.IsInfinity(value) ? 0 : value;
+                Set(ref _dimensionFixedCompensationMm, normalizedValue);
+            }
+        }
+
+        private double _dimensionFixedCompensationMm;
+
+        /// <summary>
+        /// 运行态：最近一次成功换算得到的原始毫米测量值，作为固定补偿前的基准值。
+        /// 该值服务授权配置时的口径核对和尺寸诊断日志；主界面显示、上下限判定和外部通信使用最终测量值。
+        /// 测量失败时约定为 -1；工程 XML 保存配置补偿值，运行态值驻留内存。
+        /// </summary>
+        [XmlIgnore]
+        public double LastRawMeasureValue { set; get; } = -1;
+
+        /// <summary>
+        /// 按尺寸测量业务口径叠加固定补偿。
+        /// 负数表示向下修正，正数表示向上修正；失败值沿用失败态，非法补偿值按 0 处理，保证配置文件异常时判定流程稳定。
+        /// </summary>
+        /// <param name="rawMeasureValue">DimensionK 换算后的原始尺寸，单位 mm；失败值约定为 -1。</param>
+        /// <returns>成功时返回显示与判定使用的最终尺寸，单位 mm；失败值保持原值。</returns>
+        public double ApplyDimensionFixedCompensation(double rawMeasureValue)
+        {
+            if (double.IsNaN(rawMeasureValue) || double.IsInfinity(rawMeasureValue) || rawMeasureValue < 0)
+            {
+                return rawMeasureValue;
+            }
+
+            double compensation = DimensionFixedCompensationMm;
+            if (double.IsNaN(compensation) || double.IsInfinity(compensation))
+            {
+                compensation = 0;
+            }
+
+            double compensatedValue = rawMeasureValue + compensation;
+            return double.IsNaN(compensatedValue) || double.IsInfinity(compensatedValue)
+                ? rawMeasureValue
+                : compensatedValue;
+        }
 
         /// <summary>
         /// 运行态：本次识别落盘图片路径（用于追溯“日志值 ↔ 图片”是否一致）。

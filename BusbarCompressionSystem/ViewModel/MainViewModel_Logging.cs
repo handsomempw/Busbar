@@ -132,6 +132,7 @@ namespace BusbarCompressionSystem.ViewModel
             double min = tool?.MinMeasureValue ?? 0;
             double max = tool?.MaxMeasureValue ?? 0;
             double actual = tool?.ActualMeasureValue ?? 0;
+            double rawActual = tool?.LastRawMeasureValue ?? -1;
             ToolStatus status = tool?.ToolStatus ?? ToolStatus.NG2;
 
             // 图片只记录文件名，便于阅读；目录结构固定时可直接定位。
@@ -176,6 +177,7 @@ namespace BusbarCompressionSystem.ViewModel
                 $"{min:F3}~{max:F3}|" +
                 $"{actual:F3}|" +
                 $"{GetMeasurementStatusText(status)}|" +
+                $"原始测量值(mm)={rawActual:F3}|" +
                 $"图片={imageName}|" +
                 $"标定像素尺寸(um/pixel)={calibratedUmPerPixel:F2}|" +
                 $"原始测量像素值(px)={measuredPixel:F2}|" +

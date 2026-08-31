@@ -2138,6 +2138,7 @@ namespace BusbarCompressionSystem.ViewModel
             t.CalibrationPixelSize = tool.CalibrationPixelSize;
             t.MinMeasureValue = tool.MinMeasureValue;
             t.MaxMeasureValue = tool.MaxMeasureValue;
+            t.DimensionFixedCompensationMm = tool.DimensionFixedCompensationMm;
             t.MetrologyTolerance = tool.MetrologyTolerance;
             t.MetrologyNumMeasures = tool.MetrologyNumMeasures;
             t.MetrologyMeasureSigma = tool.MetrologyMeasureSigma;
@@ -2601,11 +2602,11 @@ namespace BusbarCompressionSystem.ViewModel
         /// 调用方负责在需要独立结果画面时先清空窗口并显示当前图像，避免在线多工具流程中途擦除同一张图上的其他结果。
         /// </summary>
         /// <param name="image">输入图像；作为 Metrology 找边和尺寸计算的来源。</param>
-        /// <param name="tool">尺寸测量工具配置，包含 ROI、校准系数、测量类型、调试显示和 Metrology 参数。</param>
+        /// <param name="tool">尺寸测量工具配置，包含 ROI、校准系数、固定补偿、测量类型、调试显示和 Metrology 参数。</param>
         /// <param name="hwindow">HALCON 显示窗口；redraw 为 true 时接收测量图层，但本方法不负责清屏或铺底图。</param>
         /// <param name="redraw">true 表示绘制测量图层；false 表示只计算尺寸，不更新窗口显示。</param>
-        /// <param name="calibrationMode">校准模式；true 返回原始像素距离用于计算 um/pixel，false 返回毫米值用于判定。</param>
-        /// <returns>校准模式返回像素值，正常模式返回毫米值；失败时通过异常向调用方报告。</returns>
+        /// <param name="calibrationMode">校准模式；true 返回原始像素距离用于计算 um/pixel，false 返回叠加固定补偿后的毫米值用于显示与判定。</param>
+        /// <returns>校准模式返回像素值；正常模式返回“原始毫米值 + 固定补偿值”；失败时通过异常向调用方报告。</returns>
         public double MeasureDimension(HObject image, ToolModel tool, HWindow hwindow, bool redraw = true, bool calibrationMode = false, ROI measureObject1Override = null, ROI measureObject2Override = null)
         {
             try
@@ -2639,20 +2640,29 @@ namespace BusbarCompressionSystem.ViewModel
                 // 运行态追溯：记录本次算法输出的原始像素测量值（单位：px，失败为-1）
                 tool.LastMeasurePixelValue = result;
 
-                // 校准模式：返回原始像素值
+                // 校准模式返回原始像素距离；固定补偿属于成品尺寸显示/判定口径，DimensionK 标定继续使用原始像素距离。
                 if (calibrationMode)
                 {
                     return result; // 返回像素值，用于计算DimensionK
                 }
 
-                // 正常测量模式：转换为实际尺寸（mm）
-                // DimensionK的单位是um/pixel，需要转换为mm/pixel
+                // 正常测量模式：先将像素距离转换为原始毫米值，再统一叠加工具级固定补偿。
+                double rawMeasureValue = -1;
                 if (result > 0 && tool.DimensionK > 0)
                 {
-                    return result * tool.DimensionK / 1000.0; // 转换为mm
+                    // DimensionK 的单位是 um/pixel，需要转换为 mm/pixel。
+                    rawMeasureValue = result * tool.DimensionK / 1000.0;
                 }
 
-                return result;
+                if (double.IsNaN(rawMeasureValue) || double.IsInfinity(rawMeasureValue))
+                {
+                    rawMeasureValue = -1;
+                }
+
+                tool.LastRawMeasureValue = rawMeasureValue;
+                double compensatedMeasureValue = tool.ApplyDimensionFixedCompensation(rawMeasureValue);
+                tool.ActualMeasureValue = compensatedMeasureValue;
+                return compensatedMeasureValue;
             }
             catch (Exception e)
             {
@@ -2660,6 +2670,11 @@ namespace BusbarCompressionSystem.ViewModel
                 if (tool != null)
                 {
                     tool.LastMeasurePixelValue = -1;
+                    if (!calibrationMode)
+                    {
+                        tool.LastRawMeasureValue = -1;
+                        tool.ActualMeasureValue = -1;
+                    }
                 }
                 // 重新抛出异常，让UI层显示详细错误信息
                 throw new Exception($"测量失败: {e.Message}", e);

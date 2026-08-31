@@ -58,6 +58,11 @@ namespace BusbarCompressionSystem
         private CancellationTokenSource aoiPermissionCts;
 
         /// <summary>
+        /// 当前打开的 AOI 工具配置窗体；动态密码到期时关闭该窗体，受控补偿参数随权限回收立即离开屏幕。
+        /// </summary>
+        private Model.FaraVision.SettingForm activeAoiSettingForm;
+
+        /// <summary>
         /// 标准窗口关闭流程门闩。操作员确认关闭后保持为 true，避免重复保存 AOI 工程或释放设备连接。
         /// </summary>
         private bool _shutdownStarted;
@@ -460,7 +465,18 @@ namespace BusbarCompressionSystem
             }
 
             var settingForm = new Model.FaraVision.SettingForm(isReadOnly: !hasEditPermission);
-            settingForm.ShowDialog();
+            activeAoiSettingForm = settingForm;
+            try
+            {
+                settingForm.ShowDialog();
+            }
+            finally
+            {
+                if (ReferenceEquals(activeAoiSettingForm, settingForm))
+                {
+                    activeAoiSettingForm = null;
+                }
+            }
         }
 
         /// <summary>
@@ -543,11 +559,16 @@ namespace BusbarCompressionSystem
             if (vml.Main.DataModel.FaraVisionDataModel.Settingmodel.permission)
             {
                 string auditId = vml.Main.DataModel.FaraVisionDataModel.Settingmodel.PermissionAuditId;
+                activeAoiSettingForm?.CommitDimensionCompensationEdit();
                 bool saved = TrySaveBeforePermissionClose();
                 vml.Main.SetRetestAdjustmentMode(false, "动态密码权限手动关闭");
                 DynamicPasswordAuditLogger.Write(auditId, "权限关闭", $"方式=手动, 工程保存={(saved ? "成功" : "失败")}");
 
                 vml.Main.DataModel.FaraVisionDataModel.Settingmodel.permission = false;
+                if (activeAoiSettingForm != null)
+                {
+                    activeAoiSettingForm.Close();
+                }
                 DisposeAoiPermissionAuthService();
 
                 if (saved)
@@ -641,12 +662,17 @@ namespace BusbarCompressionSystem
                         // 密码过期回调来自第三方库计时器线程，这里切回 UI 线程更新状态
                         Dispatcher.Invoke(() =>
                         {
+                            activeAoiSettingForm?.CommitDimensionCompensationEdit();
                             bool saved = TrySaveBeforePermissionClose();
                             string auditId = vml.Main.DataModel.FaraVisionDataModel.Settingmodel.PermissionAuditId;
                             vml.Main.SetRetestAdjustmentMode(false, "动态密码已过期");
                             DynamicPasswordAuditLogger.Write(auditId, "权限关闭", $"方式=密码过期, 工程保存={(saved ? "成功" : "失败")}");
 
                             vml.Main.DataModel.FaraVisionDataModel.Settingmodel.permission = false;
+                            if (activeAoiSettingForm != null)
+                            {
+                                activeAoiSettingForm.Close();
+                            }
                             DisposeAoiPermissionAuthService();
                             NoticeBox.Show(
                                 saved

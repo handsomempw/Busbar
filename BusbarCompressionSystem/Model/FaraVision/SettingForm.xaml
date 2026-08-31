@@ -603,6 +603,7 @@
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
                             </Grid.RowDefinitions>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="auto"/>
@@ -768,8 +769,21 @@
                                 </Grid>
                             </GroupBox>
 
-                            <!-- 尺寸测量运行参数；直线到直线按两侧独立配置，其他测量类型沿用共享参数。 -->
-                            <Expander Grid.Row="7" Grid.ColumnSpan="2" Header="Metrology参数（高级设置）" IsExpanded="True" Margin="0,10,0,0">
+                            <!-- 受控尺寸显示修正；动态密码编辑态可见，普通只读查看态折叠。 -->
+                            <GroupBox x:Name="DimensionCompensationPanel" Grid.Row="7" Grid.ColumnSpan="2" Header="尺寸显示修正" Margin="0,10,0,0" Visibility="Collapsed">
+                                <Grid Margin="5">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Margin="0,5"
+                                               ToolTip="最终显示值 = 原始测量值 + 固定补偿值；单位为 mm，正数上调，负数下调；世界坐标校准继续使用原始像素值">固定补偿值(mm):</TextBlock>
+                                    <TextBox x:Name="DimensionFixedCompensationTextBox" Grid.Row="0" Grid.Column="1" Margin="5,2"
+                                             MinWidth="120" Text="{Binding DimensionFixedCompensationMm, UpdateSourceTrigger=LostFocus}"/>
+                                </Grid>
+                            </GroupBox>
+
+                            <Expander Grid.Row="8" Grid.ColumnSpan="2" Header="Metrology参数（高级设置）" IsExpanded="True" Margin="0,10,0,0">
                                 <StackPanel Margin="8,5">
                                     <TabControl x:Name="DimensionLineMetrologyTabs" Visibility="Collapsed"
                                                 SelectionChanged="DimensionLineMetrologyTabs_SelectionChanged">
@@ -828,7 +842,7 @@
                             </Expander>
 
                             <!-- 为保持与“面积检测”工具一致的视觉与交互：尺寸测量的测试按钮统一配色、文案与布局 -->
-                            <Grid Grid.Row="8" Grid.ColumnSpan="2">
+                            <Grid Grid.Row="9" Grid.ColumnSpan="2">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="*"/>

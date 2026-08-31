@@ -826,11 +826,11 @@ namespace BusbarCompressionSystem.ViewModel
                                     double measureValue = MeasureDimension(Image, tool, hwindow, true, false, effectiveRoi1, effectiveRoi2);
                                     tool.ActualMeasureValue = measureValue;
 
-                                    if (measureValue >= 0 && measureValue >= tool.MinMeasureValue && measureValue <= tool.MaxMeasureValue)
+                                    if (tool.LastRawMeasureValue >= 0 && measureValue >= tool.MinMeasureValue && measureValue <= tool.MaxMeasureValue)
                                     {
                                         tool.ToolStatus = ToolStatus.OK;
                                     }
-                                    else if (measureValue < 0)
+                                    else if (tool.LastRawMeasureValue < 0)
                                     {
                                         tool.ToolStatus = ToolStatus.NG2; // 测量失败
                                     }
@@ -857,6 +857,7 @@ namespace BusbarCompressionSystem.ViewModel
                                     // 明确失败态测量值，避免保留上一次/初始值导致误判
                                     tool.ActualMeasureValue = -1;
                                     tool.LastMeasurePixelValue = -1;
+                                    tool.LastRawMeasureValue = -1;
                                     writeLog($"尺寸测量失败: {ex.Message}", false);
 
                                     if (IsDimensionEdgeDetectFailure(ex))
@@ -1285,7 +1286,7 @@ namespace BusbarCompressionSystem.ViewModel
 
                 HOperatorSet.ReadImage(out remeasureImage, remeasureImagePath);
                 double remeasureValue = MeasureDimension(remeasureImage, tool, hwindow, false);
-                if (remeasureValue < 0)
+                if (tool.LastRawMeasureValue < 0)
                 {
                     throw new Exception("落盘图复测返回失败值-1");
                 }
@@ -1312,6 +1313,7 @@ namespace BusbarCompressionSystem.ViewModel
                 tool.ToolStatus = ToolStatus.NG2;
                 tool.ActualMeasureValue = -1;
                 tool.LastMeasurePixelValue = -1;
+                tool.LastRawMeasureValue = -1;
                 tool.DimensionRemeasureSucceeded = false;
                 tool.DimensionRemeasureMeasureValue = -1;
                 tool.DimensionRemeasurePixelValue = -1;
@@ -1686,6 +1688,7 @@ namespace BusbarCompressionSystem.ViewModel
             tool.ActualDimension = 0;
             // 清理运行态字段，避免界面/日志误用上一周期残留数据
             tool.ActualMeasureValue = 0;
+            tool.LastRawMeasureValue = -1;
             tool.LastResultImagePath = null;
             tool.LastMeasurePixelValue = -1;
             ClearDimensionRemeasureTrace(tool);
