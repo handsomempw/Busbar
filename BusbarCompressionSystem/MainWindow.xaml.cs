@@ -221,6 +221,7 @@ namespace BusbarCompressionSystem
                     "权限关闭",
                     $"方式=软件退出, 工程保存={(projectSaved ? "成功" : "失败")}");
 
+                vml.Main.SetRetestAdjustmentMode(false, "主界面关闭");
                 // 工程保存完成后再释放动态密码授权，保留保存审计需要的授权人上下文。
                 DisposeAoiPermissionAuthService();
 
@@ -543,6 +544,7 @@ namespace BusbarCompressionSystem
             {
                 string auditId = vml.Main.DataModel.FaraVisionDataModel.Settingmodel.PermissionAuditId;
                 bool saved = TrySaveBeforePermissionClose();
+                vml.Main.SetRetestAdjustmentMode(false, "动态密码权限手动关闭");
                 DynamicPasswordAuditLogger.Write(auditId, "权限关闭", $"方式=手动, 工程保存={(saved ? "成功" : "失败")}");
 
                 vml.Main.DataModel.FaraVisionDataModel.Settingmodel.permission = false;
@@ -550,11 +552,11 @@ namespace BusbarCompressionSystem
 
                 if (saved)
                 {
-                    NoticeBox.Show("权限已关闭，已执行工具配置自动保存", "提示", MessageBoxIcon.Success, true, 3000);
+                    NoticeBox.Show("权限已关闭，配置已自动保存", "提示", MessageBoxIcon.Success, true, 5000);
                 }
                 else
                 {
-                    NoticeBox.Show("权限已关闭，自动保存失败，请检查日志", "提示", MessageBoxIcon.Warning, true, 5000);
+                    NoticeBox.Show("权限已关闭，自动保存失败，请检查日志", "提示", MessageBoxIcon.Warning, true, 6000);
                 }
                 return;
             }
@@ -597,7 +599,7 @@ namespace BusbarCompressionSystem
                 try
                 {
                     // UI-2：在授权窗口内完成“申请→显示接收人→输入→验证”的闭环
-                    DynamicPasswordAuthWindow window = new DynamicPasswordAuthWindow(service, "AOI工具编辑/参数修改", cts.Token);
+                    DynamicPasswordAuthWindow window = new DynamicPasswordAuthWindow(service, "AOI工具编辑/复测模式与参数修改", cts.Token);
                     if (window.ShowDialog() != true)
                     {
                         return;
@@ -622,7 +624,7 @@ namespace BusbarCompressionSystem
                     vml.Main.DataModel.FaraVisionDataModel.Settingmodel.PermissionAuthorizerNo = window.VerifyInfo.AuthorizerNo ?? string.Empty;
                     vml.Main.DataModel.FaraVisionDataModel.Settingmodel.PermissionPrivilegeLevel = window.VerifyInfo.PrivilegeLevel;
                     vml.Main.DataModel.FaraVisionDataModel.Settingmodel.PermissionPeriodMinutes = authSetting.PeriodMinutes;
-                    vml.Main.DataModel.FaraVisionDataModel.Settingmodel.PermissionReason = "AOI工具编辑/参数修改";
+                    vml.Main.DataModel.FaraVisionDataModel.Settingmodel.PermissionReason = "AOI工具编辑/复测模式与参数修改";
 
                     if (window.RequestedReceivers != null && window.RequestedReceivers.Count > 0)
                     {
@@ -641,13 +643,14 @@ namespace BusbarCompressionSystem
                         {
                             bool saved = TrySaveBeforePermissionClose();
                             string auditId = vml.Main.DataModel.FaraVisionDataModel.Settingmodel.PermissionAuditId;
+                            vml.Main.SetRetestAdjustmentMode(false, "动态密码已过期");
                             DynamicPasswordAuditLogger.Write(auditId, "权限关闭", $"方式=密码过期, 工程保存={(saved ? "成功" : "失败")}");
 
                             vml.Main.DataModel.FaraVisionDataModel.Settingmodel.permission = false;
                             DisposeAoiPermissionAuthService();
                             NoticeBox.Show(
                                 saved
-                                    ? "动态密码已过期，权限已自动关闭，已执行工具配置自动保存"
+                                    ? "动态密码已过期，权限已自动关闭，配置已自动保存"
                                     : "动态密码已过期，权限已自动关闭，自动保存失败，请检查日志",
                                 "提示",
                                 MessageBoxIcon.Warning,
@@ -658,13 +661,19 @@ namespace BusbarCompressionSystem
                     aoiPermissionAuthService.PasswordExpired += aoiPermissionExpiredHandler;
 
                     vml.Main.DataModel.FaraVisionDataModel.Settingmodel.permission = true;
+                    vml.Main.SetRetestAdjustmentMode(false, "动态密码验证通过，默认进入量产模式");
                     DynamicPasswordAuditLogger.Write(
                         vml.Main.DataModel.FaraVisionDataModel.Settingmodel.PermissionAuditId,
                         "授权开启",
-                        $"授权人={window.VerifyInfo.AuthorizerName}({window.VerifyInfo.AuthorizerNo}), 权限等级={window.VerifyInfo.PrivilegeLevel}, 有效期={authSetting.PeriodMinutes}分钟, 原因=AOI工具编辑/参数修改");
+                        $"授权人={window.VerifyInfo.AuthorizerName}({window.VerifyInfo.AuthorizerNo}), 权限等级={window.VerifyInfo.PrivilegeLevel}, 有效期={authSetting.PeriodMinutes}分钟, 原因=AOI工具编辑/复测模式与参数修改");
 
                     string periodTip = authSetting.PeriodMinutes > 0 ? $"（有效期 {authSetting.PeriodMinutes} 分钟）" : string.Empty;
-                    NoticeBox.Show($"动态密码验证通过，已开启编辑权限{periodTip}", "提示", MessageBoxIcon.Success, true, 4000);
+                    NoticeBox.Show(
+                        $"动态密码验证通过，已开启编辑权限{periodTip}\r\n当前为量产模式，复测上限{MainViewModel.ProductionRetestWarningLimit}次",
+                        "提示",
+                        MessageBoxIcon.Success,
+                        true,
+                        7000);
                 }
                 finally
                 {
@@ -685,6 +694,81 @@ namespace BusbarCompressionSystem
                     permissionButton.IsEnabled = true;
                 }
             }
+        }
+
+        /// <summary>
+        /// 将 AOI 与电测复测管控切换到调机模式。
+        /// 入口只在动态密码授权有效期间开放；调机模式保留每次入口日志并享有无限次数，
+        /// 产品检测、PLC 回执、机器人交互和 MES 流程继续执行既有业务链。
+        /// </summary>
+        /// <param name="sender">标题栏调机模式按钮。</param>
+        /// <param name="e">按钮点击事件数据，当前流程不读取附加信息。</param>
+        private void AdjustmentModeButton_Click(object sender, RoutedEventArgs e)
+        {
+            var settingModel = vml.Main.DataModel.FaraVisionDataModel.Settingmodel;
+            if (!settingModel.permission)
+            {
+                NoticeBox.Show("请先通过动态密码开启权限", "提示", MessageBoxIcon.Warning, true, 4000);
+                return;
+            }
+
+            if (settingModel.IsRetestAdjustmentMode)
+            {
+                return;
+            }
+
+            if (MessageBoxX.Show(
+                "确认切换到调机模式？\r\nAOI和电测复测次数不限。",
+                "切换复测模式",
+                MessageBoxButton.YesNo,
+                MessageBoxIcon.Warning,
+                DefaultButton.NoCancel) != MessageBoxResult.Yes)
+            {
+                return;
+            }
+
+            vml.Main.SetRetestAdjustmentMode(true, "授权人员选择调机");
+            DynamicPasswordAuditLogger.Write(
+                settingModel.PermissionAuditId,
+                "复测模式切换",
+                $"模式=调机, 量产上限={MainViewModel.ProductionRetestWarningLimit}, 授权人={settingModel.PermissionAuthorizerName}({settingModel.PermissionAuthorizerNo})");
+        }
+
+        /// <summary>
+        /// 将 AOI 与电测复测管控切换到量产模式。
+        /// 量产模式按工单和 SN 分别累计 AOI、电测入口次数，超过配置上限后在界面输出报警并继续当前设备流程。
+        /// </summary>
+        /// <param name="sender">标题栏量产模式按钮。</param>
+        /// <param name="e">按钮点击事件数据，当前流程不读取附加信息。</param>
+        private void ProductionModeButton_Click(object sender, RoutedEventArgs e)
+        {
+            var settingModel = vml.Main.DataModel.FaraVisionDataModel.Settingmodel;
+            if (!settingModel.permission)
+            {
+                NoticeBox.Show("请先通过动态密码开启权限", "提示", MessageBoxIcon.Warning, true, 4000);
+                return;
+            }
+
+            if (!settingModel.IsRetestAdjustmentMode)
+            {
+                return;
+            }
+
+            if (MessageBoxX.Show(
+                "确认切换到量产模式？\r\nAOI、电测每个工单SN最多5次，第6次仅报警并继续。",
+                "切换复测模式",
+                MessageBoxButton.YesNo,
+                MessageBoxIcon.Question,
+                DefaultButton.NoCancel) != MessageBoxResult.Yes)
+            {
+                return;
+            }
+
+            vml.Main.SetRetestAdjustmentMode(false, "授权人员选择量产");
+            DynamicPasswordAuditLogger.Write(
+                settingModel.PermissionAuditId,
+                "复测模式切换",
+                $"模式=量产, 量产上限={MainViewModel.ProductionRetestWarningLimit}, 授权人={settingModel.PermissionAuthorizerName}({settingModel.PermissionAuthorizerNo})");
         }
 
 #if DEBUG
@@ -710,10 +794,16 @@ namespace BusbarCompressionSystem
             settingModel.PermissionReason = "本地开发调试";
             settingModel.PermissionRequestedReceivers = string.Empty;
             settingModel.permission = true;
+            vml.Main.SetRetestAdjustmentMode(false, "本地开发授权开启，默认进入量产模式");
 
             DynamicPasswordAuditLogger.Write(settingModel.PermissionAuditId, "授权开启", "方式=本地开发调试, 授权人=开发调试");
             vml.Main.writeLog("[动态密码][开发调试] 已启用本地 AOI 编辑权限：开发配置已开启，当前 DEBUG 会话使用本地授权", true);
-            NoticeBox.Show("Debug 调试会话已启用本地编辑权限", "提示", MessageBoxIcon.Info, true, 4000);
+            NoticeBox.Show(
+                $"Debug 调试会话已启用本地编辑权限\r\n当前为量产模式，复测上限{MainViewModel.ProductionRetestWarningLimit}次",
+                "提示",
+                MessageBoxIcon.Info,
+                true,
+                5000);
             return true;
         }
 #endif

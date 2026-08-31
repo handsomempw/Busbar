@@ -19,6 +19,7 @@ namespace SQLITEDATABASE
         private static object perfLogLocker = new object(); //性能日志文件锁
         private static object errorLogLocker = new object(); //数据库异常日志文件锁
         private static object dbFileLocker = new object(); //数据库文件操作锁
+        private static object retestEntryCounterLocker = new object(); //AOI/电测入口次数事务锁
 
         /// <summary>
         /// UI层注入的日志回调：用于将SQLite相关提示输出到界面（例如调用主程序的 writeLog）。
@@ -308,6 +309,112 @@ namespace SQLITEDATABASE
                     SN, WOCODE);
             }
             return false;
+        }
+
+        /// <summary>
+        /// 按工单数据库、产品 SN 和检测类别原子累计一次环节入口。
+        /// AOI 使用独立类别；ACW、DCW、IR 共用电测类别。独立统计表保持现有生产过程表结构和质量数据口径，
+        /// 工单数据库切换后自然进入对应工单的计数周期。
+        /// </summary>
+        /// <param name="WOCODE">当前产品工单号，用于定位本地工单数据库。</param>
+        /// <param name="PARTNOID">当前产品规格编码，沿用数据库创建接口。</param>
+        /// <param name="SN">环节开始前已校验的产品序列号。</param>
+        /// <param name="processScope">统计类别；AOI 或 ELECTRICAL。</param>
+        /// <param name="entryCount">记录成功时返回当前工单内该 SN、该类别的累计入口次数。</param>
+        /// <returns>表结构准备、读取和累加事务全部完成时返回 true；异常时返回 false 并写入数据库异常日志。</returns>
+        public static bool TryIncrementRetestEntryCount(
+            string WOCODE,
+            string PARTNOID,
+            string SN,
+            string processScope,
+            out int entryCount)
+        {
+            entryCount = 0;
+            string connectionString = CheckDataBase(WOCODE, PARTNOID, SN);
+            if (string.IsNullOrEmpty(connectionString))
+            {
+                WriteErrorLog("[数据库异常]复测次数-连接串为空", "CheckDataBase返回空字符串", SN, WOCODE);
+                return false;
+            }
+
+            const string createTableSql =
+                "CREATE TABLE IF NOT EXISTS RetestEntryCounter(" +
+                "SN TEXT NOT NULL," +
+                "PROCESS_SCOPE TEXT NOT NULL," +
+                "ENTRY_COUNT INTEGER NOT NULL," +
+                "UPDATED_AT TEXT NOT NULL," +
+                "PRIMARY KEY(SN, PROCESS_SCOPE))";
+
+            lock (retestEntryCounterLocker)
+            {
+                try
+                {
+                    using (var connection = new SQLiteConnection(connectionString))
+                    {
+                        connection.Open();
+                        using (var timeoutCommand = new SQLiteCommand("PRAGMA busy_timeout=3000", connection))
+                        {
+                            timeoutCommand.ExecuteNonQuery();
+                        }
+
+                        using (var transaction = connection.BeginTransaction())
+                        {
+                            using (var createCommand = new SQLiteCommand(createTableSql, connection, transaction))
+                            {
+                                createCommand.ExecuteNonQuery();
+                            }
+
+                            int currentCount = 0;
+                            using (var selectCommand = new SQLiteCommand(
+                                "SELECT ENTRY_COUNT FROM RetestEntryCounter WHERE SN=@sn AND PROCESS_SCOPE=@processScope",
+                                connection,
+                                transaction))
+                            {
+                                selectCommand.Parameters.AddWithValue("@sn", SN ?? string.Empty);
+                                selectCommand.Parameters.AddWithValue("@processScope", processScope ?? string.Empty);
+                                object value = selectCommand.ExecuteScalar();
+                                if (value != null && value != DBNull.Value)
+                                {
+                                    currentCount = Convert.ToInt32(value, CultureInfo.InvariantCulture);
+                                }
+                            }
+
+                            entryCount = currentCount + 1;
+                            using (var saveCommand = new SQLiteCommand(
+                                "INSERT OR REPLACE INTO RetestEntryCounter(SN, PROCESS_SCOPE, ENTRY_COUNT, UPDATED_AT) " +
+                                "VALUES(@sn, @processScope, @entryCount, @updatedAt)",
+                                connection,
+                                transaction))
+                            {
+                                saveCommand.Parameters.AddWithValue("@sn", SN ?? string.Empty);
+                                saveCommand.Parameters.AddWithValue("@processScope", processScope ?? string.Empty);
+                                saveCommand.Parameters.AddWithValue("@entryCount", entryCount);
+                                saveCommand.Parameters.AddWithValue("@updatedAt", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture));
+                                saveCommand.ExecuteNonQuery();
+                            }
+
+                            transaction.Commit();
+                        }
+                    }
+
+                    WriteErrorLog(
+                        "[数据库信息]复测次数-记录成功",
+                        $"类别={processScope}, 当前次数={entryCount}",
+                        SN,
+                        WOCODE);
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    entryCount = 0;
+                    WriteErrorLog(
+                        "[数据库异常]复测次数-记录失败",
+                        $"类别={processScope}, 异常={ex.Message}",
+                        SN,
+                        WOCODE);
+                    return false;
+                }
+            }
         }
         /// <summary>
         /// 更新产品的第一次拍照留底结果

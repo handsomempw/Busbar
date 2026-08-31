@@ -60,11 +60,62 @@
                 <TextBlock Grid.Column="1" VerticalAlignment="Center" FontSize="20" 
                            Text="{Binding Source={StaticResource Locator},Path=Main.DataModel.Processmodel.PartNOID}"/>
 
+                <StackPanel Grid.Column="3"
+                            Grid.ColumnSpan="2"
+                            Orientation="Horizontal"
+                            Margin="12,0,8,0"
+                            VerticalAlignment="Center"
+                            p:WindowX.IsDragMoveArea="False"
+                            Visibility="{Binding Source={StaticResource Locator},Path=Main.DataModel.FaraVisionDataModel.Settingmodel.permission,Converter={StaticResource Bool2Visible_Converter}}">
+                    <Button x:Name="AdjustmentModeButton"
+                            Width="64"
+                            Height="30"
+                            Margin="0,0,4,0"
+                            Content="调机"
+                            p:ButtonHelper.CornerRadius="4"
+                            ToolTip="调机模式下AOI和电测入口保留日志并享有无限次数"
+                            Click="AdjustmentModeButton_Click">
+                        <Button.Style>
+                            <Style TargetType="Button">
+                                <Setter Property="Background" Value="#6F7782"/>
+                                <Setter Property="Foreground" Value="#DCE1E7"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Source={StaticResource Locator},Path=Main.DataModel.FaraVisionDataModel.Settingmodel.IsRetestAdjustmentMode}" Value="True">
+                                        <Setter Property="Background" Value="YellowGreen"/>
+                                        <Setter Property="Foreground" Value="White"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+                    <Button x:Name="ProductionModeButton"
+                            Width="64"
+                            Height="30"
+                            Content="量产"
+                            p:ButtonHelper.CornerRadius="4"
+                            ToolTip="量产模式下AOI和电测分别按SN累计，最多5次，第6次记录报警"
+                            Click="ProductionModeButton_Click">
+                        <Button.Style>
+                            <Style TargetType="Button">
+                                <Setter Property="Background" Value="#6F7782"/>
+                                <Setter Property="Foreground" Value="#DCE1E7"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Source={StaticResource Locator},Path=Main.DataModel.FaraVisionDataModel.Settingmodel.IsRetestAdjustmentMode}" Value="False">
+                                        <Setter Property="Background" Value="YellowGreen"/>
+                                        <Setter Property="Foreground" Value="White"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+                </StackPanel>
+
                 <Button Grid.Column="5" p:WindowX.IsDragMoveArea="False" 
                         Margin="5" Height="30" Width="30" FontSize="18" 
                         FontFamily="{StaticResource PanuonIconFont}"
                         Background="Black" Foreground="White"
                         p:ButtonHelper.CornerRadius="15"
+                        ToolTip="仪器配置"
                        Content="&#xe98f;" Click="Button_Click_4" />
 
                 <Button Grid.Column="6" p:WindowX.IsDragMoveArea="False" 

@@ -790,6 +790,8 @@ namespace BusbarCompressionSystem.ViewModel
                         return;
                     }
 
+                    RecordRetestEntry(AoiRetestScope, "AOI", snCode, woCode, productPartNoId);
+
                     if (isInspectionSN)
                     {
                         // 从 ProductInfoRecords 取数并做综合判断的整体思路：

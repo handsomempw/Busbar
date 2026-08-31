@@ -123,6 +123,82 @@ namespace BusbarCompressionSystem.ViewModel
         public DataModel DataModel { get; set; } = new DataModel();
 
         /// <summary>
+        /// 量产模式每个工单、每个 SN 的复测入口次数上限。
+        /// 该口径固定为 5 次，不写入配置 XML；AOI 独立累计，ACW、DCW、IR 共用电测次数。
+        /// </summary>
+        public const int ProductionRetestWarningLimit = 5;
+
+        private const string AoiRetestScope = "AOI";
+        private const string ElectricalRetestScope = "ELECTRICAL";
+
+        /// <summary>
+        /// 切换 AOI 与电测入口次数的运行模式。
+        /// 调机模式享有无限次数；量产模式按工单、SN 和检测类别持久化累计。该状态只影响次数记录和界面报警，
+        /// 产品检测、PLC 回执、机器人交互、过程数据和 MES 业务保持现有流程。
+        /// </summary>
+        /// <param name="adjustmentMode">true 表示调机模式；false 表示量产模式。</param>
+        /// <param name="reason">模式切换来源，用于操作员日志追溯授权、到期和手动选择。</param>
+        public void SetRetestAdjustmentMode(bool adjustmentMode, string reason)
+        {
+            DataModel.FaraVisionDataModel.Settingmodel.IsRetestAdjustmentMode = adjustmentMode;
+            string modeText = adjustmentMode ? "调机" : "量产";
+            string policyText = adjustmentMode
+                ? "AOI和电测入口次数不受限制"
+                : $"AOI和电测分别按SN累计，上限{ProductionRetestWarningLimit}次，第{ProductionRetestWarningLimit + 1}次起界面报警";
+            writeLog($"[复测模式] 已进入{modeText}模式，{policyText}，原因={reason}");
+        }
+
+        /// <summary>
+        /// 在 AOI 或电测取得有效 SN 后记录一次环节入口。
+        /// 调机模式写入操作日志；量产模式通过工单 SQLite 原子累加。计数和表结构异常只形成界面诊断，
+        /// 当前检测及其 PLC、机器人、SQLite 过程数据和 MES 链路继续执行。
+        /// </summary>
+        /// <param name="processScope">持久化统计类别；AOI 使用 AOI，ACW、DCW、IR 共用 ELECTRICAL。</param>
+        /// <param name="stageName">操作员日志中的当前入口名称，例如 AOI、ACW、DCW 或 IR。</param>
+        /// <param name="sn">环节开始前从 PLC 产品码校验得到的产品 SN。</param>
+        /// <param name="wocode">与 SN 同时取得的工单号，用于定位本地工单数据库。</param>
+        /// <param name="partnoid">当前产品规格编码，用于保持本地数据库定位接口一致。</param>
+        private void RecordRetestEntry(string processScope, string stageName, string sn, string wocode, string partnoid)
+        {
+            string normalizedSn = (sn ?? string.Empty).Trim();
+            string normalizedWoCode = (wocode ?? string.Empty).Trim();
+            if (string.IsNullOrEmpty(normalizedSn) || string.IsNullOrEmpty(normalizedWoCode))
+            {
+                writeLog($"[复测次数][{stageName}] SN或工单为空，次数记录失败，当前流程继续", true);
+                return;
+            }
+
+            if (DataModel.FaraVisionDataModel.Settingmodel.IsRetestAdjustmentMode)
+            {
+                writeLog($"[调机复测扫码][{stageName}] SN={normalizedSn}，次数不限，当前流程继续");
+                return;
+            }
+
+            int entryCount;
+            bool recorded = sqlite.TryIncrementRetestEntryCount(
+                normalizedWoCode,
+                partnoid,
+                normalizedSn,
+                processScope,
+                out entryCount);
+            if (!recorded)
+            {
+                writeLog($"[量产复测扫码][{stageName}] SN={normalizedSn}，次数记录失败，当前流程继续", true);
+                return;
+            }
+
+            if (entryCount > ProductionRetestWarningLimit)
+            {
+                writeLog(
+                    $"[量产复测扫码报警][{stageName}] SN={normalizedSn}，第{entryCount}次，已超过{ProductionRetestWarningLimit}次，流程继续",
+                    true);
+                return;
+            }
+
+            writeLog($"[量产复测扫码][{stageName}] SN={normalizedSn}，第{entryCount}/{ProductionRetestWarningLimit}次，剩余{ProductionRetestWarningLimit - entryCount}次，已进入检测流程");
+        }
+
+        /// <summary>
         /// 将当前过程参数绑定到三台耐压仪，并把各工位运行态初始化为交流测试。
         /// 标准窗口和双Y专用窗口在设备连接前共用该入口；后续 PLC 触发仍可按产品测试模式切换 ACW/DCW 参数。
         /// </summary>
@@ -2120,6 +2196,8 @@ namespace BusbarCompressionSystem.ViewModel
                 return;
             }
 
+            RecordRetestEntry(ElectricalRetestScope, testType, snCode, woCode, DataModel.Processmodel.PartNOID);
+
             float res = PLC_ReadFloat(DataModel.Settingmodel.AddressRes);
             DataModel.Processmodel.TVTestTestModel1.Res = res;
 
@@ -2529,6 +2607,8 @@ namespace BusbarCompressionSystem.ViewModel
                 return;
             }
 
+            RecordRetestEntry(ElectricalRetestScope, testType, snCode, woCode, DataModel.Processmodel.PartNOID);
+
             float res = PLC_ReadFloat(DataModel.Settingmodel.AddressRes + 1 * 2);
             DataModel.Processmodel.TVTestTestModel2.Res = res;
 
@@ -2861,6 +2941,8 @@ namespace BusbarCompressionSystem.ViewModel
                 return;
             }
 
+            RecordRetestEntry(ElectricalRetestScope, testType, snCode, woCode, DataModel.Processmodel.PartNOID);
+
             float res = PLC_ReadFloat(DataModel.Settingmodel.AddressRes + 2 * 2);
             DataModel.Processmodel.TVTestTestModel3.Res = res;
 
@@ -3024,6 +3106,8 @@ namespace BusbarCompressionSystem.ViewModel
                     writeLog($"[IR测试] 点检料号为空，SN={sn}, WO={wocode}，本轮按NG结束。", true);
                     return;
                 }
+
+                RecordRetestEntry(ElectricalRetestScope, "IR", sn, wocode, partnoid);
 
                 // 2) 读取接触电阻/阻值（写入 RES 列供 CHECK 使用）
                 // 注意：这不是 IR 仪器返回的绝缘电阻（绝缘电阻在 r.Resistance 中）。
