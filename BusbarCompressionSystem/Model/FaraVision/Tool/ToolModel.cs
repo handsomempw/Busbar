@@ -13,7 +13,7 @@ using BusbarCompressionSystem.Model.FaraVision;
 
 namespace BusbarCompressionSystem.Model.FaraVision.Tool
 {
-    public class ToolModel : ObservableObject
+    public class ToolModel : ObservableObject, IMetrologyLineParameters
     {
         [XmlElement("工具模式")]
         public TestModes TestMode { set; get; } = TestModes.二维码;
@@ -565,6 +565,28 @@ namespace BusbarCompressionSystem.Model.FaraVision.Tool
         public ROI MeasureObject2ROI { set; get; } = new ROI();
 
         /// <summary>
+        /// 直线到直线尺寸测量的双侧参数结构版本。
+        /// 版本 0 表示工程沿用共享 Metrology 参数；版本 1 表示直线1与直线2分别从工程 XML 读取运行参数。
+        /// 工程加载和配置界面初始化会把版本 0 的共享值复制到两侧，保证升级后的首次测量口径一致。
+        /// </summary>
+        [XmlElement("尺寸测量双直线参数版本")]
+        public int DimensionLineMetrologyParameterVersion { set; get; } = 0;
+
+        /// <summary>
+        /// 直线到直线尺寸测量中直线1的找边与拟合参数。
+        /// 参数保存到工程 XML，并由模板测试、校准、检测照片、在线测量和落盘图复测共同读取。
+        /// </summary>
+        [XmlElement("尺寸测量直线1运行参数")]
+        public DimensionLineMetrologyParameters DimensionLine1MetrologyParameters { set; get; } = new DimensionLineMetrologyParameters();
+
+        /// <summary>
+        /// 直线到直线尺寸测量中直线2的找边与拟合参数。
+        /// 参数保存到工程 XML，可按第二侧边缘的亮暗过渡、清晰度和 ROI 长度独立配置。
+        /// </summary>
+        [XmlElement("尺寸测量直线2运行参数")]
+        public DimensionLineMetrologyParameters DimensionLine2MetrologyParameters { set; get; } = new DimensionLineMetrologyParameters();
+
+        /// <summary>
         /// 实际测量值（单位：mm，通过DimensionK参数转换）
         /// </summary>
         [XmlElement("实际测量值mm")]
@@ -584,6 +606,34 @@ namespace BusbarCompressionSystem.Model.FaraVision.Tool
         /// </summary>
         [XmlIgnore]
         public double LastMeasurePixelValue { set; get; } = -1;
+
+        /// <summary>
+        /// 运行态：直线1最近一次 Metrology 拟合分数，范围 0～1。
+        /// 尺寸测量诊断日志使用该值区分阈值、极性或边缘质量造成的单侧波动，不参与工程保存和尺寸判定。
+        /// </summary>
+        [XmlIgnore]
+        public double LastDimensionLine1FitScore { set; get; } = 0;
+
+        /// <summary>
+        /// 运行态：直线2最近一次 Metrology 拟合分数，范围 0～1。
+        /// 该值仅服务配置验证与生产追溯，不参与毫米换算、PLC、MES 或 SQLite 结果。
+        /// </summary>
+        [XmlIgnore]
+        public double LastDimensionLine2FitScore { set; get; } = 0;
+
+        /// <summary>
+        /// 运行态：直线1最近一次拟合返回的有效边缘点数量。
+        /// 诊断日志结合卡尺数量记录该值，用于判断采样覆盖与边缘命中情况。
+        /// </summary>
+        [XmlIgnore]
+        public int LastDimensionLine1EdgePointCount { set; get; } = 0;
+
+        /// <summary>
+        /// 运行态：直线2最近一次拟合返回的有效边缘点数量。
+        /// 该值只反映本次找边输入质量，不改变工具 OK、NG、NG2 判定口径。
+        /// </summary>
+        [XmlIgnore]
+        public int LastDimensionLine2EdgePointCount { set; get; } = 0;
 
         /// <summary>
         /// 运行态：尺寸测量在线图找边失败后，是否已经执行落盘图复测。
@@ -797,6 +847,116 @@ namespace BusbarCompressionSystem.Model.FaraVision.Tool
         [XmlElement("显示Metrology调试信息")]
         public bool ShowMetrologyDebugInfo { set; get; } = true;
 
+        /// <summary>
+        /// 将共享 Metrology 参数迁移为直线到直线尺寸测量的双侧运行参数。
+        /// 旧工程和新建工具的版本 0 配置会把同一组值复制到直线1与直线2；版本 1 配置保持两侧各自保存的值。
+        /// 该迁移只改变尺寸测量的参数归属，不改变 ROI、标定比例、尺寸上下限和距离计算口径。
+        /// </summary>
+        /// <param name="adjustmentSummary">发生迁移时返回兼容说明，供工程加载日志和配置维护追溯。</param>
+        /// <returns>true 表示已从共享参数生成双侧参数；false 表示当前双侧参数可直接使用。</returns>
+        public bool NormalizeDimensionLineMetrologyParametersForProjectLoad(out string adjustmentSummary)
+        {
+            if (TestMode != TestModes.尺寸测量 || MeasureType != DimensionMeasureType.直线到直线)
+            {
+                adjustmentSummary = string.Empty;
+                return false;
+            }
+
+            if (DimensionLineMetrologyParameterVersion >= 1)
+            {
+                if (DimensionLine1MetrologyParameters == null)
+                {
+                    DimensionLine1MetrologyParameters = new DimensionLineMetrologyParameters();
+                    RaisePropertyChanged(() => DimensionLine1MetrologyParameters);
+                }
+                if (DimensionLine2MetrologyParameters == null)
+                {
+                    DimensionLine2MetrologyParameters = new DimensionLineMetrologyParameters();
+                    RaisePropertyChanged(() => DimensionLine2MetrologyParameters);
+                }
+                adjustmentSummary = string.Empty;
+                return false;
+            }
+
+            if (DimensionLine1MetrologyParameters == null)
+            {
+                DimensionLine1MetrologyParameters = new DimensionLineMetrologyParameters();
+                RaisePropertyChanged(() => DimensionLine1MetrologyParameters);
+            }
+            if (DimensionLine2MetrologyParameters == null)
+            {
+                DimensionLine2MetrologyParameters = new DimensionLineMetrologyParameters();
+                RaisePropertyChanged(() => DimensionLine2MetrologyParameters);
+            }
+
+            DimensionLine1MetrologyParameters.CopyFrom(this);
+            DimensionLine2MetrologyParameters.CopyFrom(this);
+            DimensionLineMetrologyParameterVersion = 1;
+            adjustmentSummary = "共享 Metrology 参数已复制到直线1和直线2";
+            return true;
+        }
+
+        /// <summary>
+        /// 获取直线到直线尺寸测量指定侧的运行参数。
+        /// 在线测量、预览和自动阈值共用该入口；版本 0 工程会先完成双侧参数迁移，确保各调用路径读取同一配置。
+        /// </summary>
+        /// <param name="lineIndex">测量对象序号；1 对应直线1，2 对应直线2。</param>
+        /// <returns>可直接传入 Metrology 找边流程的参数对象。</returns>
+        /// <exception cref="ArgumentOutOfRangeException">lineIndex 超出 1～2 时抛出，表示调用方未明确测量对象归属。</exception>
+        public DimensionLineMetrologyParameters GetDimensionLineMetrologyParameters(int lineIndex)
+        {
+            NormalizeDimensionLineMetrologyParametersForProjectLoad(out _);
+
+            if (lineIndex == 1)
+            {
+                return DimensionLine1MetrologyParameters;
+            }
+
+            if (lineIndex == 2)
+            {
+                return DimensionLine2MetrologyParameters;
+            }
+
+            throw new ArgumentOutOfRangeException(nameof(lineIndex), "尺寸测量直线序号须为1或2");
+        }
+
+        /// <summary>
+        /// 将直线1运行参数写入历史共享字段，供较早版本程序回退读取同一 Tool XML。
+        /// 当前程序的直线到直线测量继续读取双侧参数；历史程序以直线1参数作为两侧共同口径。
+        /// </summary>
+        public void MirrorDimensionLine1ParametersToLegacyFields()
+        {
+            DimensionLineMetrologyParameters line1Parameters = GetDimensionLineMetrologyParameters(1);
+            MetrologyNumMeasures = line1Parameters.MetrologyNumMeasures;
+            MetrologyMeasureSigma = line1Parameters.MetrologyMeasureSigma;
+            MetrologyMeasureThreshold = line1Parameters.MetrologyMeasureThreshold;
+            MetrologyMeasureTransition = line1Parameters.MetrologyMeasureTransition;
+            MetrologyMeasureSelect = line1Parameters.MetrologyMeasureSelect;
+            MetrologyMinScore = line1Parameters.MetrologyMinScore;
+            MetrologyMeasureLength1 = line1Parameters.MetrologyMeasureLength1;
+            MetrologyMeasureLength2 = line1Parameters.MetrologyMeasureLength2;
+        }
+
+        /// <summary>
+        /// 双侧参数节点只随直线到直线尺寸工具写入工程 XML，其他工具继续保持现有 XML 范围。
+        /// </summary>
+        public bool ShouldSerializeDimensionLineMetrologyParameterVersion()
+        {
+            return TestMode == TestModes.尺寸测量 && MeasureType == DimensionMeasureType.直线到直线;
+        }
+
+        /// <summary>直线1运行参数与双侧参数版本使用相同的 XML 适用范围。</summary>
+        public bool ShouldSerializeDimensionLine1MetrologyParameters()
+        {
+            return ShouldSerializeDimensionLineMetrologyParameterVersion();
+        }
+
+        /// <summary>直线2运行参数与双侧参数版本使用相同的 XML 适用范围。</summary>
+        public bool ShouldSerializeDimensionLine2MetrologyParameters()
+        {
+            return ShouldSerializeDimensionLineMetrologyParameterVersion();
+        }
+
         #endregion
 
         #region 直线检测
@@ -934,6 +1094,167 @@ namespace BusbarCompressionSystem.Model.FaraVision.Tool
 
         #endregion
 
+    }
+
+    /// <summary>
+    /// HALCON 直线 Metrology 运行参数契约。
+    /// ToolModel 实现该契约以保留直线检测和混合尺寸测量的共享参数路径，
+    /// DimensionLineMetrologyParameters 实现该契约以支持直线到直线测量的双侧独立配置。
+    /// </summary>
+    public interface IMetrologyLineParameters
+    {
+        /// <summary>获取沿直线 ROI 分布的卡尺数量。</summary>
+        int MetrologyNumMeasures { get; }
+
+        /// <summary>获取找边前使用的高斯平滑系数。</summary>
+        double MetrologyMeasureSigma { get; }
+
+        /// <summary>获取边缘梯度阈值。</summary>
+        int MetrologyMeasureThreshold { get; }
+
+        /// <summary>获取边缘亮暗过渡方向。</summary>
+        string MetrologyMeasureTransition { get; }
+
+        /// <summary>获取卡尺内边缘候选选择策略。</summary>
+        string MetrologyMeasureSelect { get; }
+
+        /// <summary>获取 Metrology 拟合质量下限。</summary>
+        double MetrologyMinScore { get; }
+
+        /// <summary>获取垂直于直线 ROI 的搜索半长度，单位 px。</summary>
+        int MetrologyMeasureLength1 { get; }
+
+        /// <summary>获取沿直线 ROI 的覆盖半宽度，单位 px。</summary>
+        int MetrologyMeasureLength2 { get; }
+    }
+
+    /// <summary>
+    /// 直线到直线尺寸测量单侧的 HALCON Metrology 配方。
+    /// 每个实例随 Tool XML 保存，分别控制一侧 ROI 的卡尺分布、滤波、边缘选择和拟合门槛；
+    /// 尺寸标定、上下限和两线距离计算继续由 ToolModel 统一管理。
+    /// </summary>
+    public class DimensionLineMetrologyParameters : ObservableObject, IMetrologyLineParameters
+    {
+        private int _metrologyNumMeasures = 20;
+        private double _metrologyMeasureSigma = 2.0;
+        private int _metrologyMeasureThreshold = 20;
+        private string _metrologyMeasureTransition = "uniform";
+        private string _metrologyMeasureSelect = "all";
+        private double _metrologyMinScore = 0.4;
+        private int _metrologyMeasureLength1 = 10;
+        private int _metrologyMeasureLength2 = 5;
+
+        /// <summary>沿当前直线 ROI 分布的卡尺数量，影响采样密度和执行耗时。</summary>
+        [XmlElement("卡尺数量")]
+        public int MetrologyNumMeasures
+        {
+            get { return _metrologyNumMeasures; }
+            set { Set(ref _metrologyNumMeasures, value); }
+        }
+
+        /// <summary>找边前的高斯平滑系数，用于平衡噪声抑制与边缘细节，单位为 HALCON sigma。</summary>
+        [XmlElement("高斯平滑")]
+        public double MetrologyMeasureSigma
+        {
+            get { return _metrologyMeasureSigma; }
+            set { Set(ref _metrologyMeasureSigma, value); }
+        }
+
+        /// <summary>边缘梯度阈值；较高值过滤弱边缘，较低值保留更多候选边缘。</summary>
+        [XmlElement("边缘阈值")]
+        public int MetrologyMeasureThreshold
+        {
+            get { return _metrologyMeasureThreshold; }
+            set { Set(ref _metrologyMeasureThreshold, value); }
+        }
+
+        /// <summary>边缘亮暗过渡方向，可按两侧实际灰度方向分别配置。</summary>
+        [XmlElement("边缘过渡类型")]
+        public string MetrologyMeasureTransition
+        {
+            get { return _metrologyMeasureTransition; }
+            set { Set(ref _metrologyMeasureTransition, value); }
+        }
+
+        /// <summary>同一卡尺内的边缘选择策略，决定 first、last 或 all 候选参与拟合。</summary>
+        [XmlElement("边缘选择")]
+        public string MetrologyMeasureSelect
+        {
+            get { return _metrologyMeasureSelect; }
+            set { Set(ref _metrologyMeasureSelect, value); }
+        }
+
+        /// <summary>Metrology 拟合质量下限，范围 0～1；低于该门槛时本侧找边失败。</summary>
+        [XmlElement("最小分数")]
+        public double MetrologyMinScore
+        {
+            get { return _metrologyMinScore; }
+            set { Set(ref _metrologyMinScore, value); }
+        }
+
+        /// <summary>垂直于直线 ROI 的卡尺搜索半长度，单位 px。</summary>
+        [XmlElement("垂直搜索半长度px")]
+        public int MetrologyMeasureLength1
+        {
+            get { return _metrologyMeasureLength1; }
+            set { Set(ref _metrologyMeasureLength1, value); }
+        }
+
+        /// <summary>沿直线 ROI 方向的卡尺覆盖半宽度，单位 px。</summary>
+        [XmlElement("沿线覆盖半宽度px")]
+        public int MetrologyMeasureLength2
+        {
+            get { return _metrologyMeasureLength2; }
+            set { Set(ref _metrologyMeasureLength2, value); }
+        }
+
+        /// <summary>
+        /// 从现有共享参数创建一份单侧配方，供旧工程升级和新建尺寸工具初始化。
+        /// 返回对象与来源独立，后续调整一侧参数不会联动另一侧或直线检测参数。
+        /// </summary>
+        /// <param name="source">提供现有共享 Metrology 值的工具或单侧参数对象。</param>
+        /// <returns>包含相同运行值的独立参数对象。</returns>
+        public static DimensionLineMetrologyParameters FromSharedParameters(IMetrologyLineParameters source)
+        {
+            if (source == null)
+            {
+                return new DimensionLineMetrologyParameters();
+            }
+
+            return new DimensionLineMetrologyParameters
+            {
+                MetrologyNumMeasures = source.MetrologyNumMeasures,
+                MetrologyMeasureSigma = source.MetrologyMeasureSigma,
+                MetrologyMeasureThreshold = source.MetrologyMeasureThreshold,
+                MetrologyMeasureTransition = source.MetrologyMeasureTransition,
+                MetrologyMeasureSelect = source.MetrologyMeasureSelect,
+                MetrologyMinScore = source.MetrologyMinScore,
+                MetrologyMeasureLength1 = source.MetrologyMeasureLength1,
+                MetrologyMeasureLength2 = source.MetrologyMeasureLength2
+            };
+        }
+
+        /// <summary>
+        /// 把另一侧参数复制到当前实例，并逐项通知 WPF 更新显示。
+        /// 该操作只修改参数配置，ROI、标定比例、测量值和工具判定状态保持当前值。
+        /// </summary>
+        /// <param name="source">作为复制来源的直线 Metrology 参数。</param>
+        public void CopyFrom(IMetrologyLineParameters source)
+        {
+            if (source == null)
+            {
+                return;
+            }
+
+            MetrologyNumMeasures = source.MetrologyNumMeasures;
+            MetrologyMeasureSigma = source.MetrologyMeasureSigma;
+            MetrologyMeasureThreshold = source.MetrologyMeasureThreshold;
+            MetrologyMeasureTransition = source.MetrologyMeasureTransition;
+            MetrologyMeasureSelect = source.MetrologyMeasureSelect;
+            MetrologyMinScore = source.MetrologyMinScore;
+            MetrologyMeasureLength1 = source.MetrologyMeasureLength1;
+            MetrologyMeasureLength2 = source.MetrologyMeasureLength2;
+        }
     }
 
     public enum ToolStatus

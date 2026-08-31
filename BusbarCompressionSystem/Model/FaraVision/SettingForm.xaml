@@ -34,6 +34,95 @@
                     <x:Type Type="faravision:DimensionMeasureType"/>
                 </ObjectDataProvider.MethodParameters>
             </ObjectDataProvider>
+
+            <DataTemplate x:Key="MetrologyLineParameterTemplate">
+                <Grid Margin="0,4">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*" MinWidth="150"/>
+                        <ColumnDefinition Width="Auto" MinWidth="60"/>
+                    </Grid.ColumnDefinitions>
+
+                    <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Margin="0,5"
+                               ToolTip="垂直于ROI线的搜索深度（半长度），越大容错越高，杂边进入搜索区的概率也会增加">垂直搜索深度:</TextBlock>
+                    <Slider Grid.Row="0" Grid.Column="1" Minimum="5" Maximum="500" Margin="4,2"
+                            Value="{Binding MetrologyMeasureLength1}" TickFrequency="1" IsSnapToTickEnabled="True"
+                            ValueChanged="MetrologyParameter_Changed"/>
+                    <TextBlock Grid.Row="0" Grid.Column="2" Text="{Binding MetrologyMeasureLength1, StringFormat='{}{0}像素'}"
+                               VerticalAlignment="Center" Margin="5,0,0,0"/>
+
+                    <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Margin="0,5"
+                               ToolTip="沿ROI线方向的卡尺覆盖半宽度，结合ROI长度设置可控制相邻采样区域的重叠程度">沿线覆盖半宽:</TextBlock>
+                    <Slider Grid.Row="1" Grid.Column="1" Minimum="2" Maximum="200" Margin="4,2"
+                            Value="{Binding MetrologyMeasureLength2}" TickFrequency="1" IsSnapToTickEnabled="True"
+                            ValueChanged="MetrologyParameter_Changed"/>
+                    <TextBlock Grid.Row="1" Grid.Column="2" Text="{Binding MetrologyMeasureLength2, StringFormat='{}{0}像素'}"
+                               VerticalAlignment="Center" Margin="5,0,0,0"/>
+
+                    <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" Margin="0,5"
+                               ToolTip="沿当前直线ROI分布的卡尺数量；数量决定采样密度和执行耗时">卡尺数量:</TextBlock>
+                    <Slider Grid.Row="2" Grid.Column="1" Minimum="5" Maximum="50" Margin="4,2"
+                            Value="{Binding MetrologyNumMeasures}" TickFrequency="1" IsSnapToTickEnabled="True"
+                            ValueChanged="MetrologyParameter_Changed"/>
+                    <TextBlock Grid.Row="2" Grid.Column="2" Text="{Binding MetrologyNumMeasures, StringFormat='{}{0}个'}"
+                               VerticalAlignment="Center" Margin="5,0,0,0"/>
+
+                    <TextBlock Grid.Row="3" Grid.Column="0" VerticalAlignment="Center" Margin="0,5"
+                               ToolTip="灰度梯度低于该值的边缘不会进入本侧拟合；两侧可按各自清晰度独立设置">边缘阈值:</TextBlock>
+                    <Slider Grid.Row="3" Grid.Column="1" Minimum="5" Maximum="100" Margin="4,2"
+                            Value="{Binding MetrologyMeasureThreshold}" TickFrequency="5" IsSnapToTickEnabled="True"
+                            ValueChanged="MetrologyParameter_Changed"/>
+                    <TextBlock Grid.Row="3" Grid.Column="2" Text="{Binding MetrologyMeasureThreshold}"
+                               VerticalAlignment="Center" Margin="5,0,0,0"/>
+
+                    <TextBlock Grid.Row="4" Grid.Column="0" VerticalAlignment="Center" Margin="0,5"
+                               ToolTip="用于边缘检测前的图像平滑；较大值强化噪声抑制，较小值保留细节">高斯平滑:</TextBlock>
+                    <Slider Grid.Row="4" Grid.Column="1" Minimum="0.5" Maximum="5" Margin="4,2"
+                            Value="{Binding MetrologyMeasureSigma}" TickFrequency="0.5" IsSnapToTickEnabled="True"
+                            ValueChanged="MetrologyParameter_Changed"/>
+                    <TextBlock Grid.Row="4" Grid.Column="2" Text="{Binding MetrologyMeasureSigma, StringFormat='{}{0:F1}'}"
+                               VerticalAlignment="Center" Margin="5,0,0,0"/>
+
+                    <TextBlock Grid.Row="5" Grid.Column="0" VerticalAlignment="Center" Margin="0,5"
+                               ToolTip="按当前ROI方向定义边缘亮暗过渡，可为两条边分别选择">边缘过渡:</TextBlock>
+                    <ComboBox Grid.Row="5" Grid.Column="1" Grid.ColumnSpan="2" Margin="4,2"
+                              SelectedValue="{Binding MetrologyMeasureTransition}" SelectedValuePath="Tag"
+                              SelectionChanged="MetrologyParameter_Changed">
+                        <ComboBoxItem Content="双向（推荐）" Tag="uniform"/>
+                        <ComboBoxItem Content="暗到亮" Tag="positive"/>
+                        <ComboBoxItem Content="亮到暗" Tag="negative"/>
+                        <ComboBoxItem Content="全部" Tag="all"/>
+                    </ComboBox>
+
+                    <TextBlock Grid.Row="6" Grid.Column="0" VerticalAlignment="Center" Margin="0,5"
+                               ToolTip="选择当前卡尺内参与拟合的边缘候选">边缘选择:</TextBlock>
+                    <ComboBox Grid.Row="6" Grid.Column="1" Grid.ColumnSpan="2" Margin="4,2"
+                              SelectedValue="{Binding MetrologyMeasureSelect}" SelectedValuePath="Tag"
+                              SelectionChanged="MetrologyParameter_Changed">
+                        <ComboBoxItem Content="全部（推荐）" Tag="all"/>
+                        <ComboBoxItem Content="第一个" Tag="first"/>
+                        <ComboBoxItem Content="最后一个" Tag="last"/>
+                    </ComboBox>
+
+                    <TextBlock Grid.Row="7" Grid.Column="0" VerticalAlignment="Center" Margin="0,5"
+                               ToolTip="本侧拟合质量门槛，范围0.1至1.0；低于该值时尺寸工具进入测量失败状态">最小分数:</TextBlock>
+                    <Slider Grid.Row="7" Grid.Column="1" Minimum="0.1" Maximum="1.0" Margin="4,2"
+                            Value="{Binding MetrologyMinScore}" TickFrequency="0.1" IsSnapToTickEnabled="True"
+                            ValueChanged="MetrologyParameter_Changed"/>
+                    <TextBlock Grid.Row="7" Grid.Column="2" Text="{Binding MetrologyMinScore, StringFormat='{}{0:F1}'}"
+                               VerticalAlignment="Center" Margin="5,0,0,0"/>
+                </Grid>
+            </DataTemplate>
         </Grid.Resources>
 
         <Grid.ColumnDefinitions>
@@ -679,135 +768,63 @@
                                 </Grid>
                             </GroupBox>
 
-                            <!-- Metrology参数（高级模式） -->
+                            <!-- 尺寸测量运行参数；直线到直线按两侧独立配置，其他测量类型沿用共享参数。 -->
                             <Expander Grid.Row="7" Grid.ColumnSpan="2" Header="Metrology参数（高级设置）" IsExpanded="True" Margin="0,10,0,0">
-                                <Grid Margin="10,5">
-                                    <Grid.RowDefinitions>
-                                        <RowDefinition Height="Auto"/>
-                                        <RowDefinition Height="Auto"/>
-                                        <RowDefinition Height="Auto"/>
-                                        <RowDefinition Height="Auto"/>
-                                        <RowDefinition Height="Auto"/>
-                                        <RowDefinition Height="Auto"/>
-                                        <RowDefinition Height="Auto"/>
-                                        <RowDefinition Height="Auto"/>
-                                        <RowDefinition Height="Auto"/>
-                                        <RowDefinition Height="Auto"/>
-                                        <RowDefinition Height="Auto"/>
-                                    </Grid.RowDefinitions>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto"/>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
+                                <StackPanel Margin="8,5">
+                                    <TabControl x:Name="DimensionLineMetrologyTabs" Visibility="Collapsed"
+                                                SelectionChanged="DimensionLineMetrologyTabs_SelectionChanged">
+                                        <TabItem Header="直线1">
+                                            <StackPanel Margin="6">
+                                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                                    <Button Content="自动阈值" Tag="line1" Click="AutoMetrologyThreshold_Click" Margin="2" Padding="8,3"
+                                                            ToolTip="根据模板图中的直线1 ROI 与直线1卡尺参数估算边缘阈值"/>
+                                                    <Button Content="复制到直线2" Tag="line1-to-line2" Click="CopyDimensionLineMetrologyParameters_Click" Margin="2" Padding="8,3"
+                                                            ToolTip="把直线1运行参数复制到直线2；两侧ROI和标定数据保持当前值"/>
+                                                </StackPanel>
+                                                <ContentControl Content="{Binding DimensionLine1MetrologyParameters}"
+                                                                ContentTemplate="{StaticResource MetrologyLineParameterTemplate}"/>
+                                            </StackPanel>
+                                        </TabItem>
+                                        <TabItem Header="直线2">
+                                            <StackPanel Margin="6">
+                                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                                    <Button Content="自动阈值" Tag="line2" Click="AutoMetrologyThreshold_Click" Margin="2" Padding="8,3"
+                                                            ToolTip="根据模板图中的直线2 ROI 与直线2卡尺参数估算边缘阈值"/>
+                                                    <Button Content="复制到直线1" Tag="line2-to-line1" Click="CopyDimensionLineMetrologyParameters_Click" Margin="2" Padding="8,3"
+                                                            ToolTip="把直线2运行参数复制到直线1；两侧ROI和标定数据保持当前值"/>
+                                                </StackPanel>
+                                                <ContentControl Content="{Binding DimensionLine2MetrologyParameters}"
+                                                                ContentTemplate="{StaticResource MetrologyLineParameterTemplate}"/>
+                                            </StackPanel>
+                                        </TabItem>
+                                    </TabControl>
 
-                                    <!-- 搜索范围（已弃用，保留字段兼容旧配置） -->
-                                    <TextBlock Grid.Row="8" Grid.Column="0" VerticalAlignment="Center" Margin="0,5"
-                                               ToolTip="已弃用：搜索范围由卡尺几何参数统一控制" Visibility="Collapsed" IsEnabled="False">搜索范围:</TextBlock>
-                                    <Slider Grid.Row="8" Grid.Column="1" Minimum="50" Maximum="500"
-                                            Value="{Binding MetrologyTolerance}" TickFrequency="10" IsSnapToTickEnabled="True"
-                                            ValueChanged="MetrologyParameter_Changed" Visibility="Collapsed" IsEnabled="False"/>
-                                    <TextBlock Grid.Row="8" Grid.Column="2" Text="{Binding MetrologyTolerance, StringFormat='{}{0}像素'}"
-                                               VerticalAlignment="Center" Margin="5,0,0,0" MinWidth="70" Visibility="Collapsed" IsEnabled="False"/>
-
-                                    <!-- 卡尺数量 -->
-                                    <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Margin="0,5"
-                                               ToolTip="沿线段分布的测量点数量，越多精度越高但速度越慢">卡尺数量:</TextBlock>
-                                    <Slider Grid.Row="1" Grid.Column="1" Minimum="5" Maximum="50"
-                                            Value="{Binding MetrologyNumMeasures}" TickFrequency="1" IsSnapToTickEnabled="True"
-                                            ValueChanged="MetrologyParameter_Changed"/>
-                                    <TextBlock Grid.Row="1" Grid.Column="2" Text="{Binding MetrologyNumMeasures, StringFormat='{}{0}个'}"
-                                               VerticalAlignment="Center" Margin="5,0,0,0" MinWidth="50"/>
-
-                                    <!-- 边缘阈值 -->
-                                    <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" Margin="0,5"
-                                               ToolTip="灰度梯度阈值，低于此值的边缘将被忽略">边缘阈值:</TextBlock>
-                                    <Slider Grid.Row="2" Grid.Column="1" Minimum="5" Maximum="100"
-                                            Value="{Binding MetrologyMeasureThreshold}" TickFrequency="5" IsSnapToTickEnabled="True"
-                                            ValueChanged="MetrologyParameter_Changed"/>
-                                    <StackPanel Grid.Row="2" Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                                        <TextBlock Text="{Binding MetrologyMeasureThreshold, StringFormat='{}{0}'}"
-                                                   VerticalAlignment="Center" Margin="5,0,6,0" MinWidth="40"/>
-                                        <Button Content="自动" Padding="8,2" MinWidth="48" Height="22"
-                                                Click="AutoMetrologyThreshold_Click"
-                                                ToolTip="基于当前模板图像与ROI线段估算阈值"/>
+                                    <StackPanel x:Name="SharedDimensionMetrologyPanel">
+                                        <Button Content="自动阈值" Tag="shared" Click="AutoMetrologyThreshold_Click"
+                                                HorizontalAlignment="Right" Margin="2" Padding="8,3"
+                                                ToolTip="根据当前模板图与有效线段ROI估算共享边缘阈值"/>
+                                        <ContentControl Content="{Binding}" ContentTemplate="{StaticResource MetrologyLineParameterTemplate}"/>
                                     </StackPanel>
 
-                                    <!-- 高斯平滑 -->
-                                    <TextBlock Grid.Row="3" Grid.Column="0" VerticalAlignment="Center" Margin="0,5"
-                                               ToolTip="用于边缘检测前的图像平滑，减少噪声影响">高斯平滑:</TextBlock>
-                                    <Slider Grid.Row="3" Grid.Column="1" Minimum="0.5" Maximum="5"
-                                            Value="{Binding MetrologyMeasureSigma}" TickFrequency="0.5" IsSnapToTickEnabled="True"
-                                            ValueChanged="MetrologyParameter_Changed"/>
-                                    <TextBlock Grid.Row="3" Grid.Column="2" Text="{Binding MetrologyMeasureSigma, StringFormat='{}{0:F1}'}"
-                                               VerticalAlignment="Center" Margin="5,0,0,0" MinWidth="40"/>
-
-                                    <!-- 边缘过渡类型 -->
-                                    <TextBlock Grid.Row="4" Grid.Column="0" VerticalAlignment="Center" Margin="0,5"
-                                               ToolTip="边缘过渡方向：双向/暗到亮/亮到暗/全部">边缘过渡:</TextBlock>
-                                    <ComboBox Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="2" Margin="2"
-                                              SelectedValue="{Binding MetrologyMeasureTransition}" SelectedValuePath="Tag"
-                                              SelectionChanged="MetrologyParameter_Changed">
-                                        <ComboBoxItem Content="双向（推荐）" Tag="uniform"/>
-                                        <ComboBoxItem Content="暗到亮" Tag="positive"/>
-                                        <ComboBoxItem Content="亮到暗" Tag="negative"/>
-                                        <ComboBoxItem Content="全部" Tag="all"/>
-                                    </ComboBox>
-
-                                    <!-- 边缘选择 -->
-                                    <TextBlock Grid.Row="5" Grid.Column="0" VerticalAlignment="Center" Margin="0,5"
-                                               ToolTip="选择哪些边缘用于拟合">边缘选择:</TextBlock>
-                                    <ComboBox Grid.Row="5" Grid.Column="1" Grid.ColumnSpan="2" Margin="2"
-                                              SelectedValue="{Binding MetrologyMeasureSelect}" SelectedValuePath="Tag"
-                                              SelectionChanged="MetrologyParameter_Changed">
-                                        <ComboBoxItem Content="全部（推荐）" Tag="all"/>
-                                        <ComboBoxItem Content="第一个" Tag="first"/>
-                                        <ComboBoxItem Content="最后一个" Tag="last"/>
-                                    </ComboBox>
-
-                                    <!-- 最小分数 -->
-                                    <TextBlock Grid.Row="6" Grid.Column="0" VerticalAlignment="Center" Margin="0,5"
-                                               ToolTip="拟合质量阈值，低于此值的结果将被拒绝（0.0-1.0）">最小分数:</TextBlock>
-                                    <Slider Grid.Row="6" Grid.Column="1" Minimum="0.1" Maximum="1.0"
-                                            Value="{Binding MetrologyMinScore}" TickFrequency="0.1" IsSnapToTickEnabled="True"
-                                            ValueChanged="MetrologyParameter_Changed"/>
-                                    <TextBlock Grid.Row="6" Grid.Column="2" Text="{Binding MetrologyMinScore, StringFormat='{}{0:F1}'}"
-                                               VerticalAlignment="Center" Margin="5,0,0,0" MinWidth="40"/>
-
-                                    <!-- 垂直方向搜索深度 -->
-                                    <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Margin="0,5"
-                                               ToolTip="垂直于ROI线的搜索深度（半长度），越大容错越高但误检风险增加">垂直方向搜索深度:</TextBlock>
-                                    <Slider Grid.Row="0" Grid.Column="1" Minimum="5" Maximum="500"
-                                            Value="{Binding MetrologyMeasureLength1}" TickFrequency="1" IsSnapToTickEnabled="True"
-                                            ValueChanged="MetrologyParameter_Changed"/>
-                                    <TextBlock Grid.Row="0" Grid.Column="2" Text="{Binding MetrologyMeasureLength1, StringFormat='{}{0}像素'}"
-                                               VerticalAlignment="Center" Margin="5,0,0,0" MinWidth="70"/>
-
-                                    <!-- 沿线方向半宽度 -->
-                                    <TextBlock Grid.Row="7" Grid.Column="0" VerticalAlignment="Center" Margin="0,5"
-                                               ToolTip="沿ROI线方向的覆盖半宽度">沿线方向半宽度:</TextBlock>
-                                    <Slider Grid.Row="7" Grid.Column="1" Minimum="2" Maximum="200"
-                                            Value="{Binding MetrologyMeasureLength2}" TickFrequency="1" IsSnapToTickEnabled="True"
-                                            ValueChanged="MetrologyParameter_Changed"/>
-                                    <TextBlock Grid.Row="7" Grid.Column="2" Text="{Binding MetrologyMeasureLength2, StringFormat='{}{0}像素'}"
-                                               VerticalAlignment="Center" Margin="5,0,0,0" MinWidth="70"/>
-
-                                    <!-- 计算用线段延长系数 -->
-                                    <TextBlock Grid.Row="9" Grid.Column="0" VerticalAlignment="Center" Margin="0,5"
-                                               ToolTip="修改此参数后测量像素值会变化，建议重新点击&quot;自动校准&quot;以保持毫米精度&#x0a;延长倍数越大对边缘清晰度要求越高，建议不超过 2.0；边缘模糊时请先降低噪声再调大此值">计算线段延长:</TextBlock>
-                                    <Slider Grid.Row="9" Grid.Column="1" Minimum="1.0" Maximum="3.0"
-                                            Value="{Binding LineDistanceExtendRatio}" TickFrequency="0.1" IsSnapToTickEnabled="True"
-                                            ValueChanged="MetrologyParameter_Changed"
-                                            ToolTip="修改此参数后测量像素值会变化，建议重新点击&quot;自动校准&quot;以保持毫米精度&#x0a;延长倍数越大对边缘清晰度要求越高，建议不超过 2.0；边缘模糊时请先降低噪声再调大此值"/>
-                                    <TextBlock Grid.Row="9" Grid.Column="2" Text="{Binding LineDistanceExtendRatio, StringFormat='{}{0:F1}倍'}"
-                                               VerticalAlignment="Center" Margin="5,0,0,0" MinWidth="50"/>
-
-                                    <!-- 显示调试信息 -->
-                                    <CheckBox Grid.Row="10" Grid.Column="0" Grid.ColumnSpan="3" Margin="0,10,0,0"
-                                              IsChecked="{Binding ShowMetrologyDebugInfo}"
+                                    <Separator Margin="0,6"/>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" VerticalAlignment="Center" Margin="0,5"
+                                                   ToolTip="修改后测量像素值可能变化，工程应重新执行自动校准；该参数只影响两线距离计算和调试显示">计算线段延长:</TextBlock>
+                                        <Slider Grid.Column="1" Minimum="1.0" Maximum="3.0" Margin="4,2"
+                                                Value="{Binding LineDistanceExtendRatio}" TickFrequency="0.1" IsSnapToTickEnabled="True"
+                                                ValueChanged="MetrologyParameter_Changed"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding LineDistanceExtendRatio, StringFormat='{}{0:F1}倍'}"
+                                                   VerticalAlignment="Center" Margin="5,0,0,0" MinWidth="50"/>
+                                    </Grid>
+                                    <CheckBox Margin="0,8,0,0" IsChecked="{Binding ShowMetrologyDebugInfo}"
                                               Content="显示调试信息（卡尺位置、边缘点）"
-                                              ToolTip="勾选后，点击“测试此模板”会在主界面 AOI 窗口显示橙色卡尺框与边缘点"/>
-                                </Grid>
+                                              ToolTip="模板测试和校准时显示当前两侧各自配置的卡尺框与边缘点"/>
+                                </StackPanel>
                             </Expander>
 
                             <!-- 为保持与“面积检测”工具一致的视觉与交互：尺寸测量的测试按钮统一配色、文案与布局 -->

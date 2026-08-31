@@ -476,6 +476,11 @@ namespace BusbarCompressionSystem.ViewModel
                 writeLog($"[AOI工程加载] Tool{index} 模板匹配参数已按兼容口径迁移：{adjustmentSummary}", true);
             }
 
+            if (tool != null && tool.NormalizeDimensionLineMetrologyParametersForProjectLoad(out string dimensionAdjustmentSummary))
+            {
+                writeLog($"[AOI工程加载] Tool{index} 尺寸测量参数已按兼容口径迁移：{dimensionAdjustmentSummary}", true);
+            }
+
             return tool;
         }
 
@@ -1115,8 +1120,25 @@ namespace BusbarCompressionSystem.ViewModel
                 throw new InvalidOperationException($"Tool{index} 模板匹配参数无效：{parameterError}");
             }
 
+            ToolModel persistedTool = td;
+            if (td != null &&
+                td.TestMode == TestModes.尺寸测量 &&
+                td.MeasureType == DimensionMeasureType.直线到直线)
+            {
+                td.NormalizeDimensionLineMetrologyParametersForProjectLoad(out _);
+                persistedTool = CloneToolModelSnapshot(td);
+                if (persistedTool == null)
+                {
+                    throw new InvalidOperationException($"Tool{index} 尺寸测量参数副本创建失败");
+                }
+
+                // 落盘副本同步直线1到历史共享字段，使旧版本程序回退读取时仍获得有效参数；
+                // 当前内存工具保留双侧独立配置，参数审计只记录操作者实际编辑的字段。
+                persistedTool.MirrorDimensionLine1ParametersToLegacyFields();
+            }
+
             string filename = $"{GetCurrentProjectDirectory()}\\Tool{index}.xml";
-            if (!SaveProjectXmlSafely(filename, td, _aoiProjectLoadFailed))
+            if (!SaveProjectXmlSafely(filename, persistedTool, _aoiProjectLoadFailed))
             {
                 throw new IOException($"Tool{index}.xml保存失败");
             }
@@ -2108,6 +2130,9 @@ namespace BusbarCompressionSystem.ViewModel
             t.MeasureType = tool.MeasureType;
             t.MeasureObject1ROI = New_ROI(tool.MeasureObject1ROI);
             t.MeasureObject2ROI = New_ROI(tool.MeasureObject2ROI);
+            t.DimensionLineMetrologyParameterVersion = tool.DimensionLineMetrologyParameterVersion;
+            t.DimensionLine1MetrologyParameters = DimensionLineMetrologyParameters.FromSharedParameters(tool.DimensionLine1MetrologyParameters);
+            t.DimensionLine2MetrologyParameters = DimensionLineMetrologyParameters.FromSharedParameters(tool.DimensionLine2MetrologyParameters);
             t.DimensionK = tool.DimensionK;
             t.CalibrationRealSize = tool.CalibrationRealSize;
             t.CalibrationPixelSize = tool.CalibrationPixelSize;
@@ -2682,7 +2707,7 @@ namespace BusbarCompressionSystem.ViewModel
         /// 返回值始终为像素距离，毫米换算和报警判定由外层尺寸测量流程继续处理。
         /// </summary>
         /// <param name="image">当前待测图像，作为 Metrology 找边输入。</param>
-        /// <param name="tool">当前尺寸测量工具配置，包含 ROI、Metrology 参数、调试显示和计算线延长系数。</param>
+        /// <param name="tool">当前尺寸测量工具配置，包含两侧独立 Metrology 参数、调试显示和计算线延长系数。</param>
         /// <param name="hwindow">用于预览绘制拟合线、计算线和距离线的 HALCON 窗口。</param>
         /// <param name="redraw">true 表示同步刷新预览画面；false 表示只计算距离，不更新窗口显示。</param>
         /// <returns>两条测量边之间的像素距离；后续流程负责按校准系数换算为毫米。</returns>
@@ -2693,6 +2718,13 @@ namespace BusbarCompressionSystem.ViewModel
             {
                 ROI roi1 = measureObject1Roi ?? tool.MeasureObject1ROI;
                 ROI roi2 = measureObject2Roi ?? tool.MeasureObject2ROI;
+                DimensionLineMetrologyParameters line1Parameters = tool.GetDimensionLineMetrologyParameters(1);
+                DimensionLineMetrologyParameters line2Parameters = tool.GetDimensionLineMetrologyParameters(2);
+
+                tool.LastDimensionLine1FitScore = 0;
+                tool.LastDimensionLine2FitScore = 0;
+                tool.LastDimensionLine1EdgePointCount = 0;
+                tool.LastDimensionLine2EdgePointCount = 0;
 
                 // 验证ROI有效性（支持矩形、线段和圆形ROI）
                 if (!IsROIValid(roi1))
@@ -2707,22 +2739,28 @@ namespace BusbarCompressionSystem.ViewModel
                 // 使用Metrology模型检测第一条直线
                 double line1RowBegin, line1ColBegin, line1RowEnd, line1ColEnd;
                 HTuple edge1Rows, edge1Cols;
-                if (!DetectEdgeWithMetrology(image, tool, roi1,
+                double line1FitScore;
+                if (!DetectEdgeWithMetrology(image, line1Parameters, roi1,
                     out line1RowBegin, out line1ColBegin, out line1RowEnd, out line1ColEnd,
-                    out edge1Rows, out edge1Cols, out _))
+                    out edge1Rows, out edge1Cols, out line1FitScore))
                 {
-                    throw new Exception("测量对象1边缘检测失败：请检查ROI位置、Metrology参数设置");
+                    throw new Exception("测量对象1边缘检测失败：请检查ROI位置、直线1运行参数设置");
                 }
+                tool.LastDimensionLine1FitScore = line1FitScore;
+                tool.LastDimensionLine1EdgePointCount = edge1Rows?.Length ?? 0;
 
                 // 使用Metrology模型检测第二条直线
                 double line2RowBegin, line2ColBegin, line2RowEnd, line2ColEnd;
                 HTuple edge2Rows, edge2Cols;
-                if (!DetectEdgeWithMetrology(image, tool, roi2,
+                double line2FitScore;
+                if (!DetectEdgeWithMetrology(image, line2Parameters, roi2,
                     out line2RowBegin, out line2ColBegin, out line2RowEnd, out line2ColEnd,
-                    out edge2Rows, out edge2Cols, out _))
+                    out edge2Rows, out edge2Cols, out line2FitScore))
                 {
-                    throw new Exception("测量对象2边缘检测失败：请检查ROI位置、Metrology参数设置");
+                    throw new Exception("测量对象2边缘检测失败：请检查ROI位置、直线2运行参数设置");
                 }
+                tool.LastDimensionLine2FitScore = line2FitScore;
+                tool.LastDimensionLine2EdgePointCount = edge2Rows?.Length ?? 0;
 
                 LineSegment2D fittedLine1 = new LineSegment2D(line1RowBegin, line1ColBegin, line1RowEnd, line1ColEnd);
                 LineSegment2D fittedLine2 = new LineSegment2D(line2RowBegin, line2ColBegin, line2RowEnd, line2ColEnd);
@@ -2798,8 +2836,8 @@ namespace BusbarCompressionSystem.ViewModel
 
                         // 沿两侧 ROI 绘制橙色卡尺框，与测距红线同属一次测量图层，
                         // 避免再走独立找边预览清屏后卡尺与距离线互相覆盖。
-                        DrawMetrologyCaliperFramesOnRoi(hwindow, tool, roi1);
-                        DrawMetrologyCaliperFramesOnRoi(hwindow, tool, roi2);
+                        DrawMetrologyCaliperFramesOnRoi(hwindow, line1Parameters, roi1);
+                        DrawMetrologyCaliperFramesOnRoi(hwindow, line2Parameters, roi2);
 
                         // 绘制最近点标记（橙色圆圈）
                         hwindow.SetColor("orange");
@@ -3684,21 +3722,23 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
-        /// 使用HALCON Metrology模型检测边缘并拟合直线
+        /// 使用 HALCON Metrology 模型按指定运行参数检测边缘并拟合直线。
+        /// 尺寸测量可分别传入直线1与直线2参数；直线检测和混合尺寸测量传入 ToolModel 共享参数，
+        /// 各调用路径共用相同的拟合、分数和边缘点提取口径。
         /// </summary>
-        /// <param name="image">输入图像</param>
-        /// <param name="tool">工具模型（包含Metrology参数）</param>
-        /// <param name="roi">线段ROI（起点和终点定义搜索区域）</param>
-        /// <param name="lineRowBegin">输出：拟合直线起点Row坐标</param>
-        /// <param name="lineColBegin">输出：拟合直线起点Col坐标</param>
-        /// <param name="lineRowEnd">输出：拟合直线终点Row坐标</param>
-        /// <param name="lineColEnd">输出：拟合直线终点Col坐标</param>
-        /// <param name="edgeRows">输出：检测到的边缘点Row坐标数组</param>
-        /// <param name="edgeCols">输出：检测到的边缘点Col坐标数组</param>
-        /// <param name="fitScore">输出：Metrology 拟合分数，范围 0~1；找边失败时为 0。</param>
-        /// <returns>是否检测成功</returns>
+        /// <param name="image">当前模板图、测试图或在线相机图，作为 Metrology 找边输入。</param>
+        /// <param name="parameters">当前直线对应的运行参数，控制卡尺几何、边缘选择和拟合门槛。</param>
+        /// <param name="roi">当前直线 ROI，端点坐标和卡尺长度单位均为 px。</param>
+        /// <param name="lineRowBegin">拟合直线起点 Row 坐标，单位 px。</param>
+        /// <param name="lineColBegin">拟合直线起点 Col 坐标，单位 px。</param>
+        /// <param name="lineRowEnd">拟合直线终点 Row 坐标，单位 px。</param>
+        /// <param name="lineColEnd">拟合直线终点 Col 坐标，单位 px。</param>
+        /// <param name="edgeRows">有效边缘点 Row 坐标集合，供调试图层和诊断日志使用。</param>
+        /// <param name="edgeCols">有效边缘点 Col 坐标集合，供调试图层和诊断日志使用。</param>
+        /// <param name="fitScore">Metrology 拟合分数，范围 0～1；找边失败时为 0。</param>
+        /// <returns>true 表示当前侧获得有效拟合线；false 表示参数、ROI 或图像未形成有效结果。</returns>
         private bool DetectEdgeWithMetrology(
-            HObject image, ToolModel tool, ROI roi,
+            HObject image, IMetrologyLineParameters parameters, ROI roi,
             out double lineRowBegin, out double lineColBegin,
             out double lineRowEnd, out double lineColEnd,
             out HTuple edgeRows, out HTuple edgeCols,
@@ -3736,24 +3776,24 @@ namespace BusbarCompressionSystem.ViewModel
                     metrologyHandle,
                     "line",                           // 对象类型：线段
                     shapeParam,                       // 线段参数
-                    tool.MetrologyMeasureLength1,     // 测量方向半长度
-                    tool.MetrologyMeasureLength2,     // 垂直测量方向半宽度
-                    tool.MetrologyMeasureSigma,       // 高斯平滑
-                    tool.MetrologyMeasureThreshold,   // 边缘阈值
+                    parameters.MetrologyMeasureLength1,     // 测量方向半长度
+                    parameters.MetrologyMeasureLength2,     // 垂直测量方向半宽度
+                    parameters.MetrologyMeasureSigma,       // 高斯平滑
+                    parameters.MetrologyMeasureThreshold,   // 边缘阈值
                     new HTuple(),                     // GenParamName（空）
                     new HTuple(),                     // GenParamValue（空）
                     out index
                 );
 
                 // 5. 设置Metrology对象参数
-                HOperatorSet.SetMetrologyObjectParam(metrologyHandle, "all", "measure_transition", tool.MetrologyMeasureTransition);
-                HOperatorSet.SetMetrologyObjectParam(metrologyHandle, "all", "num_measures", tool.MetrologyNumMeasures);
-                HOperatorSet.SetMetrologyObjectParam(metrologyHandle, "all", "measure_sigma", tool.MetrologyMeasureSigma);
-                HOperatorSet.SetMetrologyObjectParam(metrologyHandle, "all", "measure_threshold", tool.MetrologyMeasureThreshold);
-                HOperatorSet.SetMetrologyObjectParam(metrologyHandle, "all", "measure_select", tool.MetrologyMeasureSelect);
-                HOperatorSet.SetMetrologyObjectParam(metrologyHandle, "all", "min_score", tool.MetrologyMinScore);
-                HOperatorSet.SetMetrologyObjectParam(metrologyHandle, "all", "measure_length1", tool.MetrologyMeasureLength1);
-                HOperatorSet.SetMetrologyObjectParam(metrologyHandle, "all", "measure_length2", tool.MetrologyMeasureLength2);
+                HOperatorSet.SetMetrologyObjectParam(metrologyHandle, "all", "measure_transition", parameters.MetrologyMeasureTransition);
+                HOperatorSet.SetMetrologyObjectParam(metrologyHandle, "all", "num_measures", parameters.MetrologyNumMeasures);
+                HOperatorSet.SetMetrologyObjectParam(metrologyHandle, "all", "measure_sigma", parameters.MetrologyMeasureSigma);
+                HOperatorSet.SetMetrologyObjectParam(metrologyHandle, "all", "measure_threshold", parameters.MetrologyMeasureThreshold);
+                HOperatorSet.SetMetrologyObjectParam(metrologyHandle, "all", "measure_select", parameters.MetrologyMeasureSelect);
+                HOperatorSet.SetMetrologyObjectParam(metrologyHandle, "all", "min_score", parameters.MetrologyMinScore);
+                HOperatorSet.SetMetrologyObjectParam(metrologyHandle, "all", "measure_length1", parameters.MetrologyMeasureLength1);
+                HOperatorSet.SetMetrologyObjectParam(metrologyHandle, "all", "measure_length2", parameters.MetrologyMeasureLength2);
 
                 // 6. 执行测量
                 HOperatorSet.ApplyMetrologyModel(image, metrologyHandle);
@@ -4471,16 +4511,16 @@ namespace BusbarCompressionSystem.ViewModel
         /// 该图层仅用于核对卡尺分布和搜索范围，不改变找边、尺寸判定或工程参数。
         /// </summary>
         /// <param name="hwindow">主界面 AOI 结果窗口，卡尺框以橙色叠加到当前测量图层。</param>
-        /// <param name="tool">当前工具配置，提供卡尺数量及两个方向的半长度，单位为像素。</param>
+        /// <param name="parameters">当前直线实际使用的卡尺数量及两个方向半长度，单位为 px。</param>
         /// <param name="roi">操作者绘制并随工程保存的直线 ROI；其他 ROI 类型不生成矩形卡尺框。</param>
-        private void DrawMetrologyCaliperFramesOnRoi(HWindow hwindow, ToolModel tool, ROI roi)
+        private void DrawMetrologyCaliperFramesOnRoi(HWindow hwindow, IMetrologyLineParameters parameters, ROI roi)
         {
-            if (hwindow == null || tool == null || roi == null || roi.Type != ROIType.Line)
+            if (hwindow == null || parameters == null || roi == null || roi.Type != ROIType.Line)
             {
                 return;
             }
 
-            int numMeasures = Math.Max(0, tool.MetrologyNumMeasures);
+            int numMeasures = Math.Max(0, parameters.MetrologyNumMeasures);
             if (numMeasures <= 0)
             {
                 return;
@@ -4502,8 +4542,8 @@ namespace BusbarCompressionSystem.ViewModel
             dirCol /= lineLength;
             double perpRow = -dirCol;
             double perpCol = dirRow;
-            double halfLen1 = tool.MetrologyMeasureLength1;
-            double halfLen2 = Math.Max(1, tool.MetrologyMeasureLength2);
+            double halfLen1 = parameters.MetrologyMeasureLength1;
+            double halfLen2 = Math.Max(1, parameters.MetrologyMeasureLength2);
 
             hwindow.SetColor("orange");
             hwindow.SetLineWidth(1);
@@ -4536,18 +4576,29 @@ namespace BusbarCompressionSystem.ViewModel
         #region 边缘预览
 
         /// <summary>
-        /// 预览指定ROI区域内的边缘轮廓
+        /// 预览指定 ROI 的 Metrology 找边结果。
+        /// 直线到直线尺寸测量可传入当前侧独立参数；其他调用沿用 ToolModel 共享参数。
+        /// 该流程只更新 HALCON 调试图层，工程参数和最终尺寸判定保持当前值。
         /// </summary>
-        /// <param name="image">输入图像</param>
-        /// <param name="tool">工具模型</param>
-        /// <param name="roi">要预览的ROI区域</param>
-        /// <param name="hwindow">HALCON窗口</param>
-        /// <param name="color">显示颜色</param>
-        /// <returns>是否预览成功</returns>
-        public bool PreviewEdgesForROI(HObject image, ToolModel tool, ROI roi, HWindow hwindow, string color = "green")
+        /// <param name="image">当前模板图或测试图，作为找边输入。</param>
+        /// <param name="tool">当前 AOI 工具，提供测量类型、共享参数和调试显示开关。</param>
+        /// <param name="roi">待预览的直线或圆 ROI，坐标单位为 px。</param>
+        /// <param name="hwindow">主界面 AOI 结果窗口，接收拟合线、边缘点和卡尺框。</param>
+        /// <param name="color">ROI 预览颜色名称；找边结果继续使用统一的青色与绿色诊断配色。</param>
+        /// <param name="lineParameters">直线 ROI 对应的运行参数；为空时使用 ToolModel 共享参数。</param>
+        /// <returns>true 表示 ROI 获得有效预览结果；false 表示 ROI、图像或找边结果无效。</returns>
+        public bool PreviewEdgesForROI(
+            HObject image,
+            ToolModel tool,
+            ROI roi,
+            HWindow hwindow,
+            string color = "green",
+            IMetrologyLineParameters lineParameters = null)
         {
             try
             {
+                IMetrologyLineParameters effectiveLineParameters = lineParameters ?? tool;
+
                 // 验证ROI有效性（支持圆形、线段、矩形）
                 if (!IsROIValid(roi))
                 {
@@ -4558,7 +4609,7 @@ namespace BusbarCompressionSystem.ViewModel
                 {
                     if (roi.Type == ROIType.Line)
                     {
-                        return PreviewEdgesWithMetrology(image, tool, roi, hwindow, color);
+                        return PreviewEdgesWithMetrology(image, tool, effectiveLineParameters, roi, hwindow, color);
                     }
 
                     return false;
@@ -4574,7 +4625,7 @@ namespace BusbarCompressionSystem.ViewModel
                         // 直线相关测量：使用Metrology直线预览
                         if (roi.Type == ROIType.Line)
                         {
-                            return PreviewEdgesWithMetrology(image, tool, roi, hwindow, color);
+                            return PreviewEdgesWithMetrology(image, tool, effectiveLineParameters, roi, hwindow, color);
                         }
                         else
                         {
@@ -4701,23 +4752,37 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
-        /// 使用Metrology模型预览边缘（完整调试信息）
+        /// 按指定侧运行参数绘制直线 Metrology 完整调试信息。
+        /// 拟合线、边缘点和卡尺框使用同一参数对象，保证页签显示与实际找边口径一致。
         /// </summary>
-        private bool PreviewEdgesWithMetrology(HObject image, ToolModel tool, ROI roi, HWindow hwindow, string color)
+        /// <param name="image">当前模板图或测试图。</param>
+        /// <param name="tool">当前工具，提供调试显示开关。</param>
+        /// <param name="parameters">当前直线实际使用的 Metrology 参数。</param>
+        /// <param name="roi">当前直线 ROI，坐标单位为 px。</param>
+        /// <param name="hwindow">接收预览图层的 HALCON 窗口。</param>
+        /// <param name="color">调用方指定的预览颜色；拟合线使用统一青色显示。</param>
+        /// <returns>true 表示当前侧拟合成功并完成预览；false 表示当前侧找边失败。</returns>
+        private bool PreviewEdgesWithMetrology(
+            HObject image,
+            ToolModel tool,
+            IMetrologyLineParameters parameters,
+            ROI roi,
+            HWindow hwindow,
+            string color)
         {
             try
             {
                 // 使用Metrology检测边缘
                 double lineRowBegin, lineColBegin, lineRowEnd, lineColEnd;
                 HTuple edgeRows, edgeCols;
-                if (!DetectEdgeWithMetrology(image, tool, roi,
+                if (!DetectEdgeWithMetrology(image, parameters, roi,
                     out lineRowBegin, out lineColBegin, out lineRowEnd, out lineColEnd,
                     out edgeRows, out edgeCols, out _))
                 {
                     // 找边失败时仍按 ROI 绘制卡尺布局，便于核对搜索范围是否盖住目标边缘。
                     if (tool.ShowMetrologyDebugInfo)
                     {
-                        DrawMetrologyCaliperFramesOnRoi(hwindow, tool, roi);
+                        DrawMetrologyCaliperFramesOnRoi(hwindow, parameters, roi);
                     }
                     return false;
                 }
@@ -4740,7 +4805,7 @@ namespace BusbarCompressionSystem.ViewModel
                 // 3. 如果启用调试信息，绘制卡尺位置（以用户 ROI 为基准，避免跟着拟合线漂移）
                 if (tool.ShowMetrologyDebugInfo)
                 {
-                    DrawMetrologyCaliperFramesOnRoi(hwindow, tool, roi);
+                    DrawMetrologyCaliperFramesOnRoi(hwindow, parameters, roi);
                 }
 
                 return true;
@@ -4878,6 +4943,14 @@ namespace BusbarCompressionSystem.ViewModel
                 hwindow.SetLineWidth(2);
                 hwindow.SetDraw("margin");
 
+                IMetrologyLineParameters object1LineParameters = tool;
+                IMetrologyLineParameters object2LineParameters = tool;
+                if (tool.MeasureType == DimensionMeasureType.直线到直线)
+                {
+                    object1LineParameters = tool.GetDimensionLineMetrologyParameters(1);
+                    object2LineParameters = tool.GetDimensionLineMetrologyParameters(2);
+                }
+
                 // 绘制测量对象1的ROI（绿色）
                 if (IsROIValid(tool.MeasureObject1ROI))
                 {
@@ -4898,7 +4971,7 @@ namespace BusbarCompressionSystem.ViewModel
                     }
 
                     // 预览测量对象1的边缘
-                    PreviewEdgesForROI(image, tool, tool.MeasureObject1ROI, hwindow, "lime");
+                    PreviewEdgesForROI(image, tool, tool.MeasureObject1ROI, hwindow, "lime", object1LineParameters);
                 }
 
                 // 绘制测量对象2的ROI（黄色）
@@ -4921,7 +4994,7 @@ namespace BusbarCompressionSystem.ViewModel
                     }
 
                     // 预览测量对象2的边缘
-                    PreviewEdgesForROI(image, tool, tool.MeasureObject2ROI, hwindow, "yellow");
+                    PreviewEdgesForROI(image, tool, tool.MeasureObject2ROI, hwindow, "yellow", object2LineParameters);
                 }
 
                 // - 如需恢复WPF同步显示，取消下方注释：

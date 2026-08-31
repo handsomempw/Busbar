@@ -1,4 +1,5 @@
 ﻿using BusbarCompressionSystem.Model;
+using BusbarCompressionSystem.Model.FaraVision;
 using BusbarCompressionSystem.Model.FaraVision.Tool;
 using BusbarCompressionSystem.Model.Record;
 using GalaSoft.MvvmLight;
@@ -147,10 +148,24 @@ namespace BusbarCompressionSystem.ViewModel
             string remeasureOriginalError = SanitizeMeasurementLogText(tool?.DimensionRemeasureOriginalError);
             string remeasureError = SanitizeMeasurementLogText(tool?.DimensionRemeasureError);
 
-            int threshold = tool?.MetrologyMeasureThreshold ?? 0;
-            string select = tool?.MetrologyMeasureSelect ?? string.Empty;
-            int numMeasures = tool?.MetrologyNumMeasures ?? 0;
-            double minScore = tool?.MetrologyMinScore ?? 0;
+            IMetrologyLineParameters primaryParameters = tool;
+            string separateLineParameterTrace = string.Empty;
+            if (tool != null &&
+                tool.TestMode == TestModes.尺寸测量 &&
+                tool.MeasureType == DimensionMeasureType.直线到直线)
+            {
+                DimensionLineMetrologyParameters line1Parameters = tool.GetDimensionLineMetrologyParameters(1);
+                DimensionLineMetrologyParameters line2Parameters = tool.GetDimensionLineMetrologyParameters(2);
+                primaryParameters = line1Parameters;
+                separateLineParameterTrace =
+                    $"直线1参数={FormatMetrologyLineParametersForLog(line1Parameters, tool.LastDimensionLine1FitScore, tool.LastDimensionLine1EdgePointCount)}|" +
+                    $"直线2参数={FormatMetrologyLineParametersForLog(line2Parameters, tool.LastDimensionLine2FitScore, tool.LastDimensionLine2EdgePointCount)}|";
+            }
+
+            int threshold = primaryParameters?.MetrologyMeasureThreshold ?? 0;
+            string select = primaryParameters?.MetrologyMeasureSelect ?? string.Empty;
+            int numMeasures = primaryParameters?.MetrologyNumMeasures ?? 0;
+            double minScore = primaryParameters?.MetrologyMinScore ?? 0;
 
             return $"[{measureTime:yyyy-MM-dd HH:mm:ss.fff}] " +
                 $"{partNo}|" +
@@ -168,6 +183,7 @@ namespace BusbarCompressionSystem.ViewModel
                 $"边缘选择={select}|" +
                 $"卡尺数量={numMeasures}|" +
                 $"最小得分={minScore:F2}|" +
+                separateLineParameterTrace +
                 $"ROI1={FormatRoiForLog(tool?.MeasureObject1ROI)}|" +
                 $"ROI2={FormatRoiForLog(tool?.MeasureObject2ROI)}|" +
                 $"复测触发={(tool?.DimensionRemeasureAttempted == true ? "是" : "否")}|" +
@@ -178,6 +194,37 @@ namespace BusbarCompressionSystem.ViewModel
                 $"复测像素(px)={(tool?.DimensionRemeasurePixelValue ?? -1):F2}|" +
                 $"首次失败={remeasureOriginalError}|" +
                 $"复测失败={remeasureError}";
+        }
+
+        /// <summary>
+        /// 生成尺寸测量单侧 Metrology 参数与本次拟合结果的紧凑诊断文本。
+        /// 两侧分别写入同一条尺寸诊断日志，便于现场对照亮暗过渡、采样密度和拟合质量；
+        /// 该文本只服务追溯，不参与结果日志、尺寸判定或外部通信。
+        /// </summary>
+        /// <param name="parameters">当前侧实际使用的工程参数。</param>
+        /// <param name="fitScore">当前侧最近一次拟合分数，范围 0～1。</param>
+        /// <param name="edgePointCount">当前侧最近一次有效边缘点数量。</param>
+        /// <returns>不含竖线分隔符的单侧参数摘要，可安全嵌入现有尺寸诊断日志字段。</returns>
+        private static string FormatMetrologyLineParametersForLog(
+            IMetrologyLineParameters parameters,
+            double fitScore,
+            int edgePointCount)
+        {
+            if (parameters == null)
+            {
+                return string.Empty;
+            }
+
+            return $"阈值:{parameters.MetrologyMeasureThreshold}," +
+                $"过渡:{parameters.MetrologyMeasureTransition}," +
+                $"选择:{parameters.MetrologyMeasureSelect}," +
+                $"卡尺:{parameters.MetrologyNumMeasures}," +
+                $"Sigma:{parameters.MetrologyMeasureSigma:F1}," +
+                $"最小分:{parameters.MetrologyMinScore:F2}," +
+                $"搜索半长:{parameters.MetrologyMeasureLength1}px," +
+                $"沿线半宽:{parameters.MetrologyMeasureLength2}px," +
+                $"拟合分:{fitScore:F2}," +
+                $"边缘点:{edgePointCount}";
         }
 
         /// <summary>

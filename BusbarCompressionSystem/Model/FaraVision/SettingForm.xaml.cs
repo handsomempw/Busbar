@@ -112,6 +112,7 @@ namespace BusbarCompressionSystem.Model.FaraVision
                 {
                     // 按当前测量类型同步 ROI 类型（Line/Circle），无需用户再次切换下拉框
                     ApplyMeasureTypeToROIType();
+                    t.NormalizeDimensionLineMetrologyParametersForProjectLoad(out _);
 
                     if (t.TestMode == TestModes.直线检测)
                     {
@@ -1232,6 +1233,7 @@ namespace BusbarCompressionSystem.Model.FaraVision
 
             // 根据测量类型自动设置ROI类型
             ApplyMeasureTypeToROIType();
+            t.NormalizeDimensionLineMetrologyParametersForProjectLoad(out _);
 
             // 更新UI显示：根据ROI类型切换参数显示
             UpdateROIParamsUIVisibility();
@@ -1286,6 +1288,16 @@ namespace BusbarCompressionSystem.Model.FaraVision
         private void UpdateROIParamsUIVisibility()
         {
             if (t == null) return;
+
+            bool useSeparateLineParameters = t.MeasureType == DimensionMeasureType.直线到直线;
+            if (DimensionLineMetrologyTabs != null)
+            {
+                DimensionLineMetrologyTabs.Visibility = useSeparateLineParameters ? Visibility.Visible : Visibility.Collapsed;
+            }
+            if (SharedDimensionMetrologyPanel != null)
+            {
+                SharedDimensionMetrologyPanel.Visibility = useSeparateLineParameters ? Visibility.Collapsed : Visibility.Visible;
+            }
             
             // 测量对象1的UI切换
             if (t.MeasureObject1ROI.Type == ROIType.Circle)
@@ -1540,6 +1552,13 @@ namespace BusbarCompressionSystem.Model.FaraVision
             }
         }
 
+        /// <summary>
+        /// 根据当前模板图估算 Metrology 边缘阈值。
+        /// 直线到直线测量按按钮所属页签只更新直线1或直线2；混合尺寸测量和直线检测继续更新共享参数。
+        /// 自动估算只写入边缘阈值，ROI、其他卡尺参数、标定比例和尺寸上下限保持当前值。
+        /// </summary>
+        /// <param name="sender">触发按钮；Tag 为 line1、line2 或 shared，用于确定参数归属。</param>
+        /// <param name="e">WPF 点击事件参数。</param>
         private void AutoMetrologyThreshold_Click(object sender, RoutedEventArgs e)
         {
             if (!EnsureEditable())
@@ -1555,12 +1574,37 @@ namespace BusbarCompressionSystem.Model.FaraVision
                     return;
                 }
 
+                string target = (sender as FrameworkElement)?.Tag as string ?? "shared";
+                if (target == "line1" || target == "line2")
+                {
+                    int lineIndex = target == "line1" ? 1 : 2;
+                    ROI targetRoi = lineIndex == 1 ? t.MeasureObject1ROI : t.MeasureObject2ROI;
+                    DimensionLineMetrologyParameters targetParameters = t.GetDimensionLineMetrologyParameters(lineIndex);
+
+                    if (targetRoi == null || targetRoi.Type != ROIType.Line || !IsROIValid(targetRoi))
+                    {
+                        NoticeBox.Show($"请先选择直线{lineIndex}区域", "提示", MessageBoxIcon.Warning, true, 6000);
+                        return;
+                    }
+
+                    if (!TryEstimateThresholdForLineROI(t.Image, t, targetParameters, targetRoi, out double lineThreshold))
+                    {
+                        NoticeBox.Show($"直线{lineIndex}未采集到有效边缘幅值，请检查ROI和搜索深度", "提示", MessageBoxIcon.Warning, true, 6000);
+                        return;
+                    }
+
+                    targetParameters.MetrologyMeasureThreshold = (int)Math.Round(lineThreshold);
+                    NoticeBox.Show($"直线{lineIndex}自动阈值完成\n采用阈值: {targetParameters.MetrologyMeasureThreshold}",
+                        "自动阈值", MessageBoxIcon.Success, true, 6000);
+                    return;
+                }
+
                 var thresholdList = new List<double>();
                 var detailList = new List<string>();
 
                 if (t.MeasureObject1ROI != null && t.MeasureObject1ROI.Type == ROIType.Line && IsROIValid(t.MeasureObject1ROI))
                 {
-                    if (TryEstimateThresholdForLineROI(t.Image, t, t.MeasureObject1ROI, out double th1))
+                    if (TryEstimateThresholdForLineROI(t.Image, t, t, t.MeasureObject1ROI, out double th1))
                     {
                         thresholdList.Add(th1);
                         detailList.Add($"ROI1: {th1:F1}");
@@ -1569,7 +1613,7 @@ namespace BusbarCompressionSystem.Model.FaraVision
 
                 if (t.MeasureObject2ROI != null && t.MeasureObject2ROI.Type == ROIType.Line && IsROIValid(t.MeasureObject2ROI))
                 {
-                    if (TryEstimateThresholdForLineROI(t.Image, t, t.MeasureObject2ROI, out double th2))
+                    if (TryEstimateThresholdForLineROI(t.Image, t, t, t.MeasureObject2ROI, out double th2))
                     {
                         thresholdList.Add(th2);
                         detailList.Add($"ROI2: {th2:F1}");
@@ -1581,7 +1625,7 @@ namespace BusbarCompressionSystem.Model.FaraVision
                     t.LineDetectROI.Type == ROIType.Line &&
                     IsROIValid(t.LineDetectROI))
                 {
-                    if (TryEstimateThresholdForLineROI(t.Image, t, t.LineDetectROI, out double thLine))
+                    if (TryEstimateThresholdForLineROI(t.Image, t, t, t.LineDetectROI, out double thLine))
                     {
                         thresholdList.Add(thLine);
                         detailList.Add($"直线检测ROI: {thLine:F1}");
@@ -1609,9 +1653,68 @@ namespace BusbarCompressionSystem.Model.FaraVision
         }
 
         /// <summary>
-        /// 根据线段ROI采样边缘幅值，估算一个合适的阈值
+        /// 在直线1与直线2之间复制 Metrology 运行参数。
+        /// 复制后两侧仍持有独立对象，操作员可继续单独调整；ROI、尺寸标定、上下限和当前测量结果保持原值。
         /// </summary>
-        private bool TryEstimateThresholdForLineROI(HObject image, ToolModel tool, ROI roi, out double threshold)
+        /// <param name="sender">触发按钮；Tag 指明 line1-to-line2 或 line2-to-line1。</param>
+        /// <param name="e">WPF 点击事件参数。</param>
+        private void CopyDimensionLineMetrologyParameters_Click(object sender, RoutedEventArgs e)
+        {
+            if (!EnsureEditable() || t == null)
+            {
+                return;
+            }
+
+            string direction = (sender as FrameworkElement)?.Tag as string;
+            DimensionLineMetrologyParameters line1 = t.GetDimensionLineMetrologyParameters(1);
+            DimensionLineMetrologyParameters line2 = t.GetDimensionLineMetrologyParameters(2);
+
+            if (direction == "line1-to-line2")
+            {
+                line2.CopyFrom(line1);
+                NoticeBox.Show("直线1运行参数已复制到直线2", "参数复制", MessageBoxIcon.Success, true, 4000);
+            }
+            else if (direction == "line2-to-line1")
+            {
+                line1.CopyFrom(line2);
+                NoticeBox.Show("直线2运行参数已复制到直线1", "参数复制", MessageBoxIcon.Success, true, 4000);
+            }
+        }
+
+        /// <summary>
+        /// 在只读查看会话切换直线参数页签后，对延迟创建的页签内容重新应用只读状态。
+        /// 页签导航保持可用，滑块、下拉框、自动阈值和参数复制继续受动态密码编辑权限控制。
+        /// </summary>
+        /// <param name="sender">尺寸测量直线参数页签控件。</param>
+        /// <param name="e">当前页签选择变化事件参数。</param>
+        private void DimensionLineMetrologyTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (!_isReadOnly)
+            {
+                return;
+            }
+
+            Dispatcher.BeginInvoke(
+                new Action(ApplyReadOnlyState),
+                System.Windows.Threading.DispatcherPriority.Loaded);
+        }
+
+        /// <summary>
+        /// 根据线段 ROI 和对应侧运行参数采样边缘幅值，估算边缘阈值。
+        /// 自动阈值使用当前侧的卡尺数量、搜索深度、沿线半宽和高斯平滑，保证估算条件与随后找边条件一致。
+        /// </summary>
+        /// <param name="image">当前工具模板图，作为灰度幅值采样输入。</param>
+        /// <param name="tool">当前工具，提供亚像素插值策略。</param>
+        /// <param name="parameters">当前直线实际使用的 Metrology 运行参数。</param>
+        /// <param name="roi">当前直线 ROI，坐标和卡尺几何单位为 px。</param>
+        /// <param name="threshold">成功时返回建议边缘阈值；失败时为 0。</param>
+        /// <returns>true 表示采集到足够边缘幅值并生成建议值；false 表示图像或 ROI 无法形成有效样本。</returns>
+        private bool TryEstimateThresholdForLineROI(
+            HObject image,
+            ToolModel tool,
+            IMetrologyLineParameters parameters,
+            ROI roi,
+            out double threshold)
         {
             threshold = 0;
             if (image == null || roi == null)
@@ -1633,7 +1736,7 @@ namespace BusbarCompressionSystem.Model.FaraVision
             }
 
             // 采样点数量做上限控制，避免过慢
-            int sampleCount = Math.Max(5, Math.Min(tool.MetrologyNumMeasures, 15));
+            int sampleCount = Math.Max(5, Math.Min(parameters.MetrologyNumMeasures, 15));
             var amplitudes = new List<double>();
 
             HTuple width, height;
@@ -1641,8 +1744,8 @@ namespace BusbarCompressionSystem.Model.FaraVision
 
             // 测量方向应垂直于ROI线方向
             double angle = Math.Atan2(deltaRow, deltaCol) + Math.PI / 2.0;
-            double halfLen1 = Math.Max(1, tool.MetrologyMeasureLength1);
-            double halfLen2 = Math.Max(1, tool.MetrologyMeasureLength2);
+            double halfLen1 = Math.Max(1, parameters.MetrologyMeasureLength1);
+            double halfLen2 = Math.Max(1, parameters.MetrologyMeasureLength2);
 
             for (int i = 0; i < sampleCount; i++)
             {
@@ -1669,7 +1772,7 @@ namespace BusbarCompressionSystem.Model.FaraVision
                     HOperatorSet.MeasurePos(
                         image,
                         measureHandle,
-                        tool.MetrologyMeasureSigma,
+                        parameters.MetrologyMeasureSigma,
                         1,          // 尽量低阈值采样更多幅值
                         "all",      // 采样时不过滤极性
                         "all",      // 采样时不过滤边缘
@@ -1928,6 +2031,7 @@ namespace BusbarCompressionSystem.Model.FaraVision
             }
 
             ApplyMeasureTypeToROIType();
+            t.NormalizeDimensionLineMetrologyParametersForProjectLoad(out _);
             UpdateROIParamsUIVisibility();
             refreshrectangle();
             ResetDrawingStates();
