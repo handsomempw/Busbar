@@ -1035,8 +1035,9 @@ namespace BusbarCompressionSystem.ViewModel
                                 {
                                     Directory.CreateDirectory(dir);
                                 }
-                                SaveToolResultImage(Image, tool, currentRcmd, savefilename);
-                                tool.LastResultImagePath = savefilename;
+                                string annotatedImagePath = BuildAnnotatedImagePath(savefilename);
+                                SaveToolResultImages(Image, tool, currentRcmd, savefilename, annotatedImagePath);
+                                tool.LastResultImagePath = annotatedImagePath;
                             }
                         }
                         catch (Exception ex)
@@ -1345,21 +1346,35 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
-        /// 保存一张包含当前工具 ROI 与检测结果的原图标注版。
-        /// 算法输入保持原始 HALCON 图像；标注在独立 HALCON 窗口中完成，前后工具保持各自独立的检测输入，
-        /// 结果图片保持原图像素尺寸。窗口绘制异常时保存原图，现场可继续通过图片追溯。
+        /// 为本轮工具检测同时保存原图和包含 ROI、检测结果的标注图。
+        /// 原图沿用日期下的 OK、NG 或定位目录及既有文件名；标注图进入日期下的“标注图/结果”目录并沿用同一文件名。
+        /// 算法输入保持原始 HALCON 图像，标注在独立 HALCON 窗口中完成，前后工具保持各自独立的检测输入。标注异常时标注图位置保存原图，
+        /// 已保存的原图和工具判定、机器人回包、PLC/MES 流程保持当前口径。
         /// </summary>
         /// <param name="image">当前相机周期的原始 HALCON 图像，坐标单位为像素。</param>
         /// <param name="tool">当前工具及其运行态结果；工程配置保持当前保存值。</param>
         /// <param name="command">当前 AOI 触发指令，用于结果图中的追溯文字。</param>
-        /// <param name="savefilename">结果图 JPG 完整路径。</param>
-        private void SaveToolResultImage(HObject image, ToolModel tool, string command, string savefilename)
+        /// <param name="originalImagePath">原始相机图 JPG 完整路径。</param>
+        /// <param name="annotatedImagePath">标注图 JPG 完整路径；运行态图片追溯指向该路径。</param>
+        private void SaveToolResultImages(
+            HObject image,
+            ToolModel tool,
+            string command,
+            string originalImagePath,
+            string annotatedImagePath)
         {
             HWindow resultWindow = null;
             HObject resultImage = null;
             Bitmap annotatedImage = null;
             try
             {
+                HOperatorSet.WriteImage(image, "jpg", 0, originalImagePath);
+                string annotatedDirectory = Path.GetDirectoryName(annotatedImagePath);
+                if (!Directory.Exists(annotatedDirectory))
+                {
+                    Directory.CreateDirectory(annotatedDirectory);
+                }
+
                 HTuple width;
                 HTuple height;
                 HOperatorSet.GetImageSize(image, out width, out height);
@@ -1379,20 +1394,20 @@ namespace BusbarCompressionSystem.ViewModel
                 {
                     Hobject2Bitmap.HobjectToBitmap24(resultImage, out annotatedImage);
                     DrawToolText(annotatedImage, tool, command, BuildToolResultDetail(tool));
-                    annotatedImage.Save(savefilename, System.Drawing.Imaging.ImageFormat.Jpeg);
+                    annotatedImage.Save(annotatedImagePath, System.Drawing.Imaging.ImageFormat.Jpeg);
                 }
                 catch (Exception textEx)
                 {
                     // ROI 已进入 resultImage；文字渲染环境异常时保留框选范围，确保现场仍能核对本次检测区域。
                     writeLog($"视觉->结果图文字标注失败，保留ROI图片：{textEx.Message}", false);
-                    HOperatorSet.WriteImage(resultImage, "jpg", 0, savefilename);
+                    HOperatorSet.WriteImage(resultImage, "jpg", 0, annotatedImagePath);
                 }
             }
             catch (Exception ex)
             {
-                // 标注窗口依赖 HALCON 图形资源；异常时保存原图，现场可继续获得本次图片追溯。
-                writeLog($"视觉->结果图标注失败，回退保存原图：{ex.Message}", false);
-                HOperatorSet.WriteImage(image, "jpg", 0, savefilename);
+                // 标注窗口依赖 HALCON 图形资源；异常时在标注图位置保留原图，维持成对文件的追溯身份。
+                writeLog($"视觉->结果图标注失败，标注图位置保留原图：{ex.Message}", false);
+                HOperatorSet.WriteImage(image, "jpg", 0, annotatedImagePath);
             }
             finally
             {
@@ -1400,6 +1415,21 @@ namespace BusbarCompressionSystem.ViewModel
                 resultImage?.Dispose();
                 resultWindow?.Dispose();
             }
+        }
+
+        /// <summary>
+        /// 为同一次 AOI 检测生成独立的标注图路径。
+        /// 原图保持日期下的结果目录；标注图进入日期下的“标注图/结果”目录，文件名及其中的规格、SN、
+        /// 指令、工具身份、判定和时间戳保持一致，便于现场配对核查。图片保存开关和结果目录分类沿用现有口径。
+        /// </summary>
+        /// <param name="originalImagePath">当前工具按既有归档规则生成的原图 JPG 路径。</param>
+        /// <returns>位于独立标注图目录、文件名与原图一致的完整路径。</returns>
+        private static string BuildAnnotatedImagePath(string originalImagePath)
+        {
+            string resultDirectory = Path.GetDirectoryName(originalImagePath);
+            string dateDirectory = Path.GetDirectoryName(resultDirectory);
+            string resultFolder = Path.GetFileName(resultDirectory);
+            return Path.Combine(dateDirectory, "标注图", resultFolder, Path.GetFileName(originalImagePath));
         }
 
         /// <summary>
