@@ -1646,8 +1646,8 @@ namespace BusbarCompressionSystem.ViewModel
 
         /// <summary>
         /// 记录 AOI 指令组汇总到 TAKEPHOTO2 之前的判定依据。
-        /// 该日志用于把现场看到的工具状态、内存整轮累计结果与 SQLite 中的 TAKEPHOTO2 写入记录对齐，
-        /// 机器人回包、UI 显示、数据库写入和 CHECK2 的业务判定沿用原有路径。
+        /// 该日志用于把现场看到的工具状态、已完成指令累计、整轮是否拍齐与 SQLite 中的 TAKEPHOTO2 写入记录对齐；
+        /// 机器人回包仍按本指令结果发送，CHECK2 量产外观口径读取写入后的 TAKEPHOTO2。
         /// </summary>
         /// <param name="rcmd">当前机器人 AOI 指令组，来自 FaraVision 运行态。</param>
         /// <param name="judgingCount">当前指令组中参与产品外观判定的工具数量。</param>
@@ -1656,7 +1656,7 @@ namespace BusbarCompressionSystem.ViewModel
         /// <param name="ng2Count">参与判定工具中状态为 NG2 的数量。</param>
         /// <param name="waitCount">参与判定工具中仍处于等待或识别中的数量。</param>
         /// <param name="commandStatus">当前指令组折算结果；0 表示 OK，1 表示 NG，2 表示 NG2。</param>
-        /// <param name="overallResult">当前 SN 的整轮累计 AOI 结果，随后写入 TAKEPHOTO2。</param>
+        /// <param name="overallResult">按「拍齐且全 OK」闸门后的外观结果，随后写入 TAKEPHOTO2；true 仅表示整轮可放行。</param>
         private void WriteAoiJudgementTraceLog(string rcmd, int judgingCount, int okCount, int ngCount, int ng2Count, int waitCount, int commandStatus, bool overallResult)
         {
             try
@@ -1666,9 +1666,10 @@ namespace BusbarCompressionSystem.ViewModel
                 var judgingTools = DataModel.FaraVisionDataModel.Processmodel.Tools
                     .Where(t => t.Command == rcmd && IsJudgingTool(t))
                     .Select(t => $"{t.Index}-{t.Name}:{t.ToolStatus}");
+                bool allJudgingToolsOk = AreAllAoiJudgingToolsCompleteAndOk();
 
                 sqlite.WriteErrorLog("[追踪]AOI-TAKEPHOTO2判定依据",
-                    $"RCMD={rcmd}, 参与判定工具={judgingCount}, OK={okCount}, NG={ngCount}, NG2={ng2Count}, 等待={waitCount}, 本指令结果={FormatAoiCommandStatus(commandStatus)}, 整轮累计={(overallResult ? "OK" : "NG")}, 工具明细=[{string.Join(";", judgingTools)}]",
+                    $"RCMD={rcmd}, 参与判定工具={judgingCount}, OK={okCount}, NG={ngCount}, NG2={ng2Count}, 等待={waitCount}, 本指令结果={FormatAoiCommandStatus(commandStatus)}, 全部判定工具拍齐OK={allJudgingToolsOk}, 写入TAKEPHOTO2={(overallResult ? "OK" : "NG")}, 工具明细=[{string.Join(";", judgingTools)}]",
                     sn, wocode);
             }
             catch (Exception ex)

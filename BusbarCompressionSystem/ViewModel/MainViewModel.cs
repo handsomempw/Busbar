@@ -84,10 +84,19 @@ namespace BusbarCompressionSystem.ViewModel
         private readonly object _aoiInspectionResultLock = new object();
 
         /// <summary>
-        /// 按 SN 保存当前 AOI 轮次的累计外观结果。
-        /// 同一轮检测内任一参与判定的 AOI 指令 NG 后，最终出站与点检 OK 口径保持 NG；下一次拍照留底建档时重置该 SN 的轮次状态。
+        /// 按 SN 保存当前 AOI 轮次中「已完成指令」的累计外观结果。
+        /// 该缓存只反映已执行过的机器人 AOI 指令之间的 AND，不代表整轮已拍齐；
+        /// 写入 TAKEPHOTO2、界面 AppearanceInspection 与量产 CHECK2 外观口径时，还需满足全部判定工具均为 OK。
+        /// 同一轮内任一已完成指令 NG 后保持 NG；下一次拍照留底建档时重置该 SN 的轮次状态。
         /// </summary>
         private readonly Dictionary<string, bool> _aoiInspectionOverallResultBySn = new Dictionary<string, bool>();
+
+        /// <summary>
+        /// 当前设备 AOI 轮次是否仍需在首条命中的机器人 A* 指令上执行 ClearTools。
+        /// 拍照留底建档时置位；本轮第一条 A* 命中工具后清除。
+        /// 与工具列表下标无关，避免本轮从非首条 A 指令起拍时沿用上轮 OK，导致「拍齐且全 OK」闸门误放行。
+        /// </summary>
+        private bool _aoiRoundNeedsInitialToolClear = true;
 
         /// <summary>
         /// 耐压工位流程占用锁。PLC 触发、参数下发、启动测试和结果写回属于同一业务会话，
@@ -3712,18 +3721,38 @@ namespace BusbarCompressionSystem.ViewModel
 
 
         /// <summary>
-        /// 根据产品 SN 更新 DataModel.Recordmodel.ProductInfoRecords 中对应记录的 AOI 整轮外观检测结果。
+        /// 根据产品 SN 更新 DataModel.Recordmodel.ProductInfoRecords 中对应记录的 AOI 外观检测结果，并给出可写入 TAKEPHOTO2 的口径。
         /// 业务含义：
-        /// - 单条机器人 AOI 指令完成判定后调用，将该指令结果折算到当前 SN 的整轮外观结果；
-        /// - 同一轮内任一参与判定的 AOI 指令 NG 后，AppearanceInspection 保持 NG，供 CHECK2、点检 OK 和 MES 追溯使用。
+        /// - 单条机器人 AOI 指令完成判定后调用，先将该指令结果折入「已完成指令」累计；
+        /// - 仅当已完成指令全部 OK，且工程内全部参与判定的 AOI 工具均为 OK（整轮拍齐）时，才对外发布 OK；
+        /// - 中途仅部分指令 OK、其余工具仍为等待中或识别中时，不得把 TAKEPHOTO2 / AppearanceInspection 写成 OK，
+        ///   避免设备报警跳过后续 A* 后量产 CHECK2 仅凭部分结果误放行；
+        /// - 任一已完成指令 NG 后保持 NG，供 CHECK2、点检 OK 和 MES 追溯使用。
         /// </summary>
         /// <param name="SN">产品序列号，用于定位内存记录和当前 AOI 轮次。</param>
         /// <param name="result">当前机器人 AOI 指令的汇总结果；true 表示该指令下参与判定工具全部 OK。</param>
         /// <param name="dt">当前指令完成时间，用于界面记录与过程追溯。</param>
-        /// <returns>当前 SN 在本轮 AOI 中的累计外观结果；true 表示已完成的 AOI 指令全部 OK。</returns>
+        /// <returns>
+        /// 可写入 TAKEPHOTO2 与界面 AppearanceInspection 的外观结果；
+        /// true 仅表示整轮拍齐且全部判定工具 OK，false 表示已完成指令存在 NG 或整轮尚未拍齐。
+        /// </returns>
         private bool updatetakephoto2(string SN, bool result, DateTime dt)
         {
-            bool overallResult = UpdateAoiInspectionOverallResult(SN, result);
+            bool completedCommandsOk = UpdateAoiInspectionOverallResult(SN, result);
+            bool allJudgingToolsOk = AreAllAoiJudgingToolsCompleteAndOk();
+            bool publishOk = completedCommandsOk && allJudgingToolsOk;
+
+            if (completedCommandsOk && !allJudgingToolsOk)
+            {
+                // 已执行指令表面全 OK，但配方中仍有未完成判定工具：按未拍齐处理，禁止写 TAKEPHOTO2=OK。
+                string wocode = DataModel.Processmodel.TakePhotoTestMode2.Productinfo?.WOCODE ?? string.Empty;
+                sqlite.WriteErrorLog(
+                    "[追踪]AOI-TAKEPHOTO2写入口径",
+                    "已完成指令累计=OK，但存在未完成或非OK判定工具，TAKEPHOTO2不写OK（需拍齐且全OK）",
+                    SN ?? string.Empty,
+                    wocode);
+            }
+
             App.Current.Dispatcher.BeginInvoke(new Action(() =>
             {
                 try
@@ -3732,7 +3761,7 @@ namespace BusbarCompressionSystem.ViewModel
                     {
                         if (p.Productinfo.SN == SN)
                         {
-                            p.AppearanceInspection = overallResult;
+                            p.AppearanceInspection = publishOk;
                             p.DateTime = dt;
 
                             // 不对同SN历史记录做“全量同步刷新”，仅更新第一条匹配记录（通常是列表中最新的一条）。
@@ -3744,16 +3773,16 @@ namespace BusbarCompressionSystem.ViewModel
                 catch (Exception ex)
                 {
                     // 同时写入UI日志与数据库错误日志，便于现场快速定位“内存更新失败/对象不存在/线程异常”等问题
-                    writeLog($"[AOI] 更新内存外观结果失败：SN={SN}, 结果={(overallResult ? "OK" : "NG")}, 异常={ex.Message}", true);
+                    writeLog($"[AOI] 更新内存外观结果失败：SN={SN}, 结果={(publishOk ? "OK" : "NG")}, 异常={ex.Message}", true);
                     sqlite.WriteErrorLog("UPDATETAKEPHOTO2_EXCEPTION", $"更新AOI外观数据失败: {ex.Message}", SN);
                 }
             }));
 
-            return overallResult;
+            return publishOk;
         }
 
         /// <summary>
-        /// 清除指定 SN 的 AOI 整轮结果缓存。
+        /// 清除指定 SN 的 AOI 整轮结果缓存，并允许下一轮首条 A* 重新 ClearTools。
         /// 拍照留底建档代表该 SN 开始新的检测轮次，重复点检 SN 也从本轮第一条 AOI 指令重新累计。
         /// </summary>
         /// <param name="SN">当前建档的产品或点检 SN；空值直接忽略。</param>
@@ -3767,16 +3796,39 @@ namespace BusbarCompressionSystem.ViewModel
             lock (_aoiInspectionResultLock)
             {
                 _aoiInspectionOverallResultBySn.Remove(SN);
+                // 新件建档后，无论本轮第一条命中的是 A1 还是后续 A*，都需先清工具再拍照。
+                _aoiRoundNeedsInitialToolClear = true;
             }
         }
 
         /// <summary>
-        /// 折算当前 SN 的 AOI 整轮外观结果。
-        /// 首条 AOI 指令采用自身结果，后续指令按“已完成指令全部 OK”累计；任一 NG 会保留到本轮 CHECK2。
+        /// 消费本轮 AOI「首条 A* 清工具」机会。
+        /// 每个检测轮次仅返回一次 true，供机器人 A* 命中工具后调用 ClearTools；
+        /// 同轮后续 A* 返回 false，避免把本轮已完成的判定状态清掉。
+        /// </summary>
+        /// <returns>true 表示调用方应立即 ClearTools；false 表示本轮已清过，无需再清。</returns>
+        private bool TryConsumeAoiRoundInitialToolClear()
+        {
+            lock (_aoiInspectionResultLock)
+            {
+                if (!_aoiRoundNeedsInitialToolClear)
+                {
+                    return false;
+                }
+
+                _aoiRoundNeedsInitialToolClear = false;
+                return true;
+            }
+        }
+
+        /// <summary>
+        /// 折算当前 SN 的「已完成 AOI 指令」累计外观结果。
+        /// 首条 AOI 指令采用自身结果，后续指令按已完成指令全部 OK 累计；任一 NG 会保留到本轮结束。
+        /// 该结果不单独作为 TAKEPHOTO2 写 OK 的依据，还需整轮判定工具拍齐且全 OK。
         /// </summary>
         /// <param name="SN">当前检测轮次对应的产品或点检 SN。</param>
         /// <param name="commandResult">当前机器人 AOI 指令的汇总结果。</param>
-        /// <returns>当前轮次已完成 AOI 指令的累计外观结果。</returns>
+        /// <returns>当前轮次已完成 AOI 指令的累计外观结果；true 不代表整轮已拍齐。</returns>
         private bool UpdateAoiInspectionOverallResult(string SN, bool commandResult)
         {
             if (string.IsNullOrWhiteSpace(SN))
@@ -3801,12 +3853,26 @@ namespace BusbarCompressionSystem.ViewModel
 
         /// <summary>
         /// 检查参与产品判定的 AOI 工具是否全部为 OK 状态。
-        /// 用于 AOI OK 点检；模板定位等辅助工具保持定位职责，不参与产品外观 OK/NG 口径。
+        /// 用于 AOI OK 点检，并向界面输出未达期望的工具明细；量产 TAKEPHOTO2 写入口径复用同一工具范围与状态约定，
+        /// 但通过 <see cref="AreAllAoiJudgingToolsCompleteAndOk"/> 静默判断，避免中途指令反复刷屏。
+        /// 模板定位等辅助工具保持定位职责，不参与产品外观 OK/NG 口径。
         /// </summary>
         /// <returns>true 表示所有参与判定的 AOI 工具均为 OK；false 表示无可判定工具、存在未完成工具或存在非 OK 状态。</returns>
         private bool CheckAllAOIToolsOK()
         {
-            return CheckAllAOIJudgingToolsStatus(ToolStatus.OK, "AOI_OK点检");
+            return CheckAllAOIJudgingToolsStatus(ToolStatus.OK, "AOI_OK点检", writeUiLog: true);
+        }
+
+        /// <summary>
+        /// 判断当前工程中参与产品外观判定的 AOI 工具是否全部已完成且为 OK。
+        /// 用于量产 TAKEPHOTO2 / AppearanceInspection 写入口径：仅在整轮拍齐且全 OK 时允许对外发布 OK；
+        /// 设备报警导致后续 A* 未触发、工具仍停在等待中或识别中时返回 false，从而阻断 CHECK2 误放行。
+        /// 不向界面写操作日志，详细原因由 TAKEPHOTO2 追踪日志承接。
+        /// </summary>
+        /// <returns>true 表示存在判定工具且全部为 OK；false 表示无判定工具、存在未完成工具或存在非 OK 状态。</returns>
+        private bool AreAllAoiJudgingToolsCompleteAndOk()
+        {
+            return CheckAllAOIJudgingToolsStatus(ToolStatus.OK, "AOI_TAKEPHOTO2", writeUiLog: false);
         }
 
         /// <summary>
@@ -3862,12 +3928,13 @@ namespace BusbarCompressionSystem.ViewModel
 
         /// <summary>
         /// 按指定状态检查参与产品判定的 AOI 工具。
-        /// 供 AOI OK 点检使用；工具范围与生产外观判定一致，模板定位等辅助工具不参与。
+        /// 供 AOI OK 点检与量产 TAKEPHOTO2「拍齐且全 OK」写入口径共用；工具范围与生产外观判定一致，模板定位等辅助工具不参与。
         /// </summary>
-        /// <param name="expectedStatus">点检要求的目标状态；OK 点检要求 OK。</param>
-        /// <param name="logTag">日志阶段标识，用于现场按点检类型检索异常工具。</param>
+        /// <param name="expectedStatus">要求的目标状态；OK 点检与 TAKEPHOTO2 写 OK 均要求 OK。</param>
+        /// <param name="logTag">日志阶段标识，用于现场按点检或写库口径检索异常工具。</param>
+        /// <param name="writeUiLog">是否向界面写操作日志；点检为 true，量产中途写库闸门为 false，避免每条 A* 刷屏。</param>
         /// <returns>true 表示所有参与判定工具均达到目标状态。</returns>
-        private bool CheckAllAOIJudgingToolsStatus(ToolStatus expectedStatus, string logTag)
+        private bool CheckAllAOIJudgingToolsStatus(ToolStatus expectedStatus, string logTag, bool writeUiLog = true)
         {
             try
             {
@@ -3877,7 +3944,10 @@ namespace BusbarCompressionSystem.ViewModel
 
                 if (judgingTools.Count == 0)
                 {
-                    writeLog($"{logTag}->无参与判定的工具配置，返回false");
+                    if (writeUiLog)
+                    {
+                        writeLog($"{logTag}->无参与判定的工具配置，返回false");
+                    }
                     return false;
                 }
 
@@ -3885,17 +3955,26 @@ namespace BusbarCompressionSystem.ViewModel
                 {
                     if (tool.ToolStatus != expectedStatus)
                     {
-                        writeLog($"{logTag}->工具[{tool.Name}]状态为{tool.ToolStatus}，期望={expectedStatus}");
+                        if (writeUiLog)
+                        {
+                            writeLog($"{logTag}->工具[{tool.Name}]状态为{tool.ToolStatus}，期望={expectedStatus}");
+                        }
                         return false;
                     }
                 }
 
-                writeLog($"{logTag}->所有{judgingTools.Count}个参与判定工具均为{expectedStatus}");
+                if (writeUiLog)
+                {
+                    writeLog($"{logTag}->所有{judgingTools.Count}个参与判定工具均为{expectedStatus}");
+                }
                 return true;
             }
             catch (Exception ex)
             {
-                writeLog($"{logTag}->检查工具状态异常: {ex.Message}");
+                if (writeUiLog)
+                {
+                    writeLog($"{logTag}->检查工具状态异常: {ex.Message}");
+                }
                 return false;
             }
         }

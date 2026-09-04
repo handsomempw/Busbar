@@ -1580,8 +1580,13 @@ namespace SQLITEDATABASE
         /// 更新产品的第二次拍照（外观检测/AOI）结果。
         /// CHECK2 的最终出站判定以普通非 IR 电测记录作为基础行；AOI 结果也写回该行，
         /// 避免 IR 独立电测行成为同 SN 最新记录时截走外观结果。
+        /// TAKEPHOTO2=true 表示本轮 AOI 已拍齐且全部判定工具 OK；部分指令 OK 或存在未完成工具时不应写入 true。
         /// </summary>
-        /// <param name="TakePhoto2">AOI外观检测是否合格</param>
+        /// <param name="WOCODE">工单号，用于定位本地库。</param>
+        /// <param name="PARTNOID">料号，用于定位本地库。</param>
+        /// <param name="SN">产品序列号，写入同 SN 最新非 IR 行。</param>
+        /// <param name="TakePhoto2">AOI 外观是否可放行；true 仅表示拍齐且全 OK，false 表示 NG 或尚未拍齐。</param>
+        /// <returns>true 表示 SQL 更新影响了目标行；false 表示连接失败、目标行不存在或执行异常。</returns>
         public static bool UpdateTakePhoto2(string WOCODE, string PARTNOID, string SN, bool TakePhoto2)
         {
             try
