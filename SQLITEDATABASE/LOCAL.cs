@@ -1417,8 +1417,9 @@ namespace SQLITEDATABASE
         }
 
         /// <summary>
-        /// 获取多测模式下的综合测试结果（ACW/DCW/IR）
-        /// 只有找到的所有测试类型均合格时才返回合格，否则返回 NG2（耐压不合格）
+        /// 获取多测模式下的综合测试结果（ACW/DCW/IR）。
+        /// 最近三条记录按 ID 倒序处理，同一模式只采用首条，避免历史复测记录改写较新结果。
+        /// 该入口保留给旧调用路径；标准产线 CHECK1 使用当前工艺的期望模式进行本轮判定。
         /// </summary>
         public static int GetMultiTestResult(string WOCODE, string PARTNOID, string SN,
             out bool acwResult, out bool dcwResult, out bool irResult)
@@ -1448,18 +1449,18 @@ namespace SQLITEDATABASE
 
                     bool isPass = tvResult && tvMaxVoltage > 0;
 
-                    if (tvInfo.StartsWith("[ACW]"))
+                    if (tvInfo.StartsWith("[ACW]") && !acwFound)
                     {
                         acwFound = true;
                         // ACW/DCW：tvMaxVoltage=-1 或 0 视为无效
                         acwResult = isPass && tvMaxVoltage != -1;
                     }
-                    else if (tvInfo.StartsWith("[DCW]"))
+                    else if (tvInfo.StartsWith("[DCW]") && !dcwFound)
                     {
                         dcwFound = true;
                         dcwResult = isPass && tvMaxVoltage != -1;
                     }
-                    else if (tvInfo.StartsWith("[IR]"))
+                    else if (tvInfo.StartsWith("[IR]") && !irFound)
                     {
                         irFound = true;
                         // IR：tvMaxVoltage 存储绝缘电阻（>0 即有效）
@@ -1476,6 +1477,71 @@ namespace SQLITEDATABASE
                 WriteErrorLog("[数据库异常]GetMultiTestResult失败", $"异常: {ex.Message}", SN, WOCODE);
                 return 2;
             }
+        }
+
+        /// <summary>
+        /// 按当前工艺期望模式校验标准产线本轮电测结果。
+        /// 期望列表中第一个 ACW/DCW 模式的最新记录作为本轮起点，后续模式只接受 ID 不早于该起点的记录。
+        /// 单测、双测和已执行 IR 共用该口径；同 SN 的历史复测行仍保留用于追溯。
+        /// </summary>
+        /// <param name="WOCODE">当前产品工单号，用于定位本地工单数据库。</param>
+        /// <param name="PARTNOID">当前产品规格编码，保持标准电测查询接口一致。</param>
+        /// <param name="SN">CHECK1 当前处理的产品序列号。</param>
+        /// <param name="expectedModes">按本轮工艺顺序排列的 ACW/DCW/IR 期望模式。</param>
+        /// <returns>0 表示所有期望模式已形成有效合格结果；2 表示存在缺失、未完成或仪器判定不合格。</returns>
+        private static int GetExpectedElectricalTestResult(string WOCODE, string PARTNOID, string SN, IList<string> expectedModes)
+        {
+            if (expectedModes == null || expectedModes.Count == 0)
+            {
+                WriteErrorLog("[电测判定]CHECK1-期望模式为空",
+                    "当前工艺未生成ACW/DCW期望模式，返回值=2",
+                    SN, WOCODE);
+                return 2;
+            }
+
+            List<ElectricalTestProcessRow> rows = GetStandardElectricalTestProcessRows(WOCODE, PARTNOID, SN);
+            string firstNonIrMode = expectedModes.FirstOrDefault(mode =>
+                !string.Equals(mode, "IR", StringComparison.OrdinalIgnoreCase));
+            ElectricalTestProcessRow roundStartRow = rows
+                .Where(row => string.Equals(row.TestMode, firstNonIrMode, StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(row => row.Id)
+                .FirstOrDefault();
+
+            if (roundStartRow == null)
+            {
+                WriteErrorLog("[电测判定]CHECK1-本轮起点缺失",
+                    $"期望首模式={firstNonIrMode}，未找到对应电测行，返回值=2",
+                    SN, WOCODE);
+                return 2;
+            }
+
+            var currentRows = rows
+                .Where(row => row.Id >= roundStartRow.Id)
+                .ToDictionary(row => row.TestMode, row => row, StringComparer.OrdinalIgnoreCase);
+            var missingModes = expectedModes
+                .Where(mode => !currentRows.ContainsKey(mode))
+                .ToList();
+            if (missingModes.Count > 0)
+            {
+                WriteErrorLog("[电测判定]CHECK1-本轮模式缺失",
+                    $"本轮起点ID={roundStartRow.Id}，期望模式={string.Join(",", expectedModes)}，缺失模式={string.Join(",", missingModes)}，返回值=2",
+                    SN, WOCODE);
+                return 2;
+            }
+
+            foreach (string mode in expectedModes)
+            {
+                ElectricalTestProcessRow row = currentRows[mode];
+                if (!row.TVResult || row.TVMaxVoltage <= 0)
+                {
+                    WriteErrorLog("[电测判定]CHECK1-本轮模式不合格",
+                        $"本轮起点ID={roundStartRow.Id}，模式={mode}，记录ID={row.Id}，TVRESULT={(row.TVResult ? 1 : 0)}，TVMAXVOLTAGE={row.TVMaxVoltage}，TVInfo={row.TVInfo}，返回值=2",
+                        SN, WOCODE);
+                    return 2;
+                }
+            }
+
+            return 0;
         }
 
         /// <summary>
@@ -1619,8 +1685,8 @@ namespace SQLITEDATABASE
 
         /// <summary>
         /// 第一次综合校验：检查产品是否通过了前置工序的所有测试项目。
-        /// CHECK1 的基础字段来自同 SN 最新非 IR 记录，IR 行只在多测综合判定中按 [IR] 前缀参与，
-        /// 避免把绝缘电阻复用到 TVMAXVOLTAGE 后误当作普通耐压最大电压。
+        /// CHECK1 的基础字段来自同 SN 最新非 IR 记录；标准产线传入当前工艺期望模式后，
+        /// ACW/DCW/IR 只在本轮 ID 边界内参与综合判定，绝缘电阻与普通耐压持续使用独立模式口径。
         /// 业务场景：在CHECK1工位（外观检测前）进行的数据完整性和合格性校验
         /// 校验项目：拍照留底(TakePhoto1) + 耐压测试(TVResult) + 电阻测试(RES)
         /// 返回值说明：
@@ -1630,8 +1696,16 @@ namespace SQLITEDATABASE
         ///   3 = 阻值或压力测试不合格（RES 超阈值、PRESSURE_RESULT=false 或相关字段缺失/解析失败）
         /// 注意：所有系统异常都会被映射为业务不良返回，通过独立日志详细记录实际原因
         /// </summary>
+        /// <param name="WOCODE">当前产品工单号，用于定位本地 SQLite 工单库。</param>
+        /// <param name="PARTNOID">当前产品规格编码，用于保持扫码、电测与 CHECK1 产品身份一致。</param>
+        /// <param name="SN">CHECK1 从 PLC 产品码中读取的序列号。</param>
+        /// <param name="resMax">当前 MES 工艺下发的接触电阻上限，单位沿用现场阻值采集标定。</param>
+        /// <param name="aoiOnlyMode">AOI 独立模式标记；启用时只校验拍照留底，电测和压力字段不参与放行。</param>
+        /// <param name="tvOnlyMode">纯电测归档标记；启用时跳过拍照留底字段，保留阻值、耐压和已有压力结果判定。</param>
+        /// <param name="expectedElectricalModes">标准产线当前工艺期望的 ACW/DCW/IR 模式顺序；传入时以第一项非 IR 模式划定本轮记录边界，空值保留旧调用路径。</param>
         /// <returns>错误代码：0=合格，1=拍照不良，2=耐压不良，3=阻值或压力不良</returns>
-        public static int Check1(string WOCODE, string PARTNOID, string SN, float resMax = 50, bool aoiOnlyMode = false, bool tvOnlyMode = false)
+        public static int Check1(string WOCODE, string PARTNOID, string SN, float resMax = 50, bool aoiOnlyMode = false, bool tvOnlyMode = false,
+            IEnumerable<string> expectedElectricalModes = null)
         {
             try
             {
@@ -1813,8 +1887,24 @@ namespace SQLITEDATABASE
                             }
                         }
 
-                        // 7. 检查是否为双测模式
-                        if (IsMultiTestMode(WOCODE, PARTNOID, SN))
+                        // 7. 标准产线以当前工艺期望模式划定本轮边界；旧调用方保留历史多测判定口径。
+                        List<string> expectedModes = expectedElectricalModes == null
+                            ? new List<string>()
+                            : expectedElectricalModes
+                                .Where(mode => string.Equals(mode, "ACW", StringComparison.OrdinalIgnoreCase)
+                                    || string.Equals(mode, "DCW", StringComparison.OrdinalIgnoreCase)
+                                    || string.Equals(mode, "IR", StringComparison.OrdinalIgnoreCase))
+                                .Distinct(StringComparer.OrdinalIgnoreCase)
+                                .ToList();
+                        if (expectedModes.Count > 0)
+                        {
+                            int expectedResult = GetExpectedElectricalTestResult(WOCODE, PARTNOID, SN, expectedModes);
+                            if (expectedResult != 0)
+                            {
+                                return expectedResult;
+                            }
+                        }
+                        else if (IsMultiTestMode(WOCODE, PARTNOID, SN))
                         {
                             bool acwResult, dcwResult, irResult;
                             int multiResult = GetMultiTestResult(WOCODE, PARTNOID, SN, out acwResult, out dcwResult, out irResult);

@@ -184,6 +184,7 @@ namespace BusbarCompressionSystem.ViewModel
         /// <summary>
         /// 在 AOI 或电测入口取得有效 SN 后记录一次环节入口并判断是否允许启动检测。
         /// AOI 在 CHECK1 前置条件全部通过后调用；电测只在当前测试模式首项调用，ACW、DCW、IR 后续子测试沿用本次入口。
+        /// 耐压、IR、AOI 点检标准件沿用各自的点检判定和追溯流程，复测次数只统计普通产品。
         /// 调机模式写入操作日志；量产模式通过工单 SQLite 原子累加。第 6 次入口在启动检测前拦截，
         /// 只输出界面报警并由调用方回写当前工位的既有失败完成信号；计数和表结构异常继续沿用原流程。
         /// </summary>
@@ -200,6 +201,12 @@ namespace BusbarCompressionSystem.ViewModel
             if (string.IsNullOrEmpty(normalizedSn) || string.IsNullOrEmpty(normalizedWoCode))
             {
                 writeLog($"[复测次数][{stageName}] SN或工单为空，次数记录失败，当前流程继续", true);
+                return true;
+            }
+
+            if (IsInspectionSn(normalizedSn))
+            {
+                writeLog($"[点检复测豁免][{stageName}] 类型={GetInspectionTypeText(normalizedSn)}，SN={normalizedSn}，当前流程继续");
                 return true;
             }
 
@@ -520,7 +527,8 @@ namespace BusbarCompressionSystem.ViewModel
 
         /// <summary>
         /// 判断扫码值是否为已配置的点检标准件 SN。
-        /// 点检包含耐压、IR 和 AOI 的 OK/NG 标准件；该判断只决定扫码旁路和 CHECK 分支，仪器实际结果仍决定 PLC 与机器人的分流回执。
+        /// 点检包含耐压、IR 和 AOI 的 OK/NG 标准件；该判断决定扫码旁路、复测次数豁免和 CHECK 分支，
+        /// 仪器实际结果继续决定 PLC 与机器人的分流回执。
         /// </summary>
         /// <param name="sn">扫码器或 PLC 提供的当前产品 SN。</param>
         /// <returns>命中任一非空点检配置码时返回 true。</returns>

@@ -393,24 +393,37 @@ namespace BusbarCompressionSystem.ViewModel
 
         /// <summary>
         /// 判断标准 CHECK1 是否应把 IR 作为本轮 MES 过程数据上传对象。
-        /// IR 仪器可用表示现场流程具备 IR 测试条件；SQLite 已存在 IR 行表示本轮产品已经产生绝缘电阻结果，两者任一成立都需要保留 IR 过程追溯。
+        /// 当前工艺的第一个 ACW/DCW 最新行作为本轮起点；只有起点之后实际产生的 IR 行才进入 CHECK1 判定和 MES 追溯。
+        /// M3033 表示仪器可用能力，未触发 IR 的产品保持 ACW/DCW 判定口径；同 SN 历史 IR 行保留在 SQLite 供追溯。
         /// </summary>
         /// <param name="rows">同一产品从 SQLite 读取到的 ACW/DCW/IR 最新过程快照。</param>
-        /// <returns>true 表示 CHECK1 期望上传 IR 过程行；false 表示本轮只按 ACW/DCW 测试模式上传。</returns>
+        /// <returns>true 表示本轮已形成 IR 过程行，CHECK1 与 MES 需要纳入 IR；false 表示本轮只按 ACW/DCW 测试模式处理。</returns>
         private bool ShouldExpectStandardIrUpload(List<sqlite.ElectricalTestProcessRow> rows)
         {
-            bool irMeterAvailable = DataModel != null
-                && DataModel.Processmodel != null
-                && DataModel.Processmodel.TVAvailable != null
-                && DataModel.Processmodel.TVAvailable.IRAvailable;
+            if (rows == null || rows.Count == 0)
+            {
+                return false;
+            }
 
-            bool hasIrRow = rows != null && rows.Any(row => string.Equals(row.TestMode, "IR", StringComparison.OrdinalIgnoreCase));
-            return irMeterAvailable || hasIrRow;
+            string firstNonIrMode = GetStandardExpectedElectricalModes(includeIr: false)
+                .FirstOrDefault(mode => !string.Equals(mode, "IR", StringComparison.OrdinalIgnoreCase));
+            var roundStartRow = rows
+                .Where(row => string.Equals(row.TestMode, firstNonIrMode, StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(row => row.Id)
+                .FirstOrDefault();
+            var latestIrRow = rows
+                .Where(row => string.Equals(row.TestMode, "IR", StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(row => row.Id)
+                .FirstOrDefault();
+
+            return roundStartRow != null
+                && latestIrRow != null
+                && latestIrRow.Id >= roundStartRow.Id;
         }
 
         /// <summary>
         /// 根据当前测试模式生成标准产线 CHECK 阶段的期望电测模式清单。
-        /// 该清单决定 MES 过程数据读取边界：单测只取对应 ACW 或 DCW，双测取 ACW 与 DCW，IR 按现场可用状态或已产生的 IR 行追加。
+        /// 该清单决定 CHECK1 与 MES 的过程数据读取边界：单测只取对应 ACW 或 DCW，双测按工艺顺序取 ACW 与 DCW，本轮已形成 IR 行时追加 IR。
         /// </summary>
         /// <param name="includeIr">true 表示本轮 CHECK1 需要包含 IR 过程追溯；false 表示仅生成 ACW/DCW 期望模式。</param>
         /// <returns>按工艺顺序排列的期望电测模式，值为 ACW、DCW、IR。</returns>
@@ -931,12 +944,19 @@ namespace BusbarCompressionSystem.ViewModel
                         // 调用Check1进行第一次综合校验（拍照留底、耐压测试、阻值测试）
                         // AOI-only模式：当耐压工位均不可用时，不伪造耐压记录，CHECK阶段跳过全部电测校验（TV/RES/压力）
                         bool isAoiOnlyMode = IsAoiOnlyMode;
+                        List<sqlite.ElectricalTestProcessRow> checkElectricalRows = sqlite.GetStandardElectricalTestProcessRows(
+                            DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE,
+                            DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID,
+                            DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN);
+                        bool includeIrInCheck = ShouldExpectStandardIrUpload(checkElectricalRows);
+                        List<string> expectedElectricalModes = GetStandardExpectedElectricalModes(includeIrInCheck);
                         var r = sqlite.Check1(
                             DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE,
                             DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID,
                             DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN,
                             DataModel.Processmodel.ResParameter.Max_Res,
-                            aoiOnlyMode: isAoiOnlyMode);
+                            aoiOnlyMode: isAoiOnlyMode,
+                            expectedElectricalModes: expectedElectricalModes);
                         bool hasTvCommunicationFailure = HasStandardTvCommunicationFailure(
                             DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE,
                             DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID,
