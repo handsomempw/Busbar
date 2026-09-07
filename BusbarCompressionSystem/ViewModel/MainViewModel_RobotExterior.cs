@@ -699,11 +699,11 @@ namespace BusbarCompressionSystem.ViewModel
                     {
                         if (DataModel.FaraVisionDataModel.Processmodel.Tools[i].Command == cmd)
                         {
-                            // 本轮首条命中的 A* 清零全部工具，与 Tools 下标无关；同轮后续 A* 不再清。
-                            if (TryConsumeAoiRoundInitialToolClear())
+                            // 仅在命中工程工具列表首项时清空全部工具状态，表示新一轮从配方起点起拍。
+                            // 报警后从非首项 A* 断点续拍时不经过此处，保留已完成工具结果；漏拍工具仍为等待中/识别中，由「拍齐且全 OK」闸门拦截误放行。
+                            if (i == 0)
                             {
                                 ClearTools();
-                                writeLog($"机器人->视觉:{cmd}为本轮首条AOI指令，已清零工具状态", false);
                             }
                             writeLog($"机器人->视觉:{cmd}开始设置参数", false);
                             DataModel.FaraVisionDataModel.Processmodel.ToolIndex = i + 1;

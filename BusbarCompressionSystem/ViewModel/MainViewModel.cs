@@ -92,13 +92,6 @@ namespace BusbarCompressionSystem.ViewModel
         private readonly Dictionary<string, bool> _aoiInspectionOverallResultBySn = new Dictionary<string, bool>();
 
         /// <summary>
-        /// 当前设备 AOI 轮次是否仍需在首条命中的机器人 A* 指令上执行 ClearTools。
-        /// 拍照留底建档时置位；本轮第一条 A* 命中工具后清除。
-        /// 与工具列表下标无关，避免本轮从非首条 A 指令起拍时沿用上轮 OK，导致「拍齐且全 OK」闸门误放行。
-        /// </summary>
-        private bool _aoiRoundNeedsInitialToolClear = true;
-
-        /// <summary>
         /// 耐压工位流程占用锁。PLC 触发、参数下发、启动测试和结果写回属于同一业务会话，
         /// 同台 AT9620 在会话结束前拒绝重复入口，避免 Download 与 Start 之间插入额外通信。
         /// </summary>
@@ -3782,8 +3775,9 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
-        /// 清除指定 SN 的 AOI 整轮结果缓存，并允许下一轮首条 A* 重新 ClearTools。
+        /// 清除指定 SN 的 AOI「已完成指令」累计结果缓存。
         /// 拍照留底建档代表该 SN 开始新的检测轮次，重复点检 SN 也从本轮第一条 AOI 指令重新累计。
+        /// 工具列表界面状态不在此处清空；新一轮从工程工具列表首项起拍时由机器人 A* 路径 ClearTools，断点续拍保留已完成结果。
         /// </summary>
         /// <param name="SN">当前建档的产品或点检 SN；空值直接忽略。</param>
         private void ResetAoiInspectionOverallResult(string SN)
@@ -3796,28 +3790,6 @@ namespace BusbarCompressionSystem.ViewModel
             lock (_aoiInspectionResultLock)
             {
                 _aoiInspectionOverallResultBySn.Remove(SN);
-                // 新件建档后，无论本轮第一条命中的是 A1 还是后续 A*，都需先清工具再拍照。
-                _aoiRoundNeedsInitialToolClear = true;
-            }
-        }
-
-        /// <summary>
-        /// 消费本轮 AOI「首条 A* 清工具」机会。
-        /// 每个检测轮次仅返回一次 true，供机器人 A* 命中工具后调用 ClearTools；
-        /// 同轮后续 A* 返回 false，避免把本轮已完成的判定状态清掉。
-        /// </summary>
-        /// <returns>true 表示调用方应立即 ClearTools；false 表示本轮已清过，无需再清。</returns>
-        private bool TryConsumeAoiRoundInitialToolClear()
-        {
-            lock (_aoiInspectionResultLock)
-            {
-                if (!_aoiRoundNeedsInitialToolClear)
-                {
-                    return false;
-                }
-
-                _aoiRoundNeedsInitialToolClear = false;
-                return true;
             }
         }
 
