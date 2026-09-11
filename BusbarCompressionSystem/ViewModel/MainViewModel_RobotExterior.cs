@@ -193,27 +193,35 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
-        /// 压力判定 NG3 时写入数据库追踪日志。
+        /// 压力阈值判定后写入数据库追踪日志（合格与不合格均记录）。
+        /// 只追溯压力落库结论，不单独发送机器人回包；最终分流仍由本阶段综合校验返回码决定。
         /// </summary>
-        /// <param name="stageTag">流程阶段标识，如 CHECK1、点检CHECK1。</param>
+        /// <param name="stageTag">流程阶段标识，如 CHECK1、点检CHECK1、双Y-工位1流程结束。</param>
         /// <param name="maxPressure">PLC 读取的最大压力；双Y为 uint32，标准流程的 uint16 值按同一单位提升。</param>
         /// <param name="minPressure">PLC 读取的最小压力；双Y为 uint32，标准流程的 uint16 值按同一单位提升。</param>
         /// <param name="averagePressure">PLC 读取的平均压力；双Y为 uint32，标准流程的 uint16 值按同一单位提升。</param>
-        /// <param name="pressureResult">当前判定的压力合格标志。</param>
+        /// <param name="pressureResult">当前判定的压力合格标志，与已写入库的 PRESSURE_RESULT 一致。</param>
         /// <param name="sn">产品 SN。</param>
         /// <param name="wocode">批次号。</param>
-        private void TracePressureNg3IfFailed(string stageTag, UInt32 maxPressure, UInt32 minPressure, UInt32 averagePressure, bool pressureResult, string sn, string wocode)
+        private void TracePressureThresholdResult(
+            string stageTag,
+            UInt32 maxPressure,
+            UInt32 minPressure,
+            UInt32 averagePressure,
+            bool pressureResult,
+            string sn,
+            string wocode)
         {
-            if (pressureResult)
-            {
-                return;
-            }
-
-            sqlite.WritePressureThresholdNg3Trace(stageTag,
-                maxPressure, minPressure, averagePressure,
+            sqlite.WritePressureThresholdTrace(
+                stageTag,
+                maxPressure,
+                minPressure,
+                averagePressure,
                 DataModel.Processmodel.PressureParamter.Max_Pressure,
                 DataModel.Processmodel.PressureParamter.Min_Pressure,
-                sn, wocode);
+                pressureResult,
+                sn,
+                wocode);
         }
 
         /// <summary>
@@ -828,7 +836,7 @@ namespace BusbarCompressionSystem.ViewModel
                             DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN,
                            AveragePressure, MaxPressure, MinPressure, PressureResult);
                         updatepressure(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, AveragePressure, MaxPressure, MinPressure, PressureResult);
-                        TracePressureNg3IfFailed("点检CHECK1",
+                        TracePressureThresholdResult("点检CHECK1",
                             MaxPressure, MinPressure, AveragePressure, PressureResult,
                             DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN,
                             DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE);
@@ -934,7 +942,7 @@ namespace BusbarCompressionSystem.ViewModel
                                 DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN,
                                AveragePressure, MaxPressure, MinPressure, PressureResult);
                             updatepressure(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, AveragePressure, MaxPressure, MinPressure, PressureResult);
-                            TracePressureNg3IfFailed("CHECK1",
+                            TracePressureThresholdResult("CHECK1",
                                 MaxPressure, MinPressure, AveragePressure, PressureResult,
                                 DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN,
                                 DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE);

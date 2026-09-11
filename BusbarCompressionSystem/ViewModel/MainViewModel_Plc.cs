@@ -3,6 +3,7 @@ using HslCommunication.ModBus;
 using System.Collections.Generic;
 using System.Threading;
 using System;
+using System.Runtime.CompilerServices;
 
 
 namespace BusbarCompressionSystem.ViewModel
@@ -20,6 +21,17 @@ namespace BusbarCompressionSystem.ViewModel
         private int? _lastIrTrigLogged = null;
         private int? _lastIrStartSkipReasonLoggedForTrig = null;
         private bool? _lastTv3IrBothAvailable = null;
+
+        /// <summary>
+        /// 标准耐压握手最近一次已落盘快照。
+        /// 仅在 D1006-D1011 任一触发或结果值变化时记录，用于还原 PLC 触发、上位机沿判定和结果清零的先后顺序。
+        /// </summary>
+        private int? _lastTv1TriggerTrace;
+        private int? _lastTv1ResultTrace;
+        private int? _lastTv2TriggerTrace;
+        private int? _lastTv2ResultTrace;
+        private int? _lastTv3TriggerTrace;
+        private int? _lastTv3ResultTrace;
 
         /// <summary>
         /// 双Y部署强制忽略工位3后的 TV3Available 快照；仅在状态变化时记日志，避免周期刷屏。
@@ -123,8 +135,11 @@ namespace BusbarCompressionSystem.ViewModel
                             int ScanTrig = readresult.Content[0];
                             int TakePhoto1Trig = readresult.Content[2];
                             int TV1Trig = readresult.Content[6];
+                            int TV1Result = readresult.Content[7];
                             int TV2Trig = readresult.Content[8];
+                            int TV2Result = readresult.Content[9];
                             int TV3Trig = readresult.Content[10];
+                            int TV3Result = readresult.Content[11];
                             // IR触发（D1014）：1=启动 2=停止
                             int IRTrig = readresult.Content[14];
 
@@ -145,6 +160,25 @@ namespace BusbarCompressionSystem.ViewModel
                             bool DualYModeActive = DualYModeKnown && DualYModeCoil;
                             bool StandardFlowActive = DualYModeKnown && !DualYModeCoil && !dualYDeployment;
                             bool ModeTriggersPaused = !DualYModeKnown || (dualYDeployment && !DualYModeCoil);
+
+                            TraceTvHandshakeSnapshot(
+                                1, TV1Trig, TV1Result,
+                                DataModel.Processmodel.TV1_Trig_IO.IOstatus,
+                                StandardFlowActive,
+                                ref _lastTv1TriggerTrace,
+                                ref _lastTv1ResultTrace);
+                            TraceTvHandshakeSnapshot(
+                                2, TV2Trig, TV2Result,
+                                DataModel.Processmodel.TV2_Trig_IO.IOstatus,
+                                StandardFlowActive,
+                                ref _lastTv2TriggerTrace,
+                                ref _lastTv2ResultTrace);
+                            TraceTvHandshakeSnapshot(
+                                3, TV3Trig, TV3Result,
+                                DataModel.Processmodel.TV3_Trig_IO.IOstatus,
+                                StandardFlowActive,
+                                ref _lastTv3TriggerTrace,
+                                ref _lastTv3ResultTrace);
 
                             if (DualYModeActive)
                             {
@@ -551,6 +585,12 @@ namespace BusbarCompressionSystem.ViewModel
                         DataModel.Processmodel.Res1_Trig_IO.IOstatus = -1;
                         DataModel.Processmodel.Res2_Trig_IO.IOstatus = -1;
                         DataModel.Processmodel.Res3_Trig_IO.IOstatus = -1;
+                        _lastTv1TriggerTrace = null;
+                        _lastTv1ResultTrace = null;
+                        _lastTv2TriggerTrace = null;
+                        _lastTv2ResultTrace = null;
+                        _lastTv3TriggerTrace = null;
+                        _lastTv3ResultTrace = null;
                         
                         // 只在状态从连接成功变为失败时记录一次日志，避免重复刷屏
                         if (_lastPLCConnectedStatus)
@@ -573,6 +613,139 @@ namespace BusbarCompressionSystem.ViewModel
                 if (_runtimeStopSignal.Wait(100))
                 {
                     break;
+                }
+            }
+        }
+
+        /// <summary>
+        /// 记录标准耐压工位的 PLC 握手变化。
+        /// 快照同时保留触发寄存器、结果寄存器和上位机上一轮沿状态，可区分 PLC 未发起触发、上位机未识别启动沿、
+        /// 以及结果写入后 PLC 已清零等现场时序；该诊断只记录状态，不改变耐压启动条件和 PLC 数据。
+        /// </summary>
+        /// <param name="stationIndex">耐压工位序号；1、2、3分别对应 D1006/D1007、D1008/D1009、D1010/D1011。</param>
+        /// <param name="triggerValue">本轮批量读取取得的 PLC 耐压触发值。</param>
+        /// <param name="resultValue">本轮批量读取取得的 PLC 耐压完成结果值。</param>
+        /// <param name="edgeStatus">进入本轮判断前，上位机缓存的触发状态。</param>
+        /// <param name="standardFlowActive">当前是否允许执行标准产线耐压入口。</param>
+        /// <param name="lastTriggerValue">该工位最近一次已记录的触发值。</param>
+        /// <param name="lastResultValue">该工位最近一次已记录的结果值。</param>
+        private void TraceTvHandshakeSnapshot(
+            int stationIndex,
+            int triggerValue,
+            int resultValue,
+            int edgeStatus,
+            bool standardFlowActive,
+            ref int? lastTriggerValue,
+            ref int? lastResultValue)
+        {
+            if (lastTriggerValue == triggerValue && lastResultValue == resultValue)
+            {
+                return;
+            }
+
+            int triggerAddress = DataModel.Settingmodel.AddressStart + 4 + stationIndex * 2;
+            int resultAddress = triggerAddress + 1;
+            bool startEdgeAccepted = standardFlowActive
+                && (triggerValue == 1 || triggerValue == 2)
+                && edgeStatus == 0;
+            string previousTrigger = lastTriggerValue.HasValue ? lastTriggerValue.Value.ToString() : "首次";
+            string previousResult = lastResultValue.HasValue ? lastResultValue.Value.ToString() : "首次";
+
+            writeLog(
+                $"[耐压握手-PLC快照] 工位={stationIndex}, D{triggerAddress}触发={previousTrigger}->{triggerValue}, "
+                + $"D{resultAddress}结果={previousResult}->{resultValue}, 上位机沿状态={edgeStatus}, "
+                + $"标准流程={standardFlowActive}, 启动沿判定={(startEdgeAccepted ? "成立" : "保持")}"
+            );
+
+            lastTriggerValue = triggerValue;
+            lastResultValue = resultValue;
+        }
+
+        /// <summary>
+        /// 在 PLC 发出阻值读取信号时记录判定输入快照。
+        /// 原始 Word、CDAB 浮点解码、D2020/D2022 阈值和同一时刻压力寄存器用于对照 PLC 梯形图，
+        /// 可定位工位地址、数据类型、字序或压力联锁差异；快照读取失败只写诊断日志，既有阻值落库流程继续执行。
+        /// </summary>
+        /// <param name="stationIndex">阻值所属耐压工位序号。</param>
+        /// <param name="triggerAddress">PLC 发出的阻值读取 M 地址。</param>
+        /// <param name="resistanceAddress">阻值 Float 起始 D 地址，占两个连续 Word。</param>
+        /// <param name="decodedResistance">既有业务读取方法得到的阻值，单位沿用现场阻值标定。</param>
+        /// <param name="sn">当前阻值工位读取到的产品 SN；产品码异常时为空。</param>
+        private void TraceResistanceJudgementInputs(
+            int stationIndex,
+            int triggerAddress,
+            int resistanceAddress,
+            float decodedResistance,
+            string sn)
+        {
+            ModbusTcpNet modbusTcp = null;
+
+            try
+            {
+                modbusTcp = new ModbusTcpNet
+                {
+                    ConnectTimeOut = 1000,
+                    ReceiveTimeOut = 1000,
+                    IpAddress = DataModel.Settingmodel.PLC_IP,
+                    Port = DataModel.Settingmodel.PLC_Port,
+                    DataFormat = HslCommunication.Core.DataFormat.CDAB
+                };
+                var connectResult = modbusTcp.ConnectServer();
+                if (!connectResult.IsSuccess)
+                {
+                    writeLog(
+                        $"[阻值判定输入] 工位={stationIndex}, M{triggerAddress}=1, SN={sn}, PLC连接失败: {connectResult.Message}",
+                        true);
+                    return;
+                }
+
+                var resistanceWords = modbusTcp.ReadUInt16(resistanceAddress.ToString(), 2);
+                var maxWords = modbusTcp.ReadUInt16(DataModel.Settingmodel.Res_Max_Address.ToString(), 2);
+                var minWords = modbusTcp.ReadUInt16(DataModel.Settingmodel.Res_Min_Address.ToString(), 2);
+                var maxFloat = modbusTcp.ReadFloat(DataModel.Settingmodel.Res_Max_Address.ToString(), 1);
+                var minFloat = modbusTcp.ReadFloat(DataModel.Settingmodel.Res_Min_Address.ToString(), 1);
+                var pressureWords = modbusTcp.ReadUInt16(DataModel.Settingmodel.AddressPressure.ToString(), 5);
+
+                string resistanceRaw = resistanceWords.IsSuccess && resistanceWords.Content != null && resistanceWords.Content.Length >= 2
+                    ? $"0x{resistanceWords.Content[0]:X4},0x{resistanceWords.Content[1]:X4}"
+                    : $"读取失败:{resistanceWords.Message}";
+                string maxRaw = maxWords.IsSuccess && maxWords.Content != null && maxWords.Content.Length >= 2
+                    ? $"0x{maxWords.Content[0]:X4},0x{maxWords.Content[1]:X4}"
+                    : $"读取失败:{maxWords.Message}";
+                string minRaw = minWords.IsSuccess && minWords.Content != null && minWords.Content.Length >= 2
+                    ? $"0x{minWords.Content[0]:X4},0x{minWords.Content[1]:X4}"
+                    : $"读取失败:{minWords.Message}";
+                string maxDecoded = maxFloat.IsSuccess && maxFloat.Content != null && maxFloat.Content.Length > 0
+                    ? maxFloat.Content[0].ToString()
+                    : $"读取失败:{maxFloat.Message}";
+                string minDecoded = minFloat.IsSuccess && minFloat.Content != null && minFloat.Content.Length > 0
+                    ? minFloat.Content[0].ToString()
+                    : $"读取失败:{minFloat.Message}";
+                string pressureSnapshot = pressureWords.IsSuccess && pressureWords.Content != null && pressureWords.Content.Length >= 5
+                    ? $"Avg={pressureWords.Content[0]},Max={pressureWords.Content[2]},Min={pressureWords.Content[4]}"
+                    : $"读取失败:{pressureWords.Message}";
+
+                writeLog(
+                    $"[阻值判定输入] 工位={stationIndex}, M{triggerAddress}=1, SN={sn}, "
+                    + $"D{resistanceAddress}-D{resistanceAddress + 1}原始=[{resistanceRaw}], 上位机解码={decodedResistance}, "
+                    + $"D{DataModel.Settingmodel.Res_Max_Address}-D{DataModel.Settingmodel.Res_Max_Address + 1}原始=[{maxRaw}], "
+                    + $"Float={maxDecoded}, 当前上位机上限={DataModel.Processmodel.ResParameter.Max_Res}, "
+                    + $"D{DataModel.Settingmodel.Res_Min_Address}-D{DataModel.Settingmodel.Res_Min_Address + 1}原始=[{minRaw}], "
+                    + $"Float={minDecoded}, 当前上位机下限={DataModel.Processmodel.ResParameter.Min_Res}, "
+                    + $"压力D{DataModel.Settingmodel.AddressPressure}/D{DataModel.Settingmodel.AddressPressure + 2}/D{DataModel.Settingmodel.AddressPressure + 4}=[{pressureSnapshot}]"
+                );
+            }
+            catch (Exception ex)
+            {
+                writeLog(
+                    $"[阻值判定输入] 工位={stationIndex}, M{triggerAddress}=1, SN={sn}, 快照读取异常: {ex.Message}",
+                    true);
+            }
+            finally
+            {
+                if (modbusTcp != null)
+                {
+                    try { modbusTcp.ConnectClose(); } catch { }
                 }
             }
         }
@@ -718,11 +891,18 @@ namespace BusbarCompressionSystem.ViewModel
 
         
 
-        private bool PLC_write(float result)
+        /// <summary>
+        /// 向标准扫码结果寄存器写入 Float，并记录调用入口、线程和实际尝试次数。
+        /// 该日志用于确认上位机完成反馈的真实写入来源，不改变既有地址及重试策略。
+        /// </summary>
+        /// <param name="result">写入 PLC 的 Float 值。</param>
+        /// <param name="caller">发起写入的业务方法，由编译器自动填充。</param>
+        /// <returns>true 表示 PLC 在既有重试范围内确认写入。</returns>
+        private bool PLC_write(float result, [CallerMemberName] string caller = "")
         {
-            writeLog($"视觉->PLC:{result}、{(result == 1 ? "OK" : "NG")}", false);
-
             int maxRetry = 6;
+            string address = (DataModel.Settingmodel.AddressStart + 1).ToString();
+            string lastError = string.Empty;
             for (int i = 0; i < maxRetry; i++)
             {
                 ModbusTcpNet modbusTcp = new ModbusTcpNet();
@@ -737,27 +917,47 @@ namespace BusbarCompressionSystem.ViewModel
 
                     if (connectresult.IsSuccess)
                     {
-                        var r = modbusTcp.Write((DataModel.Settingmodel.AddressStart + 1).ToString(), result);
-                        modbusTcp.ConnectClose();
+                        var r = modbusTcp.Write(address, result);
                         if (r.IsSuccess)
-                        { return true; }
+                        {
+                            TracePlcWriteResult(address, result.ToString(), result == 1, caller, i + 1, maxRetry, true, string.Empty);
+                            return true;
+                        }
+
+                        lastError = r.Message;
+                    }
+                    else
+                    {
+                        lastError = connectresult.Message;
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
-                    writeLog($"视觉写入PLC信号异常1");
+                    lastError = ex.Message;
+                }
+                finally
+                {
+                    try { modbusTcp.ConnectClose(); } catch { }
                 }
                 Thread.Sleep(100);
             }
 
+            TracePlcWriteResult(address, result.ToString(), result == 1, caller, maxRetry, maxRetry, false, lastError);
             return false;
         }
 
-        private bool PLC_write(string address, UInt16 result)
+        /// <summary>
+        /// 向 PLC D 寄存器写入 Word，并记录完成反馈的业务来源和重试结果。
+        /// D1007、D1009、D1011类耐压完成地址会附加工位、触发沿缓存和当前 SN，便于排查提前完成反馈。
+        /// </summary>
+        /// <param name="address">目标 PLC D 地址。</param>
+        /// <param name="result">写入 PLC 的 Word 值。</param>
+        /// <param name="caller">发起写入的业务方法，由编译器自动填充。</param>
+        /// <returns>true 表示 PLC 在既有重试范围内确认写入。</returns>
+        private bool PLC_write(string address, UInt16 result, [CallerMemberName] string caller = "")
         {
-            writeLog($"视觉->PLC:{result}、{(result == 1 ? "OK" : "NG")}", false);
-
             int maxRetry = 6;
+            string lastError = string.Empty;
             for (int i = 0; i < maxRetry; i++)
             {
                 ModbusTcpNet modbusTcp = new ModbusTcpNet();
@@ -773,26 +973,45 @@ namespace BusbarCompressionSystem.ViewModel
                     if (connectresult.IsSuccess)
                     {
                         var r = modbusTcp.Write((address).ToString(), (UInt16)result);
-                        modbusTcp.ConnectClose();
                         if (r.IsSuccess)
-                        { return true; }
+                        {
+                            TracePlcWriteResult(address, result.ToString(), result == 1, caller, i + 1, maxRetry, true, string.Empty);
+                            return true;
+                        }
+
+                        lastError = r.Message;
+                    }
+                    else
+                    {
+                        lastError = connectresult.Message;
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
-                    writeLog($"视觉写入PLC信号异常2") ;
+                    lastError = ex.Message;
+                }
+                finally
+                {
+                    try { modbusTcp.ConnectClose(); } catch { }
                 }
                 Thread.Sleep(100);
             }
 
+            TracePlcWriteResult(address, result.ToString(), result == 1, caller, maxRetry, maxRetry, false, lastError);
             return false;
         }
 
-        private bool PLC_write(string address, float result)
+        /// <summary>
+        /// 向 PLC D 寄存器写入 Float 参数，并记录参数下发的目标地址、调用入口和重试结果。
+        /// </summary>
+        /// <param name="address">目标 PLC D 地址，占用空间由 Modbus Float 协议决定。</param>
+        /// <param name="result">写入 PLC 的 Float 参数值。</param>
+        /// <param name="caller">发起写入的业务方法，由编译器自动填充。</param>
+        /// <returns>true 表示 PLC 在既有重试范围内确认写入。</returns>
+        private bool PLC_write(string address, float result, [CallerMemberName] string caller = "")
         {
-            writeLog($"视觉->PLC:{result}、{(result == 1 ? "OK" : "NG")}", false);
-
             int maxRetry = 6;
+            string lastError = string.Empty;
             for (int i = 0; i < maxRetry; i++)
             {
                 ModbusTcpNet modbusTcp = new ModbusTcpNet();
@@ -808,19 +1027,128 @@ namespace BusbarCompressionSystem.ViewModel
                     if (connectresult.IsSuccess)
                     {
                         var r = modbusTcp.Write((address).ToString(), result);
-                        modbusTcp.ConnectClose();
                         if (r.IsSuccess)
-                        { return true; }
+                        {
+                            TracePlcWriteResult(address, result.ToString(), result == 1, caller, i + 1, maxRetry, true, string.Empty);
+                            return true;
+                        }
+
+                        lastError = r.Message;
+                    }
+                    else
+                    {
+                        lastError = connectresult.Message;
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
-                    writeLog($"视觉写入PLC信号异常3");
+                    lastError = ex.Message;
+                }
+                finally
+                {
+                    try { modbusTcp.ConnectClose(); } catch { }
                 }
                 Thread.Sleep(100);
             }
 
+            TracePlcWriteResult(address, result.ToString(), result == 1, caller, maxRetry, maxRetry, false, lastError);
             return false;
+        }
+
+        /// <summary>
+        /// 汇总一次 PLC 写入的最终结果。耐压完成寄存器会补充工位运行上下文，其他参数写入沿用同一日志格式。
+        /// </summary>
+        /// <param name="address">本次写入的 PLC D 地址。</param>
+        /// <param name="value">用于日志显示的写入值。</param>
+        /// <param name="isOkValue">写入值是否等于协议中的 OK 值 1。</param>
+        /// <param name="caller">发起写入的业务方法。</param>
+        /// <param name="attemptCount">本次调用实际执行的连接及写入尝试次数。</param>
+        /// <param name="maxRetry">既有写入策略允许的最大尝试次数。</param>
+        /// <param name="success">PLC 是否确认本次写入。</param>
+        /// <param name="lastError">最终一次失败返回的通信错误；成功时为空。</param>
+        private void TracePlcWriteResult(
+            string address,
+            string value,
+            bool isOkValue,
+            string caller,
+            int attemptCount,
+            int maxRetry,
+            bool success,
+            string lastError)
+        {
+            try
+            {
+                string completionContext = BuildTvCompletionWriteContext(address);
+                string errorContext = string.IsNullOrWhiteSpace(lastError) ? string.Empty : $", 错误={lastError}";
+                writeLog(
+                    $"视觉->PLC:{value}、{(isOkValue ? "OK" : "NG")}, 地址=D{address}, 调用={caller}, "
+                    + $"线程={Thread.CurrentThread.ManagedThreadId}, 尝试={attemptCount}/{maxRetry}, "
+                    + $"写入={(success ? "成功" : "失败")}{completionContext}{errorContext}",
+                    !success);
+            }
+            catch
+            {
+                // 诊断失败保持 PLC 写入返回值不变，避免日志异常触发完成信号重复回写。
+            }
+        }
+
+        /// <summary>
+        /// 识别标准耐压完成寄存器所属工位，地址按 AddressStart+7/+9/+11 协议解析。
+        /// </summary>
+        /// <param name="address">待识别的 PLC D 地址。</param>
+        /// <param name="stationIndex">识别成功时返回耐压工位 1、2 或 3。</param>
+        /// <returns>true 表示该地址属于标准耐压完成反馈寄存器。</returns>
+        private bool TryGetTvCompletionStation(string address, out int stationIndex)
+        {
+            stationIndex = 0;
+            int numericAddress;
+            if (!int.TryParse(address, out numericAddress))
+            {
+                return false;
+            }
+
+            int addressOffset = numericAddress - DataModel.Settingmodel.AddressStart;
+            if (addressOffset != 7 && addressOffset != 9 && addressOffset != 11)
+            {
+                return false;
+            }
+
+            stationIndex = (addressOffset - 5) / 2;
+            return true;
+        }
+
+        /// <summary>
+        /// 生成耐压完成写入时的工位上下文。触发沿缓存与当前 SN 用于确认结果是否由本工位有效启动流程产生。
+        /// </summary>
+        /// <param name="address">本次写入的 PLC D 地址。</param>
+        /// <returns>耐压完成地址返回工位诊断文本；其他地址返回空文本。</returns>
+        private string BuildTvCompletionWriteContext(string address)
+        {
+            int stationIndex;
+            if (!TryGetTvCompletionStation(address, out stationIndex))
+            {
+                return string.Empty;
+            }
+
+            int triggerEdgeState;
+            string sn;
+            if (stationIndex == 1)
+            {
+                triggerEdgeState = DataModel.Processmodel.TV1_Trig_IO.IOstatus;
+                sn = DataModel.Processmodel.TVTestTestModel1.Productinfo?.SN;
+            }
+            else if (stationIndex == 2)
+            {
+                triggerEdgeState = DataModel.Processmodel.TV2_Trig_IO.IOstatus;
+                sn = DataModel.Processmodel.TVTestTestModel2.Productinfo?.SN;
+            }
+            else
+            {
+                triggerEdgeState = DataModel.Processmodel.TV3_Trig_IO.IOstatus;
+                sn = DataModel.Processmodel.TVTestTestModel3.Productinfo?.SN;
+            }
+
+            return $", 耐压工位={stationIndex}, 触发沿缓存={triggerEdgeState}, 当前SN={(string.IsNullOrWhiteSpace(sn) ? "空" : sn)}";
         }
 
         /// <summary>

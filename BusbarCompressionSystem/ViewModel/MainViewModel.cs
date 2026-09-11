@@ -3284,8 +3284,8 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
-        /// 阻值1读取处理：从PLC读取阻值并保存到内存
-        /// 触发地址：M3035，读取地址：D1200
+        /// 处理工位1的阻值触发，将 D1200 Float 写入界面记录与 SQLite。
+        /// 同步记录阻值原始 Word、上下限及压力快照，用于判定 PLC 是否在耐压启动前执行了阻值或压力联锁。
         /// </summary>
         public void Res1Process()
         {
@@ -3295,6 +3295,7 @@ namespace BusbarCompressionSystem.ViewModel
                 float res = PLC_ReadFloat(DataModel.Settingmodel.AddressRes);
                 DataModel.Processmodel.TVTestTestModel1.Res = res;
                 writeLog($"阻值1读取完成 D{DataModel.Settingmodel.AddressRes}={res}");
+                string diagnosticSn = string.Empty;
                 
                 // 2. 从PLC读取SN，立即更新到ProductInfoRecord
                 // 这样即使阻值NG导致PLC跳过耐压测试，CHECK阶段也能获取到正确的阻值数据
@@ -3306,6 +3307,7 @@ namespace BusbarCompressionSystem.ViewModel
                     {
                         string sn = ss[0];
                         string wocode = ss[1];
+                        diagnosticSn = sn;
                         UpdateResValue(sn, res);
 
                         // 同步将阻值写入SQLite，避免“阻值NG跳过耐压”导致数据库缺失RES
@@ -3326,6 +3328,13 @@ namespace BusbarCompressionSystem.ViewModel
                 {
                     writeLog($"[阻值1] 读取SN异常: {exSN.Message}，ProductInfoRecord未更新", false);
                 }
+
+                TraceResistanceJudgementInputs(
+                    1,
+                    DataModel.Settingmodel.Res1TrigAddress,
+                    DataModel.Settingmodel.AddressRes,
+                    res,
+                    diagnosticSn);
             }
             catch (Exception ex)
             {
@@ -3334,8 +3343,8 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
-        /// 阻值2读取处理：从PLC读取阻值并保存到内存
-        /// 触发地址：M3036，读取地址：D1202
+        /// 处理工位2的阻值触发，将 D1202 Float 写入界面记录与 SQLite。
+        /// 同步记录阻值原始 Word、上下限及压力快照，用于判定 PLC 是否在耐压启动前执行了阻值或压力联锁。
         /// </summary>
         public void Res2Process()
         {
@@ -3345,6 +3354,7 @@ namespace BusbarCompressionSystem.ViewModel
                 float res = PLC_ReadFloat(DataModel.Settingmodel.AddressRes + 1 * 2);
                 DataModel.Processmodel.TVTestTestModel2.Res = res;
                 writeLog($"阻值2读取完成 D{DataModel.Settingmodel.AddressRes + 2}={res}");
+                string diagnosticSn = string.Empty;
                 
                 // 2. 从PLC读取SN，立即更新到ProductInfoRecord
                 // 这样即使阻值NG导致PLC跳过耐压测试，CHECK阶段也能获取到正确的阻值数据
@@ -3356,6 +3366,7 @@ namespace BusbarCompressionSystem.ViewModel
                     {
                         string sn = ss[0];
                         string wocode = ss[1];
+                        diagnosticSn = sn;
                         UpdateResValue(sn, res);
 
                         // 同步将阻值写入SQLite，避免“阻值NG跳过耐压”导致数据库缺失RES
@@ -3376,6 +3387,13 @@ namespace BusbarCompressionSystem.ViewModel
                 {
                     writeLog($"[阻值2] 读取SN异常: {exSN.Message}，ProductInfoRecord未更新", false);
                 }
+
+                TraceResistanceJudgementInputs(
+                    2,
+                    DataModel.Settingmodel.Res2TrigAddress,
+                    DataModel.Settingmodel.AddressRes + 2,
+                    res,
+                    diagnosticSn);
             }
             catch (Exception ex)
             {
@@ -3384,8 +3402,8 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
-        /// 阻值3读取处理：从PLC读取阻值并保存到内存
-        /// 触发地址：M3037，读取地址：D1204
+        /// 处理工位3的阻值触发，将 D1204 Float 写入界面记录与 SQLite。
+        /// 同步记录阻值原始 Word、上下限及压力快照，用于判定 PLC 是否在耐压启动前执行了阻值或压力联锁。
         /// </summary>
         public void Res3Process()
         {
@@ -3395,6 +3413,7 @@ namespace BusbarCompressionSystem.ViewModel
                 float res = PLC_ReadFloat(DataModel.Settingmodel.AddressRes + 2 * 2);
                 DataModel.Processmodel.TVTestTestModel3.Res = res;
                 writeLog($"阻值3读取完成 D{DataModel.Settingmodel.AddressRes + 4}={res}");
+                string diagnosticSn = string.Empty;
                 
                 // 2. 从PLC读取SN，立即更新到ProductInfoRecord
                 // 这样即使阻值NG导致PLC跳过耐压测试，CHECK阶段也能获取到正确的阻值数据
@@ -3406,6 +3425,7 @@ namespace BusbarCompressionSystem.ViewModel
                     {
                         string sn = ss[0];
                         string wocode = ss[1];
+                        diagnosticSn = sn;
                         UpdateResValue(sn, res);
 
                         // 同步将阻值写入SQLite，避免“阻值NG跳过耐压”导致数据库缺失RES
@@ -3426,6 +3446,13 @@ namespace BusbarCompressionSystem.ViewModel
                 {
                     writeLog($"[阻值3] 读取SN异常: {exSN.Message}，ProductInfoRecord未更新", false);
                 }
+
+                TraceResistanceJudgementInputs(
+                    3,
+                    DataModel.Settingmodel.Res3TrigAddress,
+                    DataModel.Settingmodel.AddressRes + 4,
+                    res,
+                    diagnosticSn);
             }
             catch (Exception ex)
             {

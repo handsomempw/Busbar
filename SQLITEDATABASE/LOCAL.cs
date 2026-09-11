@@ -167,36 +167,62 @@ namespace SQLITEDATABASE
         }
 
         /// <summary>
-        /// 记录压力 NG3 追踪日志，落盘路径与阻值 NG3 相同（日志\数据库追踪\{yyyyMMdd}.txt）。
-        /// 判定口径与 CHECK 前 UpdatePressure 一致：最大压力不超过上限，最小压力不低于下限。
+        /// 记录压力阈值判定追踪日志（合格与不合格均落盘），路径与阻值追踪相同（日志\数据库追踪\{yyyyMMdd}.txt）。
+        /// 判定口径与 UpdatePressure 一致：最大压力不超过上限，最小压力不低于下限。
+        /// 本日志只追溯压力落库瞬间的阈值结论，不单独发送机器人回包；最终 OK/NG2/NG3 分流以本阶段综合校验返回码为准。
         /// </summary>
-        /// <param name="stageTag">流程阶段标识，如 CHECK1、CHECK2、点检CHECK1。</param>
+        /// <param name="stageTag">流程阶段标识，如 CHECK1、点检CHECK1、双Y-工位1流程结束。</param>
         /// <param name="pressureMax">最大压力，单位与 PLC/数据库 PRESSURE_MAX 一致。</param>
         /// <param name="pressureMin">最小压力，单位与 PLC/数据库 PRESSURE_MIN 一致。</param>
         /// <param name="pressureAverage">平均压力，单位与 PLC/数据库 PRESSURE_AVERAGE 一致。</param>
         /// <param name="maxLimit">压力上限阈值，来自过程参数 PressureParamter.Max_Pressure。</param>
         /// <param name="minLimit">压力下限阈值，来自过程参数 PressureParamter.Min_Pressure。</param>
+        /// <param name="pressureResult">当前压力阈值是否合格；与即将或已经写入的 PRESSURE_RESULT 一致。</param>
         /// <param name="sn">产品 SN，便于按条码检索。</param>
         /// <param name="wocode">批次号，便于按工单检索。</param>
-        public static void WritePressureThresholdNg3Trace(string stageTag, float pressureMax, float pressureMin, float pressureAverage, float maxLimit, float minLimit, string sn = "", string wocode = "")
+        public static void WritePressureThresholdTrace(
+            string stageTag,
+            float pressureMax,
+            float pressureMin,
+            float pressureAverage,
+            float maxLimit,
+            float minLimit,
+            bool pressureResult,
+            string sn = "",
+            string wocode = "")
         {
-            var reasons = new List<string>();
-            if (pressureMax > maxLimit)
+            string rangeText =
+                $"Max={FormatSqlNumber(pressureMax)}, Min={FormatSqlNumber(pressureMin)}, Avg={FormatSqlNumber(pressureAverage)}，阈值=[{FormatSqlNumber(minLimit)},{FormatSqlNumber(maxLimit)}]";
+            string detail;
+            string tagSuffix;
+            if (pressureResult)
             {
-                reasons.Add($"Max={FormatSqlNumber(pressureMax)} > maxLimit={FormatSqlNumber(maxLimit)}");
+                tagSuffix = "压力阈值判定合格";
+                detail =
+                    $"压力合格；{rangeText}；已落库PRESSURE_RESULT=1。本条仅记录压力阈值落库结论，不单独发送机器人回包，最终分流以本阶段综合校验返回码为准";
             }
-            if (pressureMin < minLimit)
+            else
             {
-                reasons.Add($"Min={FormatSqlNumber(pressureMin)} < minLimit={FormatSqlNumber(minLimit)}");
-            }
-            if (reasons.Count == 0)
-            {
-                reasons.Add($"PRESSURE_RESULT=0，Max={FormatSqlNumber(pressureMax)}, Min={FormatSqlNumber(pressureMin)}, Avg={FormatSqlNumber(pressureAverage)}，阈值=[{FormatSqlNumber(minLimit)},{FormatSqlNumber(maxLimit)}]");
+                var reasons = new List<string>();
+                if (pressureMax > maxLimit)
+                {
+                    reasons.Add($"Max={FormatSqlNumber(pressureMax)} > maxLimit={FormatSqlNumber(maxLimit)}");
+                }
+                if (pressureMin < minLimit)
+                {
+                    reasons.Add($"Min={FormatSqlNumber(pressureMin)} < minLimit={FormatSqlNumber(minLimit)}");
+                }
+                if (reasons.Count == 0)
+                {
+                    reasons.Add($"PRESSURE_RESULT=0，{rangeText}");
+                }
+
+                tagSuffix = "压力阈值判定不合格";
+                detail =
+                    $"压力不合格；{string.Join("; ", reasons)}；已落库PRESSURE_RESULT=0。本条仅记录压力阈值落库结论，不单独发送机器人回包，最终分流以本阶段综合校验返回码为准（综合校验中耐压缺失仍可能先回 NG2）";
             }
 
-            WriteErrorLog($"[追踪]{stageTag}-压力阈值判定NG3",
-                $"{string.Join("; ", reasons)}，直接返回=3(压力不合格)",
-                sn, wocode);
+            WriteErrorLog($"[追踪]{stageTag}-{tagSuffix}", detail, sn, wocode);
         }
 
         /// <summary>

@@ -1060,7 +1060,7 @@ namespace BusbarCompressionSystem.ViewModel
                 }
                 UpdateDualYPressureRecords(
                     stationIndex, snCode, woCode, pressureTargetIds, averagePressure, maxPressure, minPressure, pressureResult);
-                TracePressureNg3IfFailed($"双Y-工位{stationIndex}流程结束",
+                TracePressureThresholdResult($"双Y-工位{stationIndex}流程结束",
                     maxPressure, minPressure, averagePressure, pressureResult, snCode, woCode);
 
                 int checkCode = sqlite.CheckElectricalOnlyDualTest(
