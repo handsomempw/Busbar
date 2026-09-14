@@ -4,6 +4,7 @@ using BusbarCompressionSystem.Model.Setting1;
 using BusbarCompressionSystem.Utils;
 using GalaSoft.MvvmLight;
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Windows;
 
@@ -307,8 +308,8 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
-        /// 加载耐压状态映射配置文件
-        /// 文件路径：配置/耐压状态映射.xml
+        /// 加载耐压状态映射配置，并同步到 AT9620 已知结束态白名单。
+        /// 文件路径：配置/耐压状态映射.xml；Map 的 Code 同时驱动中文翻译与仪器收工判定。
         /// 格式：&lt;StatusMappings&gt;&lt;Map Code="状态代码" Display="中文描述" /&gt;&lt;/StatusMappings&gt;
         /// </summary>
         private void LoadTvStatusMappings()
@@ -319,7 +320,7 @@ namespace BusbarCompressionSystem.ViewModel
 
                 if (!File.Exists(xmlPath))
                 {
-                    // 首次运行：生成默认配置文件
+                    // 首次运行：生成默认配置文件；运行时仍使用内置默认映射
                     if (TvStatusTranslator.SaveDefaultXml(xmlPath, out string saveError))
                     {
                         writeLog($"已生成默认耐压状态映射配置文件: {xmlPath}");
@@ -346,6 +347,22 @@ namespace BusbarCompressionSystem.ViewModel
             {
                 writeLog($"耐压状态映射配置处理异常: {ex.Message}");
             }
+            finally
+            {
+                // 无论 XML 成败，均把当前运行时 Code 表灌入仪器，避免仅改了 Display 映射而收工仍按旧白名单
+                ApplyTrustedTerminalStatusesToMeters();
+            }
+        }
+
+        /// <summary>
+        /// 将 <see cref="TvStatusTranslator"/> 当前映射表的 Code 同步到 AT9620 静态结束态白名单。
+        /// 三台仪表共用一份名单；过程态不在此同步范围内。
+        /// </summary>
+        private void ApplyTrustedTerminalStatusesToMeters()
+        {
+            IReadOnlyCollection<string> codes = TvStatusTranslator.GetTrustedTerminalCodes();
+            global::AT9620.AT9620.ConfigureKnownTerminalStatuses(codes);
+            writeLog($"已同步耐压可信结束态码表，共 {codes.Count} 项");
         }
 
         /// <summary>

@@ -134,10 +134,10 @@ namespace AT9620
         };
 
         /// <summary>
-        /// AT9620 已知结束状态白名单（与上位机 TvStatusTranslator 映射表口径一致）。
-        /// 命中后立即结束测试：PASS 记合格，其余记仪器不合格原因；不参与状态可疑连续确认。
+        /// 仪器出厂口径下的已知结束态底线码表。
+        /// 上位机未注入映射、或注入为空时仍按该集合判定；过程态不在此列。
         /// </summary>
-        private static readonly HashSet<string> KnownTerminalStatuses = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        private static readonly string[] BuiltinTerminalStatuses =
         {
             "PASS",
             "SHORT",
@@ -148,8 +148,19 @@ namespace AT9620
             "OV",
             "UPPER",
             "LOWER",
-            "RISELOW"
+            "RISELOW",
+            "HI-LIMIT",
+            "LO-LIMIT"
         };
+
+        /// <summary>
+        /// 当前生效的已知结束状态白名单。
+        /// 默认等于 <see cref="BuiltinTerminalStatuses"/>；启动时可被上位机用「耐压状态映射」中的 Code 刷新，
+        /// 使现场新增码（如 HI-LIMIT、LO-LIMIT）与中文显示映射同源，避免仅配置了 Display 却仍被当成通信异常。
+        /// 命中后立即结束测试：PASS 记合格，其余记仪器不合格原因；不参与状态可疑连续确认。
+        /// </summary>
+        private static HashSet<string> KnownTerminalStatuses =
+            new HashSet<string>(BuiltinTerminalStatuses, StringComparer.OrdinalIgnoreCase);
 
         private enum InstrumentSessionState
         {
@@ -694,8 +705,8 @@ namespace AT9620
         /// 核心口径：
         /// - 过程态（Ramp Up / Dwell / Ramp Down）继续轮询。
         /// - 已知结束态（PASS / SHORT / ARC 等）立即结束；PASS 为合格，其余为仪器不合格原因。
-        /// - 状态字段可解析但不在上述白名单时，按不可信状态处理：连续达到
-        ///   <see cref="UnknownStatusConfirmCount"/> 次后以通信异常结束，避免偶发乱码被写成仪器 NG。
+        /// - 状态字段可解析但不在当前已知结束态白名单（内置底线 + 上位机映射 Code）时，按不可信状态处理：
+        ///   连续达到 <see cref="UnknownStatusConfirmCount"/> 次后以通信异常结束，避免偶发乱码被写成仪器 NG。
         /// - 超时仍按理论总时长 +2s 兜底。
         /// - 通信异常与超时属上位机单方面收工：退出前先发 FUNCtion:STOP，避免仅断 TCP 后仪器仍加压、
         ///   而 PLC 已按流程完成推进下一件。已知结束态由仪器自行收束，不再重复 STOP。
@@ -1189,13 +1200,42 @@ namespace AT9620
         }
 
         /// <summary>
+        /// 用上位机「耐压状态映射」中的 Code 刷新已知结束态白名单。
+        /// 业务场景：主程序加载 <c>耐压状态映射.xml</c> 后调用，使监控收工判定与界面/落库翻译共用同一码表。
+        /// 核心口径：始终保留 <see cref="BuiltinTerminalStatuses"/> 底线；传入码去空白后并入；过程态仍只看
+        /// <see cref="KnownProcessStatuses"/>，不受本方法影响。三台仪器实例共用本静态名单。
+        /// </summary>
+        /// <param name="statusCodes">
+        /// 映射表中的状态原文 Code 集合；允许为 null 或空，此时仅恢复为内置底线码表。
+        /// </param>
+        public static void ConfigureKnownTerminalStatuses(IEnumerable<string> statusCodes)
+        {
+            var next = new HashSet<string>(BuiltinTerminalStatuses, StringComparer.OrdinalIgnoreCase);
+            if (statusCodes != null)
+            {
+                foreach (string code in statusCodes)
+                {
+                    if (string.IsNullOrWhiteSpace(code))
+                    {
+                        continue;
+                    }
+
+                    next.Add(code.Trim());
+                }
+            }
+
+            // 整表替换引用，避免与 Fetch 轮询并发读写同一 HashSet 实例
+            KnownTerminalStatuses = next;
+        }
+
+        /// <summary>
         /// 判断 Fetch 返回的状态是否为仪器已知结束结论。
         /// 已知结束结论可立即采信写入本方法返回值；不进入状态可疑连续确认。
         /// </summary>
         /// <param name="status">
-        /// 仪器 Fetch 应答第 3 段状态原文；与 TvStatusTranslator 已知码表对齐，比较时忽略大小写。
+        /// 仪器 Fetch 应答第 3 段状态原文；与当前生效的已知结束态白名单比较，忽略大小写。
         /// </param>
-        /// <returns>属于 PASS / SHORT / ARC 等已知结束码时返回 true，表示可立即结束测试。</returns>
+        /// <returns>属于 PASS / SHORT / ARC 或已注入映射码等已知结束码时返回 true，表示可立即结束测试。</returns>
         private static bool IsKnownTerminalStatus(string status)
         {
             return !string.IsNullOrEmpty(status) && KnownTerminalStatuses.Contains(status);

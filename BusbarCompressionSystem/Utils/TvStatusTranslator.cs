@@ -10,9 +10,9 @@ using BusbarCompressionSystem.Model;
 namespace BusbarCompressionSystem.Utils
 {
     /// <summary>
-    /// 耐压测试状态翻译器
-    /// 负责将AT9620设备返回的英文状态码转换为中文描述
-    /// 支持从独立XML配置文件加载映射表
+    /// 耐压测试状态翻译器。
+    /// 将 AT9620 返回的英文结束态 Code 转为中文 Display；运行时映射表的 Key 同时作为上位机/仪器侧
+    /// 「可信结束态」码表，与过程态（Ramp Up 等）无关。
     /// </summary>
     public static class TvStatusTranslator
     {
@@ -26,6 +26,8 @@ namespace BusbarCompressionSystem.Utils
             { "ERROR", "功放板错误" },
             { "OV", "过压保护" },
             { "UPPER", "超出上限" },
+            { "HI-LIMIT", "超上限" },
+            { "LO-LIMIT", "超下限" },
             { "LOWER", "低于下限" },
             { "RISELOW", "缓升上限报警" }
         };
@@ -34,6 +36,13 @@ namespace BusbarCompressionSystem.Utils
 
         public static IReadOnlyDictionary<string, string> Defaults => DefaultMappings;
 
+        /// <summary>
+        /// 用配置项重建运行时映射。默认码表始终作为底线保留；配置中的同名 Code 只覆盖 Display，
+        /// 新增 Code 同时进入翻译表与可信结束态码表（供 AT9620 监控收工与落库判定共用）。
+        /// </summary>
+        /// <param name="mappings">
+        /// 来自 <c>耐压状态映射.xml</c> 的 Code/Display 对；允许为 null，此时仅恢复默认映射。
+        /// </param>
         public static void Reload(IEnumerable<TvStatusMapping> mappings)
         {
             var map = new Dictionary<string, string>(DefaultMappings, StringComparer.OrdinalIgnoreCase);
@@ -47,6 +56,17 @@ namespace BusbarCompressionSystem.Utils
             }
 
             _runtimeMappings = map;
+        }
+
+        /// <summary>
+        /// 当前运行时映射表中的全部状态原文 Code。
+        /// 主程序加载映射后交给 <see cref="AT9620.AT9620.ConfigureKnownTerminalStatuses"/>，
+        /// 使仪器 Fetch 收工白名单与界面翻译同源。
+        /// </summary>
+        /// <returns>可信结束态 Code 集合（含默认码与配置新增码）；顺序不保证。</returns>
+        public static IReadOnlyCollection<string> GetTrustedTerminalCodes()
+        {
+            return _runtimeMappings.Keys.ToArray();
         }
 
         /// <summary>
@@ -75,30 +95,15 @@ namespace BusbarCompressionSystem.Utils
         }
 
         /// <summary>
-        /// 判断耐压状态是否属于仪器已知结束码。
-        /// 该白名单与 AT9620 结束状态保持一致，用于在主程序仅引用既有仪器程序集时识别正常测试结论。
+        /// 判断耐压状态是否属于当前映射表中的可信结束码。
+        /// 与 AT9620 监控收工白名单同源：命中则按仪器结论落库/翻译；未命中则上层可记为通信异常。
         /// </summary>
         /// <param name="status">SQLite 或内存中的耐压状态文本，可带 ACW/DCW 模式前缀。</param>
-        /// <returns>状态属于 PASS、SHORT、ARC 等已知结束码时返回 true。</returns>
+        /// <returns>去除模式前缀后的状态属于运行时映射 Code 时返回 true。</returns>
         public static bool IsTrustedTerminalStatus(string status)
         {
             string text = RemoveTestModePrefix(status)?.Trim() ?? string.Empty;
-            switch (text.ToUpperInvariant())
-            {
-                case "PASS":
-                case "SHORT":
-                case "ARC":
-                case "GFI":
-                case "BREAKDOWN":
-                case "ERROR":
-                case "OV":
-                case "UPPER":
-                case "LOWER":
-                case "RISELOW":
-                    return true;
-                default:
-                    return false;
-            }
+            return !string.IsNullOrEmpty(text) && _runtimeMappings.ContainsKey(text);
         }
 
         public static string Translate(string rawStatus)
@@ -219,16 +224,17 @@ namespace BusbarCompressionSystem.Utils
         }
 
         /// <summary>
-        /// 从独立XML配置文件加载状态映射
+        /// 从独立 XML 加载状态映射。
+        /// 文件中每个 Map 的 Code 既是显示翻译键，也是可信结束态码；现场增加仪器新结束码时须同时写 Code 与 Display。
         /// 文件格式：
         /// &lt;StatusMappings&gt;
         ///   &lt;Map Code="PASS" Display="测试合格" /&gt;
         ///   &lt;Map Code="SHORT" Display="短路保护" /&gt;
         /// &lt;/StatusMappings&gt;
         /// </summary>
-        /// <param name="xmlFilePath">XML配置文件路径</param>
-        /// <param name="errorMessage">加载失败时的错误信息</param>
-        /// <returns>是否成功加载</returns>
+        /// <param name="xmlFilePath">配置目录下「耐压状态映射.xml」的完整路径。</param>
+        /// <param name="errorMessage">加载失败时的错误说明，成功时为空。</param>
+        /// <returns>成功解析并 Reload 时返回 true；文件缺失或 XML 异常时返回 false。</returns>
         public static bool LoadFromXml(string xmlFilePath, out string errorMessage)
         {
             errorMessage = string.Empty;
@@ -283,7 +289,8 @@ namespace BusbarCompressionSystem.Utils
                     new XDeclaration("1.0", "utf-8", null),
                     new XComment(" 耐压测试状态映射配置 "),
                     new XComment(" 格式: <Map Code=\"状态代码\" Display=\"中文描述\" /> "),
-                    new XComment(" 修改后需重启软件生效，支持新增、修改、删除映射项 "),
+                    new XComment(" Code 同时作为仪器可信结束态白名单；新增现场结束码（如 HI-LIMIT、LO-LIMIT）须写入 Code "),
+                    new XComment(" 修改后需重启软件生效；同名 Code 覆盖中文，默认码表不会因删行而消失 "),
                     new XElement("StatusMappings",
                         DefaultMappings.Select(kv =>
                             new XElement("Map",
