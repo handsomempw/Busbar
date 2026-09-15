@@ -219,7 +219,7 @@ namespace SQLITEDATABASE
 
                 tagSuffix = "压力阈值判定不合格";
                 detail =
-                    $"压力不合格；{string.Join("; ", reasons)}；已落库PRESSURE_RESULT=0。本条仅记录压力阈值落库结论，不单独发送机器人回包，最终分流以本阶段综合校验返回码为准（综合校验中耐压缺失仍可能先回 NG2）";
+                    $"压力不合格；{string.Join("; ", reasons)}；已落库PRESSURE_RESULT=0。本条仅记录压力阈值落库结论，不单独发送机器人回包，最终分流以本阶段综合校验返回码为准（耐压未形成有效结果时综合校验会优先按压力回 NG3）";
             }
 
             WriteErrorLog($"[追踪]{stageTag}-{tagSuffix}", detail, sn, wocode);
@@ -1715,15 +1715,84 @@ namespace SQLITEDATABASE
         }
 
         /// <summary>
+        /// 耐压过程未形成有效仪器结果时，优先按压力结论在 NG2/NG3 之间分流。
+        /// PLC 可能因压力联锁跳过耐压后直接进入 CHECK；若仍先回耐压 NG2，会把压力不良伪装成耐压不良。
+        /// 本方法只服务「耐压记录无效/未测」路径；已有有效电压且仪器判定 FAIL 的路径仍由调用方直接回 2。
+        /// </summary>
+        /// <param name="pressureResultCell">当前产品最新非 IR 行的 PRESSURE_RESULT 字段原始值，来源与 CHECK 主查询同一行。</param>
+        /// <param name="stageTag">流程阶段标识，如 CHECK1、CHECK2，写入追踪日志便于对照机器人回包。</param>
+        /// <param name="sn">产品序列号，供追踪日志检索。</param>
+        /// <param name="wocode">工单号，供追踪日志检索。</param>
+        /// <param name="treatMissingPressureAsNg3">标准 CHECK 为 true，压力字段缺失按 NG3；tvOnlyMode 下为 false，缺失压力时仍按耐压缺失回 2。</param>
+        /// <returns>压力不合格或按口径视为缺失时返回 3；压力合格时返回 2，表示仍按耐压缺失回 NG2。</returns>
+        private static int ResolveNg2OrPressureNg3WhenTvInvalid(
+            object pressureResultCell,
+            string stageTag,
+            string sn,
+            string wocode,
+            bool treatMissingPressureAsNg3)
+        {
+            string s_pressureResult = pressureResultCell?.ToString();
+
+            if (string.IsNullOrWhiteSpace(s_pressureResult))
+            {
+                if (treatMissingPressureAsNg3)
+                {
+                    WriteErrorLog($"[数据缺失]{stageTag}-无有效耐压时PRESSURE_RESULT为空",
+                        "耐压未形成有效结果且PRESSURE_RESULT为空，优先返回=3，避免将压力数据缺失误报为耐压NG2",
+                        sn, wocode);
+                    return 3;
+                }
+
+                WriteErrorLog($"[追踪]{stageTag}-无有效耐压且压力字段可跳过",
+                    "tvOnlyMode下PRESSURE_RESULT为空，按耐压缺失返回=2",
+                    sn, wocode);
+                return 2;
+            }
+
+            bool pressureResult;
+            if (s_pressureResult == "1")
+            {
+                pressureResult = true;
+            }
+            else if (s_pressureResult == "0")
+            {
+                pressureResult = false;
+            }
+            else if (!bool.TryParse(s_pressureResult, out pressureResult))
+            {
+                WriteErrorLog($"[数据异常]{stageTag}-无有效耐压时PRESSURE_RESULT解析失败",
+                    $"原始值=[{s_pressureResult}]，优先返回=3，避免将压力数据异常误报为耐压NG2",
+                    sn, wocode);
+                return 3;
+            }
+
+            if (!pressureResult)
+            {
+                WriteErrorLog($"[业务判定]{stageTag}-无有效耐压时压力不合格优先NG3",
+                    "耐压未形成有效结果且PRESSURE_RESULT=0，返回=3，避免将压力不良误报为耐压NG2",
+                    sn, wocode);
+                return 3;
+            }
+
+            WriteErrorLog($"[追踪]{stageTag}-无有效耐压且压力合格仍回NG2",
+                "耐压未形成有效结果，压力合格，返回=2(耐压缺失口径)",
+                sn, wocode);
+            return 2;
+        }
+
+        /// <summary>
         /// 第一次综合校验：检查产品是否通过了前置工序的所有测试项目。
         /// CHECK1 的基础字段来自同 SN 最新非 IR 记录；标准产线传入当前工艺期望模式后，
         /// ACW/DCW/IR 只在本轮 ID 边界内参与综合判定，绝缘电阻与普通耐压持续使用独立模式口径。
         /// 业务场景：在CHECK1工位（外观检测前）进行的数据完整性和合格性校验
-        /// 校验项目：拍照留底(TakePhoto1) + 耐压测试(TVResult) + 电阻测试(RES)
+        /// 校验项目：拍照留底(TakePhoto1) + 电阻测试(RES) + 耐压测试(TVResult) + 压力(PRESSURE_RESULT)
+        /// 分流口径：耐压字段空/0/-1 等未形成有效结果时，先按压力结论回 NG3，避免 PLC 跳过耐压后把压力不良报成 NG2；
+        /// 已有有效电压且仪器判定 FAIL 时仍回 NG2，不改动真耐压不合格语义。
         /// 返回值说明：
         ///   0 = 全部合格
         ///   1 = 拍照留底不良（TakePhoto1=false 或数据解析失败 或数据库异常）
-        ///   2 = 耐压测试不合格（TVMaxVoltage异常 或 TVResult=false）
+        ///   2 = 耐压测试不合格（有效耐压记录判定失败，或耐压缺失且压力合格）
         ///   3 = 阻值或压力测试不合格（RES 超阈值、PRESSURE_RESULT=false 或相关字段缺失/解析失败）
         /// 注意：所有系统异常都会被映射为业务不良返回，通过独立日志详细记录实际原因
         /// </summary>
@@ -1843,17 +1912,19 @@ namespace SQLITEDATABASE
                             if (string.IsNullOrWhiteSpace(s_tvmaxvoltage))
                             {
                                 WriteErrorLog("[数据缺失]CHECK1-字段为空-TVMAXVOLTAGE",
-                                   "TVMAXVOLTAGE字段为空，可能是UpdateTV执行失败，返回值=2",
+                                   "TVMAXVOLTAGE字段为空，可能是UpdateTV执行失败或PLC跳过耐压；无有效耐压时优先按压力分流",
                                    SN, WOCODE);
-                                return 2;
+                                return ResolveNg2OrPressureNg3WhenTvInvalid(
+                                    dt.Rows[0]["PRESSURE_RESULT"], "CHECK1", SN, WOCODE, !tvOnlyMode);
                             }
 
                             if (!float.TryParse(s_tvmaxvoltage, out _tvmaxvoltage))
                             {
                                 WriteErrorLog("[数据异常]CHECK1-字段解析错误-TVMAXVOLTAGE",
-                                    $"TVMAXVOLTAGE字段解析失败，原始值=[{s_tvmaxvoltage}]，返回值=2",
+                                    $"TVMAXVOLTAGE字段解析失败，原始值=[{s_tvmaxvoltage}]；无有效耐压时优先按压力分流",
                                     SN, WOCODE);
-                                return 2;
+                                return ResolveNg2OrPressureNg3WhenTvInvalid(
+                                    dt.Rows[0]["PRESSURE_RESULT"], "CHECK1", SN, WOCODE, !tvOnlyMode);
                             }
                             bool _tvresult = false;
                             string s_tvresult = dt.Rows[0]["TVRESULT"]?.ToString();
@@ -1862,24 +1933,28 @@ namespace SQLITEDATABASE
                             {
                                 // TVRESULT为空也认为耐压数据缺失
                                 WriteErrorLog("[数据缺失]CHECK1-字段为空-TVRESULT",
-                                   "TVRESULT字段为空，可能是UpdateTV执行失败，返回值=2",
+                                   "TVRESULT字段为空，可能是UpdateTV执行失败或PLC跳过耐压；无有效耐压时优先按压力分流",
                                    SN, WOCODE);
-                                return 2;
+                                return ResolveNg2OrPressureNg3WhenTvInvalid(
+                                    dt.Rows[0]["PRESSURE_RESULT"], "CHECK1", SN, WOCODE, !tvOnlyMode);
                             }
 
                             _tvresult = TryParseDbBool(dt.Rows[0]["TVRESULT"]);
 
                             // 5. 判断耐压测试结果
+                            // 电压为 0/-1 视为未形成有效耐压记录（常见于 PLC 因压力联锁跳过耐压），优先按压力回 NG3。
+                            // 已有有效电压且 TVResult=false 仍直接回 2，保留真耐压不合格语义。
                             if (_tvmaxvoltage == 0 || _tvmaxvoltage == -1)
                             {
-                                return 2;
+                                return ResolveNg2OrPressureNg3WhenTvInvalid(
+                                    dt.Rows[0]["PRESSURE_RESULT"], "CHECK1", SN, WOCODE, !tvOnlyMode);
                             }
                             if (!_tvresult)
                             {
                                 return 2;
                             }
 
-                        // 6. 判断压力结果（与耐压同优先级，失败即返回NG3）
+                        // 6. 判断压力结果（耐压已形成有效合格结果后的压力门禁；失败即返回NG3）
                         bool _pressureResult = false;
                         string s_pressureResult = dt.Rows[0]["PRESSURE_RESULT"]?.ToString();
 
@@ -2046,6 +2121,7 @@ namespace SQLITEDATABASE
         /// 但不作为普通耐压、压力或 AOI 基础行读取。
         /// 业务场景：在CHECK2工位（最终下料前）进行的全流程数据校验
         /// 校验项目：Check1的所有项 + 外观检测(TakePhoto2/AOI)
+        /// 分流口径与 Check1 一致：耐压未形成有效结果时优先按压力回 NG3；有效耐压 FAIL 仍回 NG2。
         /// 返回值说明：
         ///   0 = 全部合格
         ///   1 = 拍照留底不良（或数据库异常）
@@ -2151,17 +2227,19 @@ namespace SQLITEDATABASE
                                 if (string.IsNullOrWhiteSpace(s_tvmaxvoltage))
                                 {
                                     WriteErrorLog("[数据缺失]CHECK2-字段为空-TVMAXVOLTAGE",
-                                        "TVMAXVOLTAGE字段为空，可能是UpdateTV执行失败，返回值:2",
+                                        "TVMAXVOLTAGE字段为空，可能是UpdateTV执行失败或PLC跳过耐压；无有效耐压时优先按压力分流",
                                         SN, WOCODE);
-                                    return 2;
+                                    return ResolveNg2OrPressureNg3WhenTvInvalid(
+                                        dt.Rows[0]["PRESSURE_RESULT"], "CHECK2", SN, WOCODE, true);
                                 }
 
                                 if (!float.TryParse(s_tvmaxvoltage, out _tvmaxvoltage))
                                 {
                                     WriteErrorLog("[数据异常]CHECK2-字段解析错误-TVMAXVOLTAGE",
-                                        $"TVMAXVOLTAGE字段解析失败，原始值=[{s_tvmaxvoltage}]，返回值:2",
+                                        $"TVMAXVOLTAGE字段解析失败，原始值=[{s_tvmaxvoltage}]；无有效耐压时优先按压力分流",
                                         SN, WOCODE);
-                                    return 2;
+                                    return ResolveNg2OrPressureNg3WhenTvInvalid(
+                                        dt.Rows[0]["PRESSURE_RESULT"], "CHECK2", SN, WOCODE, true);
                                 }
                                 bool _tvresult = false;
                                 string s_tvresult = dt.Rows[0]["TVRESULT"]?.ToString();
@@ -2169,24 +2247,28 @@ namespace SQLITEDATABASE
                                 if (string.IsNullOrWhiteSpace(s_tvresult))
                                 {
                                     WriteErrorLog("[数据缺失]CHECK2-字段为空-TVRESULT",
-                                        "TVRESULT字段为空，可能是UpdateTV执行失败，返回值:2",
+                                        "TVRESULT字段为空，可能是UpdateTV执行失败或PLC跳过耐压；无有效耐压时优先按压力分流",
                                         SN, WOCODE);
-                                    return 2;
+                                    return ResolveNg2OrPressureNg3WhenTvInvalid(
+                                        dt.Rows[0]["PRESSURE_RESULT"], "CHECK2", SN, WOCODE, true);
                                 }
 
                                 _tvresult = TryParseDbBool(dt.Rows[0]["TVRESULT"]);
 
                                 // 5. 判断耐压测试结果
+                                // 电压为 0/-1 视为未形成有效耐压记录，优先按压力回 NG3。
+                                // 已有有效电压且 TVResult=false 仍直接回 2。
                                 if (_tvmaxvoltage == 0 || _tvmaxvoltage == -1)
                                 {
-                                    return 2;
+                                    return ResolveNg2OrPressureNg3WhenTvInvalid(
+                                        dt.Rows[0]["PRESSURE_RESULT"], "CHECK2", SN, WOCODE, true);
                                 }
                                 if (!_tvresult)
                                 {
                                     return 2;
                                 }
 
-                            // 6. 判断压力结果（与耐压同优先级，失败即返回NG2）
+                            // 6. 判断压力结果（耐压已形成有效合格结果后的压力门禁；失败即返回NG3）
                             bool _pressureResult = false;
                             string s_pressureResult = dt.Rows[0]["PRESSURE_RESULT"]?.ToString();
 
