@@ -386,6 +386,10 @@ namespace BusbarCompressionSystem.Model.FaraVision.Tool
         //[XmlElement("XY轴对换")]
         //public bool InvertXY { set; get; } = false;
 
+        /// <summary>
+        /// 当前拍照指令全部工具完成后启用机器人结果回包。
+        /// 同指令多项启用时使用工具列表中最后一个判定工具的回包码；模板定位保持辅助职责。
+        /// </summary>
         [XmlElement("发送结果状态")]
         public bool SendStatus { set; get; } = true;
 
@@ -651,8 +655,8 @@ namespace BusbarCompressionSystem.Model.FaraVision.Tool
         }
 
         /// <summary>
-        /// 运行态：本次识别落盘图片路径（用于追溯“日志值 ↔ 图片”是否一致）。
-        /// - 仅运行时使用，不参与工程参数保存/加载。
+        /// 运行态：本次识别标注图的归档路径，用于关联检测日志与图片。
+        /// 图片准备后确定路径，后台保存结果记录在 AOI存图 日志中；该字段仅用于运行时追溯。
         /// </summary>
         [XmlIgnore]
         public string LastResultImagePath { set; get; } = null;

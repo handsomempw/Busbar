@@ -184,6 +184,7 @@
     </Compile>
     <Compile Include="ViewModel\MainViewModel.cs" />
     <Compile Include="ViewModel\MainViewModel_Camera.cs" />
+    <Compile Include="ViewModel\MainViewModel_AoiImageSave.cs" />
     <Compile Include="ViewModel\MainViewModel_DualY.cs" />
     <Compile Include="ViewModel\MainViewModel_LocatorCorrection.cs" />
     <Compile Include="ViewModel\MainViewModel_FaraVision.cs" />

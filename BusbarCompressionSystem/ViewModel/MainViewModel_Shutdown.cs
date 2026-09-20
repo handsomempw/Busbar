@@ -8,6 +8,7 @@ namespace BusbarCompressionSystem.ViewModel
         /// 停止设备触发入口并释放电测、扫码和 TCP 连接。
         /// 先停止 PLC 轮询并置位仪器 stop，等待扫码/电测/归档线程在连接仍存活时发出停机或放电命令，再断开通信。
         /// 双Y与标准部署均关闭耐压仪、绝缘电阻仪和各自扫码器；标准部署另外关闭机器人服务端和标准扫码器连接。
+        /// 标准部署同时停止 AOI 图像处理入口，等待当前批次编码写盘结束后释放其图片。
         /// </summary>
         /// <param name="includeStandardCommunication">标准生产窗口关闭时传 true，用于释放机器人和标准扫码通信；双Y专用窗口传 false。</param>
         public void ShutdownRuntimeConnections(bool includeStandardCommunication)
@@ -35,6 +36,7 @@ namespace BusbarCompressionSystem.ViewModel
                 TryShutdownResource("标准上料扫码器", () => DataModel.Settingmodel.HF800.disconnect());
                 TryShutdownResource("标准下料扫码器", () => DataModel.Settingmodel.SecondHF800.disconnect());
                 TryShutdownResource("机器人TCP服务端", () => DataModel.Settingmodel.TcpServerRobot?.StopListener());
+                StopAoiImageSaving();
             }
         }
 

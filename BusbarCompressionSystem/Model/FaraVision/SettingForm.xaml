@@ -1035,7 +1035,8 @@
                             <RowDefinition/>
                             <RowDefinition/>
                         </Grid.RowDefinitions>
-                        <CheckBox Grid.Row="0" Grid.Column="0" Margin="2"  IsChecked="{Binding SendStatus  }" Content="输出结果" />
+                        <CheckBox Grid.Row="0" Grid.Column="0" Margin="2" IsChecked="{Binding SendStatus}" Content="输出结果"
+                                  ToolTip="当前拍照指令全部工具完成后回包；同指令多项勾选时，使用列表中最后一个判定工具的回包码。" />
                         <!--<CheckBox Grid.Row="6" Grid.Column="1" Margin="2"  IsChecked="{Binding InvertResult  }" Content="结果取反" />-->
                         <TextBlock Grid.Row="1" Grid.Column="0" Margin="5">OK输出命令:</TextBlock>
                         <TextBlock Grid.Row="2" Grid.Column="0" Margin="5">NG1输出命令:</TextBlock>

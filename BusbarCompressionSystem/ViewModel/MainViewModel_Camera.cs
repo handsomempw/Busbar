@@ -374,13 +374,13 @@ namespace BusbarCompressionSystem.ViewModel
         ///    - 模板匹配：检测产品位置、角度偏移是否在允许范围内
         ///    - 面积检测：计算区域面积是否在阈值范围内
         ///    - 尺寸测量：测量产品尺寸是否符合规格
-        /// 3. 根据检测结果保存图像到OK/NG目录
+        /// 3. 根据保存开关在当前线程准备原图副本和成品标注图，保存路径沿用既有 OK/NG/点检目录
         /// 4. 综合判断所有工具的结果：
         ///    - 全部OK → 状态=OK
         ///    - 有NG2（缺件/测量失败）→ 状态=NG2
         ///    - 有NG（不合格）→ 状态=NG
         /// 5. 更新数据库中的外观检测结果（UpdateTakePhoto2）
-        /// 6. 可选发送结果给机器人（SendMsgRobot）
+        /// 6. 将本帧图片交给后台编码写盘，再按本指令最后一个启用 SendStatus 的判定工具配置回包一次
         /// 
         /// 调用时机：
         /// - 相机4（AOI工位）接收到图像后自动触发
@@ -389,10 +389,22 @@ namespace BusbarCompressionSystem.ViewModel
         /// 注意：
         /// - 此方法包含复杂的视觉算法，执行时间较长（通常几百毫秒）
         /// - 需要在UI线程中执行，以便更新界面显示
-        /// - 内存管理：及时释放Bitmap和HObject，避免GDI句柄泄漏
+        /// - 下一帧处理前等待上一批存图结束；保存失败记录后继续，尺寸测量落盘复测仍在判定前完成
         /// </remarks>
         public void OnReceiveProcessAOI(HObject Image, int H, int W)
         {
+            if (_aoiImageSavingStopped)
+            {
+                return;
+            }
+
+            WaitForAoiImageSave("下一帧处理");
+            var imageBatch = new AoiImageSaveBatch
+            {
+                Command = DataModel.FaraVisionDataModel.Processmodel.RCMD,
+                ProductSn = DataModel.Processmodel.TakePhotoTestMode2?.Productinfo?.SN
+            };
+            HObject convertedImage = null;
             try
             {
                 #region 图片接收
@@ -401,8 +413,8 @@ namespace BusbarCompressionSystem.ViewModel
                 if (channels == 1)
                 {
                     HOperatorSet.Compose3(Image, Image, Image, out var multiChannelImage);
-                    Image.Dispose();
                     Image = multiChannelImage;
+                    convertedImage = multiChannelImage;
                 }
 
                 HWindow hwindow = DataModel.FaraVisionDataModel.Settingmodel.HWindow;
@@ -410,7 +422,7 @@ namespace BusbarCompressionSystem.ViewModel
                 //hwindow.SetPart(0, 0, H - 1, W - 1);
                 hwindow.DispObj(Image);
                 ResetLocatorCorrectionState();
-                string currentRcmd = DataModel.FaraVisionDataModel.Processmodel.RCMD;
+                string currentRcmd = imageBatch.Command;
                 int judgingToolCount = DataModel.FaraVisionDataModel.Processmodel.Tools.Count(t => t.Command == currentRcmd && IsJudgingTool(t));
                 int lastCurrentCommandToolIndex = DataModel.FaraVisionDataModel.Processmodel.Tools
                     .Select((t, index) => new { Tool = t, Index = index })
@@ -985,7 +997,7 @@ namespace BusbarCompressionSystem.ViewModel
                         }
                         #endregion
 
-                        #region 保存图片
+                        #region 准备后台归档图片
                         try
                         {
                             Productinfo productInfo = DataModel.Processmodel.TakePhotoTestMode2.Productinfo;
@@ -1030,19 +1042,20 @@ namespace BusbarCompressionSystem.ViewModel
                                         captureTime,
                                         resultFolder),
                                     $"{specification}-{SanitizeImagePathPart(sn, "NOSN")}{inspectionIdentity}-{SanitizeImagePathPart(currentRcmd, "NOCMD")}-{tool.Index:00}-{toolName}-{tool.TestMode}-{tool.ToolStatus}-{captureTime:yyyyMMddHHmmssFFF}.jpg");
-                                string dir = Path.GetDirectoryName(savefilename);
-                                if (!Directory.Exists(dir))
+                                if (imageBatch.OriginalImage == null)
                                 {
-                                    Directory.CreateDirectory(dir);
+                                    // 保存任务持有本帧独立像素，下一次相机回调可按自身生命周期释放采集图。
+                                    HOperatorSet.CopyImage(Image, out imageBatch.OriginalImage);
                                 }
                                 string annotatedImagePath = BuildAnnotatedImagePath(savefilename);
-                                SaveToolResultImages(Image, tool, currentRcmd, savefilename, annotatedImagePath);
+                                imageBatch.Images.Add(PrepareToolResultImages(Image, tool, currentRcmd, savefilename, annotatedImagePath));
+                                // 追溯日志关联已确定的归档路径；实际保存结果由 AOI存图 日志记录。
                                 tool.LastResultImagePath = annotatedImagePath;
                             }
                         }
                         catch (Exception ex)
                         {
-                            writeLog($"视觉->保存照片:保存失败：{ex.ToString()}", false);
+                            writeLog($"视觉->保存照片:图片准备失败：{ex}", false);
                         }
 
                         #endregion
@@ -1134,82 +1147,53 @@ namespace BusbarCompressionSystem.ViewModel
                         }
                         #endregion
 
-                        if (tool.SendStatus && IsJudgingTool(tool))
-                        {
+                        writeLog($"视觉->视觉:图片准备完成", false);
 
-                            int status = -1;
-
-                            var r = (from ToolModel in DataModel.FaraVisionDataModel.Processmodel.Tools
-                                     where ToolModel.Command == currentRcmd && IsJudgingTool(ToolModel)
-                                     select ToolModel).ToList();
-
-                            var wait = (from ToolModel in r
-                                        where (ToolModel.ToolStatus == ToolStatus.等待中 || ToolModel.ToolStatus == ToolStatus.识别中)
-                                        select ToolModel);
-
-                            if (wait.Count() == 0)
-                            {
-                                var ok = (from ToolModel in r
-                                          where (ToolModel.ToolStatus == ToolStatus.OK)
-                                          select ToolModel);
-
-                                if (ok.Count() == r.Count())
-                                {
-                                    status = 0;
-                                }
-                                else
-                                {
-                                    var NG2 = (from ToolModel in r
-                                               where (ToolModel.ToolStatus == ToolStatus.NG2)
-                                               select ToolModel);
-                                    if (NG2.Count() > 0)
-                                    {
-                                        status = 2;
-                                    }
-                                    else
-                                    {
-                                        status = 1;
-                                    }
-
-                                }
-                            }
-
-                            switch (status)
-                            {
-
-                                case 0:
-                                    {
-                                        SendMsgRobot(tool.OKCMD.Trim());
-                                        break;
-                                    }
-                                case 1:
-                                    {
-                                        SendMsgRobot(tool.NG1CMD.Trim());
-                                        break;
-                                    }
-                                case 2:
-                                    {
-                                        SendMsgRobot(tool.NG2CMD.Trim());
-                                        break;
-                                    }
-                                default:
-                                    {
-                                        break;
-                                    }
-                            }
-                        }
-
-                        writeLog($"视觉->视觉:保存完成", false);
-
-                        string s2 = $"{DataModel.FaraVisionDataModel.Processmodel.Tools[i].Name}:保存图片发送结果耗时:{stopwatch.ElapsedMilliseconds}ms";
+                        string s2 = $"{tool.Name}:结果记录及图片准备耗时:{stopwatch.ElapsedMilliseconds}ms";
                         Save_record(s2);
                     }
                 }
+
+                StartAoiImageSave(imageBatch);
+                imageBatch = null;
+                SendAoiCommandResult(currentRcmd);
                 #endregion
 
             }
-            catch (Exception ex) {; }
+            catch (Exception ex)
+            {
+                writeLog($"[AOI] 图像处理异常：{ex}", true);
+            }
+            finally
+            {
+                // 部分工具完成后发生异常时，已准备的图片仍按本次路径归档。
+                if (imageBatch != null)
+                {
+                    StartAoiImageSave(imageBatch);
+                }
+                convertedImage?.Dispose();
+            }
+        }
 
+        /// <summary>
+        /// 当前指令全部工具处理并完成结果记录后回包一次。使用工具列表中最后一个启用发送的判定工具的指令码；
+        /// 全部关闭 SendStatus 时保持静默，模板定位保持辅助职责，OK/NG2/NG 优先级沿用产品判定口径。
+        /// </summary>
+        /// <param name="command">本帧开始处理时确定的拍照指令。</param>
+        private void SendAoiCommandResult(string command)
+        {
+            var tools = DataModel.FaraVisionDataModel.Processmodel.Tools
+                .Where(t => t.Command == command && IsJudgingTool(t)).ToList();
+            ToolModel replyTool = tools.LastOrDefault(t => t.SendStatus);
+            if (replyTool == null || tools.Any(t => t.ToolStatus == ToolStatus.等待中 || t.ToolStatus == ToolStatus.识别中))
+            {
+                return;
+            }
+
+            string reply = tools.All(t => t.ToolStatus == ToolStatus.OK)
+                ? replyTool.OKCMD
+                : tools.Any(t => t.ToolStatus == ToolStatus.NG2) ? replyTool.NG2CMD : replyTool.NG1CMD;
+            SendMsgRobot(reply.Trim());
         }
 
         /// <summary>
@@ -1346,17 +1330,17 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
-        /// 为本轮工具检测同时保存原图和包含 ROI、检测结果的标注图。
-        /// 原图沿用日期下的 OK、NG 或定位目录及既有文件名；标注图进入日期下的“标注图/结果”目录并沿用同一文件名。
-        /// 算法输入保持原始 HALCON 图像，标注在独立 HALCON 窗口中完成，前后工具保持各自独立的检测输入。标注异常时标注图位置保存原图，
-        /// 已保存的原图和工具判定、机器人回包、PLC/MES 流程保持当前口径。
+        /// 在当前工具计算完成后准备包含本次 ROI 和结果文字的成品标注图，交给本帧归档批次后台保存。
+        /// 当前线程读取工具与定位状态并完成绘制，后台只访问成品图片和固定路径。
+        /// 原图沿用既有文件名；标注图位于“标注图/结果”目录，图层准备异常时按原图归档。
         /// </summary>
         /// <param name="image">当前相机周期的原始 HALCON 图像，坐标单位为像素。</param>
-        /// <param name="tool">当前工具及其运行态结果；工程配置保持当前保存值。</param>
+        /// <param name="tool">当前工具及本次运行态结果，只在本方法内用于绘制。</param>
         /// <param name="command">当前 AOI 触发指令，用于结果图中的追溯文字。</param>
         /// <param name="originalImagePath">原始相机图 JPG 完整路径。</param>
         /// <param name="annotatedImagePath">标注图 JPG 完整路径；运行态图片追溯指向该路径。</param>
-        private void SaveToolResultImages(
+        /// <returns>由本帧保存任务负责释放的成品标注图及归档路径。</returns>
+        private AoiPreparedImage PrepareToolResultImages(
             HObject image,
             ToolModel tool,
             string command,
@@ -1365,16 +1349,13 @@ namespace BusbarCompressionSystem.ViewModel
         {
             HWindow resultWindow = null;
             HObject resultImage = null;
-            Bitmap annotatedImage = null;
+            var prepared = new AoiPreparedImage
+            {
+                OriginalPath = originalImagePath,
+                AnnotatedPath = annotatedImagePath
+            };
             try
             {
-                HOperatorSet.WriteImage(image, "jpg", 0, originalImagePath);
-                string annotatedDirectory = Path.GetDirectoryName(annotatedImagePath);
-                if (!Directory.Exists(annotatedDirectory))
-                {
-                    Directory.CreateDirectory(annotatedDirectory);
-                }
-
                 HTuple width;
                 HTuple height;
                 HOperatorSet.GetImageSize(image, out width, out height);
@@ -1392,29 +1373,30 @@ namespace BusbarCompressionSystem.ViewModel
 
                 try
                 {
-                    Hobject2Bitmap.HobjectToBitmap24(resultImage, out annotatedImage);
-                    DrawToolText(annotatedImage, tool, command, BuildToolResultDetail(tool));
-                    annotatedImage.Save(annotatedImagePath, System.Drawing.Imaging.ImageFormat.Jpeg);
+                    Hobject2Bitmap.HobjectToBitmap24(resultImage, out prepared.AnnotatedBitmap);
+                    DrawToolText(prepared.AnnotatedBitmap, tool, command, BuildToolResultDetail(tool));
                 }
                 catch (Exception textEx)
                 {
                     // ROI 已进入 resultImage；文字渲染环境异常时保留框选范围，确保现场仍能核对本次检测区域。
                     writeLog($"视觉->结果图文字标注失败，保留ROI图片：{textEx.Message}", false);
-                    HOperatorSet.WriteImage(resultImage, "jpg", 0, annotatedImagePath);
+                    prepared.AnnotatedBitmap?.Dispose();
+                    prepared.AnnotatedBitmap = null;
+                    prepared.OverlayImage = resultImage;
+                    resultImage = null;
                 }
             }
             catch (Exception ex)
             {
-                // 标注窗口依赖 HALCON 图形资源；异常时在标注图位置保留原图，维持成对文件的追溯身份。
+                // 标注窗口依赖 HALCON 图形资源；准备失败时后台在标注图位置保存本批原图。
                 writeLog($"视觉->结果图标注失败，标注图位置保留原图：{ex.Message}", false);
-                HOperatorSet.WriteImage(image, "jpg", 0, annotatedImagePath);
             }
             finally
             {
-                annotatedImage?.Dispose();
                 resultImage?.Dispose();
                 resultWindow?.Dispose();
             }
+            return prepared;
         }
 
         /// <summary>
