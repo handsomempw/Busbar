@@ -713,16 +713,18 @@ namespace BusbarCompressionSystem.ViewModel
                             {
                                 ClearTools();
                             }
-                            writeLog($"机器人->视觉:{cmd}开始设置参数", false);
                             DataModel.FaraVisionDataModel.Processmodel.ToolIndex = i + 1;
                             int cameraindex = DataModel.FaraVisionDataModel.Processmodel.Tools[i].CameraIndex;
+                            var triggerCamera = DataModel.FaraVisionDataModel.Processmodel.CameraList[cameraindex].CameraModel.camera;
+                            string triggerContext = $"Command={cmd} ToolIndex={i + 1} CameraListIndex={cameraindex} CameraID={triggerCamera.CameraID}";
+                            writeLog($"机器人->视觉:{cmd}开始设置参数 {triggerContext} ExposureUs={DataModel.FaraVisionDataModel.Processmodel.Tools[i].ExposureTime}", false);
                             DataModel.FaraVisionDataModel.Processmodel.CameraList[cameraindex].CameraModel.exposuretime = DataModel.FaraVisionDataModel.Processmodel.Tools[i].ExposureTime;
                             DataModel.FaraVisionDataModel.Processmodel.CameraList[cameraindex].CameraModel.camera.Exposure = DataModel.FaraVisionDataModel.Processmodel.Tools[i].ExposureTime;
                             DataModel.FaraVisionDataModel.Processmodel.CameraList[cameraindex].CameraModel.camera.bnSetParam_Click();
                             Thread.Sleep(DataModel.FaraVisionDataModel.Settingmodel.ACommandTriggerWaitMs);
                             writeLog($"机器人->视觉:{cmd}开始触发", false);
-                            DataModel.FaraVisionDataModel.Processmodel.CameraList[cameraindex].CameraModel.camera.bnTriggerExec_Click();
-                            writeLog($"机器人->视觉:{cmd}触发完成", false);
+                            triggerCamera.TriggerSoftwareWithDiagnostics(triggerContext);
+                            writeLog($"机器人->视觉:{cmd}软触发调用返回，SDK结果见相机诊断日志，收图以回调记录为准 {triggerContext}", false);
 
                             break;
                         }

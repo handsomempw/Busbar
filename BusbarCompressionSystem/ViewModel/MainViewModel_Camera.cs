@@ -137,14 +137,21 @@ namespace BusbarCompressionSystem.ViewModel
             DataModel.Settingmodel.camedata5.CameraModel.camera.ImageReceived += OnCamera5Receive;
         }
 
+        /// <summary>将相机错误提示先写入通用日志，再显示弹窗，供现场按序列号核对相机诊断文件。</summary>
+        /// <param name="sender">产生错误提示的相机。</param>
+        /// <param name="e">相机序列号及 SDK 错误信息。</param>
         private void OnCameraErrorReceive(object sender, EventArgs e)
         {
             try
             {
                 Camera.ErrorEventArgs errorEventArgs = e as Camera.ErrorEventArgs;
+                writeLog($"相机->视觉:相机提示 CameraID={errorEventArgs.CameraID} Error={errorEventArgs.Error}", false);
                 NoticeBox.Show($"{errorEventArgs.Error}", $"相机错误-{errorEventArgs.CameraID}", MessageBoxIcon.Error, true, 10000);
             }
-            catch (Exception ex) { }
+            catch (Exception ex)
+            {
+                writeLog($"相机->视觉:错误提示处理异常 {ex}", false);
+            }
         }
 
         private void OnCamera1Receive(object sender, EventArgs e)
@@ -249,6 +256,9 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
 
+        /// <summary>接收 C4 的 AOI 图像，记录收图上下文和界面排队耗时后交给检测流程。</summary>
+        /// <param name="sender">C4 相机实例。</param>
+        /// <param name="e">图像及收帧时的诊断上下文。</param>
         private void OnCamera4Receive(object sender, EventArgs e)
         {
 
@@ -257,9 +267,11 @@ namespace BusbarCompressionSystem.ViewModel
                 LogCameraReceiveThrottled(4, onlyWhenExpectingShot: false);
 
                 MyEventArgs myEventArgs = e as MyEventArgs;
-
+                Stopwatch queueWatch = Stopwatch.StartNew();
+                writeLog($"相机->视觉:AOI图像入队(C4) {myEventArgs?.DiagnosticContext}", false);
                 App.Current.Dispatcher.BeginInvoke(new Action(() =>
                 {
+                    writeLog($"相机->视觉:AOI界面处理开始(C4) QueueMs={queueWatch.ElapsedMilliseconds} {myEventArgs?.DiagnosticContext}", false);
                     //#region 仅保存照片
                     //OnReceiveProcess(DataModel.Settingmodel.HWindow4, myEventArgs.Image, myEventArgs.Height, myEventArgs.Width, 4);
                     //SaveImage(myEventArgs.Image, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, "外观检测", 1, "OK");
@@ -279,9 +291,12 @@ namespace BusbarCompressionSystem.ViewModel
             }
             catch (Exception ex)
             {
-                // writeError($"[{DataModel.Processmodel.RCMD}]识别错误:{ex.ToString()}");
+                writeLog($"相机->视觉:AOI图像入队异常(C4) {(e as MyEventArgs)?.DiagnosticContext} Exception={ex}", false);
             }
         }
+        /// <summary>接收 C5 的 AOI 图像，记录收图上下文和界面排队耗时后交给检测流程。</summary>
+        /// <param name="sender">C5 相机实例。</param>
+        /// <param name="e">图像及收帧时的诊断上下文。</param>
         private void OnCamera5Receive(object sender, EventArgs e)
         {
 
@@ -289,8 +304,11 @@ namespace BusbarCompressionSystem.ViewModel
             {
                 LogCameraReceiveThrottled(5, onlyWhenExpectingShot: false);
                 MyEventArgs myEventArgs = e as MyEventArgs;
+                Stopwatch queueWatch = Stopwatch.StartNew();
+                writeLog($"相机->视觉:AOI图像入队(C5) {myEventArgs?.DiagnosticContext}", false);
                 App.Current.Dispatcher.BeginInvoke(new Action(() =>
                 {
+                    writeLog($"相机->视觉:AOI界面处理开始(C5) QueueMs={queueWatch.ElapsedMilliseconds} {myEventArgs?.DiagnosticContext}", false);
                     //#region 仅保存照片
                     //OnReceiveProcess(DataModel.Settingmodel.HWindow4, myEventArgs.Image, myEventArgs.Height, myEventArgs.Width, 5);
                     //SaveImage(myEventArgs.Image, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, "外观检测", 1, "OK");
@@ -317,7 +335,7 @@ namespace BusbarCompressionSystem.ViewModel
             }
             catch (Exception ex)
             {
-                // writeError($"[{DataModel.Processmodel.RCMD}]识别错误:{ex.ToString()}");
+                writeLog($"相机->视觉:AOI图像入队异常(C5) {(e as MyEventArgs)?.DiagnosticContext} Exception={ex}", false);
             }
         }
 

@@ -20,6 +20,11 @@ namespace Camera
 {
     public class MyEventArgs : EventArgs
     {
+        /// <summary>
+        /// 收帧时最近一次软触发的诊断标识，用于关联机器人指令与界面处理阶段。
+        /// 相机帧与触发的对应关系由现场时序核对，此标识只用于日志追溯。
+        /// </summary>
+        public string DiagnosticContext { set; get; }
         public HObject Image { set; get; }
         public int Height { set; get; }
         public int Width { set; get; }
@@ -240,6 +245,12 @@ namespace Camera
         public MyCamera m_MyCamera = new MyCamera();
         MyCamera.cbOutputExdelegate cbImage;
         bool m_bGrabbing = false;
+        /// <summary>同一进程的相机诊断文件写入锁，覆盖多相机并发回调。</summary>
+        private static readonly object cameraDiagnosticLogLock = new object();
+        /// <summary>相机实例内的软触发序号，只用于本次运行的通信追溯。</summary>
+        private long softwareTriggerSequence;
+        /// <summary>最近一次软触发上下文，供 SDK 回调记录关联线索；保持运行态。</summary>
+        private volatile string lastTriggerContext = "尚无软触发";
         //Thread m_hReceiveThread = null;
         MyCamera.MV_FRAME_OUT_INFO_EX m_stFrameInfo = new MyCamera.MV_FRAME_OUT_INFO_EX();
 
@@ -305,6 +316,9 @@ namespace Camera
 
 
         // ch:显示错误信息 | en:Show error message
+        /// <summary>将相机 SDK 提示连同十六进制返回码落盘，再交由设备错误事件显示给操作员。</summary>
+        /// <param name="csMessage">发生错误的相机操作或 SDK 提示。</param>
+        /// <param name="nErrorNum">SDK 原始返回码；0 表示调用方提供的文字提示。</param>
         public void ShowErrorMsg(string csMessage, int nErrorNum)
         {
             string errorMsg;
@@ -337,6 +351,7 @@ namespace Camera
                 case MyCamera.MV_E_NETER: errorMsg += " Network error "; break;
             }
 
+            WriteCameraDiagnostic($"相机提示 Code=0x{nErrorNum:X8} Message={errorMsg}");
             //MessageBox.Show(errorMsg, "PROMPT");
             try
             {
@@ -346,7 +361,40 @@ namespace Camera
                     CameraID=CameraID,
                     Error = errorMsg
                 });
-            }catch (Exception ex) {; }
+            }
+            catch (Exception ex)
+            {
+                WriteCameraDiagnostic($"错误事件处理异常: {ex}");
+            }
+        }
+
+        /// <summary>
+        /// 将触发、收帧和异常阶段写入程序目录的“日志/相机诊断”日文件。
+        /// 状态字段为本地采集标志与界面模式快照，设备实际执行情况以 SDK 返回码和收帧记录核对。
+        /// 写盘异常只输出调试信息，设备操作和检测结果保持原有处理口径。
+        /// </summary>
+        /// <param name="message">阶段、返回码、耗时或异常堆栈。</param>
+        /// <param name="context">已捕获的触发上下文；为空时记录当前最近一次触发。</param>
+        private void WriteCameraDiagnostic(string message, string context = null)
+        {
+            try
+            {
+                DateTime now = DateTime.Now;
+                string line = $"[{now:yyyy-MM-dd HH:mm:ss.fff}] CameraID={CameraID} 最近触发=[{context ?? lastTriggerContext}] "
+                    + $"Thread={System.Threading.Thread.CurrentThread.ManagedThreadId} Grabbing={m_bGrabbing} "
+                    + $"ContinuousChecked={bnContinuesModeChecked} TriggerChecked={bnTriggerModeChecked} "
+                    + $"SoftTriggerChecked={cbSoftTriggerChecked} ExposureUs={Exposure} {message}";
+                lock (cameraDiagnosticLogLock)
+                {
+                    string directory = Path.Combine(Environment.CurrentDirectory, "日志", "相机诊断");
+                    Directory.CreateDirectory(directory);
+                    File.AppendAllText(Path.Combine(directory, now.ToString("yyyyMMdd") + ".txt"), line + Environment.NewLine);
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"相机诊断日志写入失败: {ex}");
+            }
         }
 
         public Boolean IsMonoData(MyCamera.MvGvspPixelType enGvspPixelType)
@@ -562,6 +610,7 @@ namespace Camera
             int nret0 = m_MyCamera.MV_CC_SetEnumValue_NET("AcquisitionMode", (uint)MyCamera.MV_CAM_ACQUISITION_MODE.MV_ACQ_MODE_CONTINUOUS);
             //  int nret1 = m_MyCamera.MV_CC_SetEnumValue_NET("TriggerMode", (uint)MyCamera.MV_CAM_TRIGGER_MODE.MV_TRIGGER_MODE_OFF);
             int nret2 = m_MyCamera.MV_CC_RegisterImageCallBackEx_NET(cbImage, (IntPtr)0);
+            WriteCameraDiagnostic($"注册图像回调 Result=0x{nret2:X8}");
 
             bnGetParam_Click();// ch:获取参数 | en:Get parameters
 
@@ -594,6 +643,7 @@ namespace Camera
 
         public void bnClose_Click()
         {
+            WriteCameraDiagnostic("关闭相机开始");
             // ch:取流标志位清零 | en:Reset flow flag bit
             if (m_bGrabbing == true)
             {
@@ -672,16 +722,33 @@ namespace Camera
 
         #region 取流回调函数 
         // ch:取流回调函数 | en:Aquisition Callback Function
+        /// <summary>
+        /// 接收 SDK 图像并交给上位机图像事件。触发模式逐帧记录转换与事件阶段，连续预览保留异常诊断。
+        /// 帧号、最近触发上下文与处理阶段共同用于定位软触发后收图中断的位置。
+        /// </summary>
+        /// <param name="pData">SDK 本帧像素缓冲区。</param>
+        /// <param name="pFrameInfo">SDK 帧号、图像尺寸和像素格式。</param>
+        /// <param name="pUser">注册回调时的用户数据。</param>
         public void ImageCallBack(IntPtr pData, ref MyCamera.MV_FRAME_OUT_INFO_EX pFrameInfo, IntPtr pUser)
         {
+            string context = lastTriggerContext;
+            string frame = $"Frame={pFrameInfo.nFrameNum} Size={pFrameInfo.nWidth}x{pFrameInfo.nHeight} PixelType={pFrameInfo.enPixelType}";
+            string stage = "SDK收帧";
+            Stopwatch callbackWatch = Stopwatch.StartNew();
             try
             {
+                if (!bnContinuesModeChecked)
+                {
+                    WriteCameraDiagnostic($"{stage} {frame}", context);
+                }
                 int nIndex = (int)pUser;
                 // ch:抓取的帧数 | en:Aquired Frame Number
+                stage = "释放上一帧";
                 ho_Image?.Dispose();
 
                 if (bnContinuesModeChecked)  //相机一实时状态显示
                 {
+                    stage = "连续预览图像转换";
                     ho_Image = CamImageConvert.ImageDataConvet(m_MyCamera, pFrameInfo, m_BufForDriver, pData);
                     //HOperatorSet.GetImageSize(ho_Image, out w1, out h1);
                     //HOperatorSet.SetPart(ShowWindow.HalconWindow, 0, 0, h1 - 1, w1 - 1);
@@ -689,6 +756,7 @@ namespace Camera
                 }
                 else if (bnTriggerModeChecked) //相机一触发模式用来运行图像处理
                 {
+                    stage = "触发图像转换";
                     sw1.Reset();
                     sw1.Start();
                     ho_Image = CamImageConvert.ImageDataConvet(m_MyCamera, pFrameInfo, m_BufForDriver, pData);
@@ -699,20 +767,26 @@ namespace Camera
                     ts1 = sw1.Elapsed;
                     string s1 = ts1.TotalMilliseconds.ToString("f2");
                     m_stFrameInfo = pFrameInfo;
+                    WriteCameraDiagnostic($"图像转换完成 {frame} ElapsedMs={callbackWatch.ElapsedMilliseconds} Subscribers={ImageReceived?.GetInvocationList().Length ?? 0}", context);
                     //触发图片接收事件
+                    stage = "ImageReceived事件";
                     ImageReceived.Invoke(this, new MyEventArgs()
                     {
+                        DiagnosticContext = $"CameraID={CameraID} 最近触发=[{context}] {frame}",
                         Image = ho_Image,
                         Width = pFrameInfo.nWidth,
                         Height = pFrameInfo.nHeight
                     });
-
-
+                    WriteCameraDiagnostic($"图像事件返回 {frame} ElapsedMs={callbackWatch.ElapsedMilliseconds}", context);
+                }
+                else
+                {
+                    WriteCameraDiagnostic($"收帧后模式分支跳过图像事件 {frame}", context);
                 }
             }
             catch (Exception ex)
             {
-
+                WriteCameraDiagnostic($"回调异常 Stage={stage} {frame} ElapsedMs={callbackWatch.ElapsedMilliseconds} Exception={ex}", context);
             }
         }
         #endregion
@@ -731,6 +805,7 @@ namespace Camera
             m_stFrameInfo.enPixelType = MyCamera.MvGvspPixelType.PixelType_Gvsp_Undefined;
             // ch:开始采集 | en:Start Grabbing
             int nRet = m_MyCamera.MV_CC_StartGrabbing_NET();
+            WriteCameraDiagnostic($"启动采集SDK返回 Result=0x{nRet:X8}");
             if (MyCamera.MV_OK != nRet)
             {
                 m_bGrabbing = false;
@@ -745,6 +820,7 @@ namespace Camera
 
             // ch:标志位置位true | en:Set position bit true
             m_bGrabbing = true;
+            WriteCameraDiagnostic("采集状态已置为启动");
 
             // ch:获取包大小 || en: Get Payload Size
             MyCamera.MVCC_INTVALUE stParam = new MyCamera.MVCC_INTVALUE();
@@ -793,19 +869,46 @@ namespace Camera
         /// 
         /// 注意：
         /// - 触发后图像采集在后台线程异步完成
-        /// - 完成标志位 finished 会在图像回调函数中设置
+        /// - 各步 SDK 返回码写入相机诊断日志；调用返回表示软触发调用结束，收图由回调日志确认
         /// </remarks>
         public void bnTriggerExec_Click()
         {
-            int nret = m_MyCamera.MV_CC_SetEnumValue_NET("TriggerMode", (uint)MyCamera.MV_CAM_TRIGGER_MODE.MV_TRIGGER_MODE_ON);
+            TriggerSoftwareWithDiagnostics("界面或设备流程");
+        }
 
-            m_MyCamera.MV_CC_SetEnumValue_NET("TriggerSource", (uint)MyCamera.MV_CAM_TRIGGER_SOURCE.MV_TRIGGER_SOURCE_SOFTWARE);
-
-            // ch:触发命令 | en:Trigger command
-            int nRet = m_MyCamera.MV_CC_SetCommandValue_NET("TriggerSoftware");
-            if (MyCamera.MV_OK != nRet)
+        /// <summary>
+        /// 执行软触发并记录各步 SDK 返回码和耗时，供机器人等待照片时定位相机通信失败阶段。
+        /// 保持 TriggerMode、TriggerSource、TriggerSoftware 的调用顺序和原有错误提示，收图由异步回调处理。
+        /// </summary>
+        /// <param name="context">触发来源、机器人指令和工具身份，用于本次运行的日志关联。</param>
+        public void TriggerSoftwareWithDiagnostics(string context)
+        {
+            string triggerContext = $"TriggerId={System.Threading.Interlocked.Increment(ref softwareTriggerSequence)} {context}";
+            lastTriggerContext = triggerContext;
+            Stopwatch watch = Stopwatch.StartNew();
+            string stage = "TriggerMode";
+            WriteCameraDiagnostic("软触发开始", triggerContext);
+            try
             {
-                ShowErrorMsg("设置软触发失败!", nRet);
+                int modeResult = m_MyCamera.MV_CC_SetEnumValue_NET("TriggerMode", (uint)MyCamera.MV_CAM_TRIGGER_MODE.MV_TRIGGER_MODE_ON);
+                WriteCameraDiagnostic($"Stage={stage} Result=0x{modeResult:X8} ElapsedMs={watch.ElapsedMilliseconds}", triggerContext);
+                stage = "TriggerSource";
+                WriteCameraDiagnostic($"Stage={stage} 开始 ElapsedMs={watch.ElapsedMilliseconds}", triggerContext);
+                int sourceResult = m_MyCamera.MV_CC_SetEnumValue_NET("TriggerSource", (uint)MyCamera.MV_CAM_TRIGGER_SOURCE.MV_TRIGGER_SOURCE_SOFTWARE);
+                WriteCameraDiagnostic($"Stage={stage} Result=0x{sourceResult:X8} ElapsedMs={watch.ElapsedMilliseconds}", triggerContext);
+                stage = "TriggerSoftware";
+                WriteCameraDiagnostic($"Stage={stage} 开始 ElapsedMs={watch.ElapsedMilliseconds}", triggerContext);
+                int triggerResult = m_MyCamera.MV_CC_SetCommandValue_NET("TriggerSoftware");
+                WriteCameraDiagnostic($"Stage={stage} Result=0x{triggerResult:X8} ElapsedMs={watch.ElapsedMilliseconds}", triggerContext);
+                if (MyCamera.MV_OK != triggerResult)
+                {
+                    ShowErrorMsg("设置软触发失败!", triggerResult);
+                }
+            }
+            catch (Exception ex)
+            {
+                WriteCameraDiagnostic($"软触发异常 Stage={stage} ElapsedMs={watch.ElapsedMilliseconds} Exception={ex}", triggerContext);
+                throw;
             }
         }
 
@@ -825,6 +928,7 @@ namespace Camera
 
         public void bnStopGrab_Click()
         {
+            WriteCameraDiagnostic("停止采集开始");
             // ch:标志位设为false | en:Set flag bit false
             m_bGrabbing = false;
             //m_hReceiveThread.Join();
