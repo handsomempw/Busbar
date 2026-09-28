@@ -281,29 +281,6 @@ namespace BusbarCompressionSystem.FaraVision
             }
         }
 
-        private bool _isRetestAdjustmentMode;
-
-        /// <summary>
-        /// AOI 与电测复测次数的运行模式。
-        /// true 表示动态密码授权期间的调机模式，入口保留日志并享有无限次数；false 表示量产模式，
-        /// AOI 与电测按工单、SN 分别累计入口次数。该状态只服务当前运行会话，不写入工程 XML。
-        /// </summary>
-        [XmlIgnore]
-        public bool IsRetestAdjustmentMode
-        {
-            get { return _isRetestAdjustmentMode; }
-            set
-            {
-                if (_isRetestAdjustmentMode == value)
-                {
-                    return;
-                }
-
-                _isRetestAdjustmentMode = value;
-                RaisePropertyChanged(() => IsRetestAdjustmentMode);
-            }
-        }
-
         #region 动态密码授权上下文（运行时，不序列化）
 
         /// <summary>

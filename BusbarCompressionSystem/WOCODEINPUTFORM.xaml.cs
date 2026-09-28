@@ -83,7 +83,9 @@ namespace BusbarCompressionSystem
 
         /// <summary>
         /// 按生产批号从 MES 获取规格和电测工艺参数，完成测试模式、交流/直流必填项校验后下发到可用设备。
+        /// 同时读取工艺参数「测试次数」写入运行态入口上限；缺参或无效时日志告警并回退默认 5 次。
         /// 普通部署与双Y部署共用该入口；校验失败时保留当前运行参数，并向操作员提示具体缺项和维护责任人。
+        /// 测试次数仅约束普通产品入口累计，点检标准件流程不受该参数影响。
         /// </summary>
         /// <param name="sender">参数下发按钮。</param>
         /// <param name="e">按钮点击事件参数。</param>
@@ -195,6 +197,7 @@ namespace BusbarCompressionSystem
                                                !p.ParameterName.Contains("电压")));
                 var irVoltLow = ps.Where(p => p.ParameterName == "IR测试电压下限" || (p.ParameterName?.Contains("IR") == true && p.ParameterName.Contains("电压下限")));
                 var irVoltHigh = ps.Where(p => p.ParameterName == "IR测试电压上限" || (p.ParameterName?.Contains("IR") == true && p.ParameterName.Contains("电压上限")));
+                var retestCountParams = ps.Where(p => p.ParameterName == "测试次数");
 
                 // 首先检查测试模式参数是否存在
                 if (r2.Count() == 0)
@@ -336,6 +339,8 @@ namespace BusbarCompressionSystem
                 {
                     // 使用前面已声明的 testModeValue
                     AT9620.ElectricalTestMode electricalTestMode = (AT9620.ElectricalTestMode)testModeValue;
+
+                    ApplyRetestEntryLimitFromMes(retestCountParams, batchNo);
                     
                     // 写入测试模式到PLC地址D1012
                     bool writeModeResult = vml.Main.WriteTestModeToPLC(electricalTestMode);
@@ -891,6 +896,41 @@ namespace BusbarCompressionSystem
 
             skipReason = string.Empty;
             return true;
+        }
+
+        /// <summary>
+        /// 将 MES「测试次数」写入当前工单运行态入口上限。
+        /// 有有效正整数时按工艺值生效；缺参或无法解析时写告警日志并回退默认 5 次。
+        /// 该上限只约束普通产品 AOI/电测入口累计，点检标准件流程不读取本结果。
+        /// </summary>
+        /// <param name="retestCountParams">按 ParameterName=测试次数筛选后的 MES 参数集合。</param>
+        /// <param name="batchNo">当前下发批号，用于操作员日志追溯。</param>
+        private void ApplyRetestEntryLimitFromMes(IEnumerable<MESAutoLineClient.Model.EquipmentSettingParameter> retestCountParams, string batchNo)
+        {
+            int defaultLimit = MainViewModel.DefaultRetestEntryLimit;
+            var param = retestCountParams?.FirstOrDefault();
+            if (param == null)
+            {
+                vml.Main.DataModel.Processmodel.RetestEntryLimit = defaultLimit;
+                vml.Main.writeLog(
+                    $"[参数下发] 批号 {batchNo} 缺少“测试次数”，已使用默认上限 {defaultLimit} 次",
+                    true);
+                return;
+            }
+
+            string raw = Convert.ToString(param.TargetValue)?.Trim();
+            int limit;
+            if (!int.TryParse(raw, out limit) || limit <= 0)
+            {
+                vml.Main.DataModel.Processmodel.RetestEntryLimit = defaultLimit;
+                vml.Main.writeLog(
+                    $"[参数下发] 批号 {batchNo} 的“测试次数”无效：{raw}，已使用默认上限 {defaultLimit} 次",
+                    true);
+                return;
+            }
+
+            vml.Main.DataModel.Processmodel.RetestEntryLimit = limit;
+            vml.Main.writeLog($"[参数下发] 批号 {batchNo} 测试次数上限={limit}（AOI与电测各自按SN累计，点检不受限）");
         }
 
         private static string GetMesParameterUnit(object mesParam)

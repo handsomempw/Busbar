@@ -125,10 +125,10 @@ namespace BusbarCompressionSystem.ViewModel
         public DataModel DataModel { get; set; } = new DataModel();
 
         /// <summary>
-        /// 量产模式每个工单、每个 SN 的复测入口次数上限。
-        /// 该口径固定为 5 次，不写入配置 XML；AOI 独立累计，ACW、DCW、IR 共用电测次数。
+        /// MES 工艺参数「测试次数」缺失或无效时的默认入口上限（次）。
+        /// AOI 与电测各自按工单、SN 独立累计；点检标准件不使用该默认值。
         /// </summary>
-        public const int ProductionRetestWarningLimit = 5;
+        public const int DefaultRetestEntryLimit = 5;
 
         private const string AoiRetestScope = "AOI";
         private const string ElectricalRetestScope = "ELECTRICAL";
@@ -167,35 +167,28 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
-        /// 切换 AOI 与电测入口次数的运行模式。
-        /// 调机模式享有无限次数；量产模式按工单、SN 和检测类别持久化累计。该状态只影响次数记录和界面报警，
-        /// 产品检测、PLC 回执、机器人交互、过程数据和 MES 业务保持现有流程。
+        /// 读取当前工单已下发的复测入口上限；运行态无效时回退到默认 5 次。
         /// </summary>
-        /// <param name="adjustmentMode">true 表示调机模式；false 表示量产模式。</param>
-        /// <param name="reason">模式切换来源，用于操作员日志追溯授权、到期和手动选择。</param>
-        public void SetRetestAdjustmentMode(bool adjustmentMode, string reason)
+        /// <returns>普通产品每个工单、每个 SN、每个检测类别允许的入口次数。</returns>
+        private int GetRetestEntryLimit()
         {
-            DataModel.FaraVisionDataModel.Settingmodel.IsRetestAdjustmentMode = adjustmentMode;
-            string modeText = adjustmentMode ? "调机" : "量产";
-            string policyText = adjustmentMode
-                ? "AOI和电测入口次数不受限制"
-                : $"AOI和电测分别按SN累计，上限{ProductionRetestWarningLimit}次，第{ProductionRetestWarningLimit + 1}次扫码拦截并报警";
-            writeLog($"[复测模式] 已进入{modeText}模式，{policyText}，原因={reason}");
+            int limit = DataModel?.Processmodel?.RetestEntryLimit ?? DefaultRetestEntryLimit;
+            return limit > 0 ? limit : DefaultRetestEntryLimit;
         }
 
         /// <summary>
         /// 在 AOI 或电测入口取得有效 SN 后记录一次环节入口并判断是否允许启动检测。
         /// AOI 在 CHECK1 前置条件全部通过后调用；电测只在当前测试模式首项调用，ACW、DCW、IR 后续子测试沿用本次入口。
-        /// 耐压、IR、AOI 点检标准件沿用各自的点检判定和追溯流程，复测次数只统计普通产品。
-        /// 调机模式写入操作日志；量产模式通过工单 SQLite 原子累加。第 6 次入口在启动检测前拦截，
-        /// 只输出界面报警并由调用方回写当前工位的既有失败完成信号；计数和表结构异常继续沿用原流程。
+        /// 耐压、IR、AOI 点检标准件沿用各自的点检判定和追溯流程，入口次数只统计普通产品，点检 SN 在累计前直接放行。
+        /// 上限来自 MES「测试次数」；通过工单 SQLite 原子累加，超限时在启动检测前拦截并输出界面报警，
+        /// 由调用方回写当前工位既有失败完成信号；计数和表结构异常继续沿用原流程放行。
         /// </summary>
         /// <param name="processScope">持久化统计类别；AOI 使用 AOI，ACW、DCW、IR 共用 ELECTRICAL。</param>
         /// <param name="stageName">操作员日志中的当前入口名称，例如 AOI、ACW、DCW 或 IR。</param>
         /// <param name="sn">环节开始前从 PLC 产品码校验得到的产品 SN。</param>
         /// <param name="wocode">与 SN 同时取得的工单号，用于定位本地工单数据库。</param>
         /// <param name="partnoid">当前产品规格编码，用于保持本地数据库定位接口一致。</param>
-        /// <returns>true 表示当前入口可以继续检测；false 表示已完成 5 次放行入口，本次扫码在检测启动前拦截。</returns>
+        /// <returns>true 表示当前入口可以继续检测；false 表示已达工艺上限，本次扫码在检测启动前拦截。</returns>
         private bool RecordRetestEntry(string processScope, string stageName, string sn, string wocode, string partnoid)
         {
             string normalizedSn = (sn ?? string.Empty).Trim();
@@ -208,16 +201,11 @@ namespace BusbarCompressionSystem.ViewModel
 
             if (IsInspectionSn(normalizedSn))
             {
-                writeLog($"[点检复测豁免][{stageName}] 类型={GetInspectionTypeText(normalizedSn)}，SN={normalizedSn}，当前流程继续");
+                writeLog($"[点检复测豁免][{stageName}] 类型={GetInspectionTypeText(normalizedSn)}，SN={normalizedSn}，不计入测试次数，当前流程继续");
                 return true;
             }
 
-            if (DataModel.FaraVisionDataModel.Settingmodel.IsRetestAdjustmentMode)
-            {
-                writeLog($"[调机复测扫码][{stageName}] SN={normalizedSn}，次数不限，当前流程继续");
-                return true;
-            }
-
+            int retestLimit = GetRetestEntryLimit();
             int entryCount;
             bool allowed;
             bool recorded = sqlite.TryIncrementRetestEntryCount(
@@ -225,24 +213,24 @@ namespace BusbarCompressionSystem.ViewModel
                 partnoid,
                 normalizedSn,
                 processScope,
-                ProductionRetestWarningLimit,
+                retestLimit,
                 out entryCount,
                 out allowed);
             if (!recorded)
             {
-                writeLog($"[量产复测扫码][{stageName}] SN={normalizedSn}，次数记录失败，当前流程继续", true);
+                writeLog($"[复测扫码][{stageName}] SN={normalizedSn}，次数记录失败，当前流程继续", true);
                 return true;
             }
 
             if (!allowed)
             {
                 writeLog(
-                    $"[量产复测扫码拦截][{stageName}] SN={normalizedSn}，当前已完成{entryCount}/{ProductionRetestWarningLimit}次，本次扫码超限，已拦截检测",
+                    $"[复测扫码拦截][{stageName}] SN={normalizedSn}，当前已完成{entryCount}/{retestLimit}次，本次扫码超限，已拦截检测",
                     true);
                 return false;
             }
 
-            writeLog($"[量产复测扫码][{stageName}] SN={normalizedSn}，第{entryCount}/{ProductionRetestWarningLimit}次，剩余{ProductionRetestWarningLimit - entryCount}次，已进入检测流程");
+            writeLog($"[复测扫码][{stageName}] SN={normalizedSn}，第{entryCount}/{retestLimit}次，剩余{retestLimit - entryCount}次，已进入检测流程");
             return true;
         }
 

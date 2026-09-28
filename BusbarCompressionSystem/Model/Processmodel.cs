@@ -33,7 +33,14 @@ namespace BusbarCompressionSystem.Model
 
         public string PartNOID { set; get; } = string.Empty;
 
-
+        /// <summary>
+        /// 普通产品 AOI、电测入口允许次数上限（次/工单/SN/检测类别）。
+        /// 由 MES 工艺参数「测试次数」在参数下发时写入；缺参或无效时沿用默认 5。
+        /// 仅约束普通产品扫码入口累计，耐压/IR/AOI 点检标准件不读取该上限。
+        /// 运行态字段，不写入工程 XML。
+        /// </summary>
+        [XmlIgnore]
+        public int RetestEntryLimit { get; set; } = 5;
 
         #region 耐压测试参数
 
