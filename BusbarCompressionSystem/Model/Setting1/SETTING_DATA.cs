@@ -66,6 +66,14 @@ namespace BusbarCompressionSystem.Model.Setting1
         public bool IrDownloadDebugLog { get; set; } = false;
 
         /// <summary>
+        /// 电测原始数据、诊断日志与通信日志在磁盘上的按日目录保留天数。
+        /// 工程「配置数据.xml」的 SETTING_DATA 节点保存该值；写入日志时清理「识别过程日志/电测原始数据」下
+        /// 配置缺该节点时按 5 天处理；现场可改为 3、10 等按设备磁盘容量调整。
+        /// </summary>
+        [XmlElement("电测原始数据保留天数")]
+        public int ElectricalLogRetainDays { get; set; } = 5;
+
+        /// <summary>
         /// 本地开发调试授权开关，随通用配置保存到配置 XML。
         /// 该节点仅由 DEBUG 构建读取；开启后开发包使用本地 AOI 编辑会话，发布构建继续固定走生产动态密码认证。
         /// </summary>

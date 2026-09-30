@@ -1058,7 +1058,17 @@ namespace BusbarCompressionSystem.ViewModel
         // 电测原始数据：按日期分子目录（yyyyMMdd），同目录下按 SN 分文件；诊断日志为 {SN}_diag.txt（不含工单料号），通信日志为 {SN}_comm.txt
         private readonly object _electricalRawLogLock = new object();
         private static readonly string ElectricalRawLogDir = Path.Combine(Environment.CurrentDirectory, "识别过程日志", "电测原始数据");
-        private const int ElectricalLogRetainDays = 3;
+
+        /// <summary>
+        /// 读取电测原始数据按日目录保留天数（单位：天）。
+        /// 来源为「配置数据.xml」SETTING_DATA/电测原始数据保留天数；未配置或非法值（≤0）时回退为 5，避免误配清空或永不清理。
+        /// </summary>
+        /// <returns>用于日期子目录清理的保留天数。</returns>
+        private int GetElectricalLogRetainDays()
+        {
+            int days = DataModel?.Settingmodel?.SETTING_DATA?.ElectricalLogRetainDays ?? 5;
+            return days > 0 ? days : 5;
+        }
 
         private static string GetElectricalLogDayDirectory()
         {
@@ -1066,14 +1076,16 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
-        /// 确保当天目录存在，并删除早于保留天数的日期子目录（仅匹配八位 yyyyMMdd 文件夹名）。
+        /// 确保当天目录存在，并按配置保留天数删除过期的日期子目录（仅匹配八位 yyyyMMdd 文件夹名）。
+        /// 清理失败不阻塞后续写日志；不影响电测判定与报工主流程。
         /// </summary>
-        private static void EnsureElectricalLogInfrastructure()
+        private void EnsureElectricalLogInfrastructure()
         {
             Directory.CreateDirectory(ElectricalRawLogDir);
             string todayDir = GetElectricalLogDayDirectory();
             Directory.CreateDirectory(todayDir);
 
+            int retainDays = GetElectricalLogRetainDays();
             try
             {
                 foreach (var dir in Directory.GetDirectories(ElectricalRawLogDir))
@@ -1082,8 +1094,8 @@ namespace BusbarCompressionSystem.ViewModel
                     if (name != null && name.Length == 8 &&
                             DateTime.TryParseExact(name, "yyyyMMdd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var d))
                     {
-                        // 删除「距今已满 retain 天」的日期目录（含边界：满 7 天即删）
-                        if ((DateTime.Today - d).Days >= ElectricalLogRetainDays)
+                        // 删除「距今已满 retain 天」的日期目录（含边界：满配置天数即删）
+                        if ((DateTime.Today - d).Days >= retainDays)
                         {
                             try { Directory.Delete(dir, true); } catch { }
                         }
