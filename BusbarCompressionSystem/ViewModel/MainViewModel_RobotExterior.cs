@@ -322,21 +322,45 @@ namespace BusbarCompressionSystem.ViewModel
         }
 
         /// <summary>
-        /// 判断标准产线本轮耐压过程是否形成了可报工的仪器结果。
-        /// 缺少期望 ACW/DCW 行、状态标记为通信异常或本轮测试未完成时返回跳过标记；
-        /// 双电测首项真实耐压 NG 后按工艺跳过第二项属于完整失败结论，允许沿用 NG2 报工；
-        /// 标准 CHECK1 已确认本轮通信异常时由调用方优先按 NG3 待复测报工，其余场景及 CHECK2 沿用可信结果报工门禁。
-        /// 过程数据继续按当前 CHECK 阶段保存，机器人仍按综合结果接收 OK/NG 分流。
+        /// 标准产线 CHECK 报工对耐压可信态的归类。
+        /// Trusted：ACW/DCW 已形成仪器可信结束态，或双电测首项真实耐压 NG 已构成完整失败结论，按综合校验原文报工；
+        /// CommunicationFailure：已有电测行且 TVInfo 标记通信异常，机器人走 NG3，MES 文案与真阻值/压力 NG、未测区分；
+        /// NotTested：本轮起点缺失，或本轮 ID 边界内缺少期望 ACW/DCW 过程行（含复测仅完成首项、历史次项仍在库的情形），文案与真阻值/压力 NG 区分。
+        /// </summary>
+        private enum StandardTvReportKind
+        {
+            Trusted,
+            CommunicationFailure,
+            NotTested
+        }
+
+        /// <summary>
+        /// 通信异常待复测写入 MES / 界面日志的固定原因，与真阻值压力 NG、本轮未测文案并列区分。
+        /// </summary>
+        private const string StandardTvCommunicationFailureResult = "电测通讯异常（待复测）";
+
+        /// <summary>
+        /// 本轮未形成 ACW/DCW 过程行时的 MES / 界面原因，供现场与真测 NG3、通信异常筛查区分。
+        /// </summary>
+        private const string StandardTvNotTestedResult = "电测未测试（待复测）";
+
+        /// <summary>
+        /// 按本轮期望 ACW/DCW 行是否齐全、是否通信异常，决定标准产线 CHECK 报工文案口径。
+        /// 轮次边界与 SelectStandardRowsByExpectedModes / GetExpectedElectricalTestResult 一致：
+        /// 以期望清单中第一个非 IR 模式的最新行为本轮起点，后续模式只接受 ID 不早于该起点的行，避免复测时用历史 DCW/ACW 充数成 Trusted。
+        /// AOI-only 不看电测门禁；双电测首项真实耐压 NG 后第二项工艺跳过视为可信失败结论；
+        /// 本轮内同时缺行与通信异常时优先归为通信异常；起点模式本身缺失则归为 NotTested。
+        /// 不影响点检不报工规则；双Y产线仍使用各自归档门禁。
         /// </summary>
         /// <param name="wocode">当前产品工单号，用于定位 SQLite 工单库。</param>
         /// <param name="partnoid">当前产品规格编码。</param>
         /// <param name="sn">当前产品序列号。</param>
-        /// <returns>本轮没有完整可信 ACW/DCW 结果时返回 true。</returns>
-        private bool ShouldSkipStandardReportForTv(string wocode, string partnoid, string sn)
+        /// <returns>Trusted / CommunicationFailure / NotTested 三选一。</returns>
+        private StandardTvReportKind ClassifyStandardTvReportKind(string wocode, string partnoid, string sn)
         {
             if (IsAoiOnlyMode)
             {
-                return false;
+                return StandardTvReportKind.Trusted;
             }
 
             sqlite.ElectricalTestProcessRow failedFirstTestRow;
@@ -349,54 +373,123 @@ namespace BusbarCompressionSystem.ViewModel
                 out firstTestCommunicationFailure)
                 && !firstTestCommunicationFailure)
             {
-                return false;
+                return StandardTvReportKind.Trusted;
             }
 
             List<sqlite.ElectricalTestProcessRow> rows = sqlite.GetStandardElectricalTestProcessRows(wocode, partnoid, sn);
             List<string> expectedModes = GetStandardExpectedElectricalModes(includeIr: false);
+            string firstNonIrMode = expectedModes.FirstOrDefault(mode =>
+                !string.Equals(mode, "IR", StringComparison.OrdinalIgnoreCase));
+            sqlite.ElectricalTestProcessRow roundStartRow = rows
+                .Where(item => string.Equals(item.TestMode, firstNonIrMode, StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(item => item.Id)
+                .FirstOrDefault();
+
+            // 本轮首模式尚未落库：与 MES 过程筛选无法定位起点相同，按未测处理，不借用历史同模式行。
+            if (roundStartRow == null)
+            {
+                return StandardTvReportKind.NotTested;
+            }
+
+            bool anyMissing = false;
+            bool anyCommunicationFailure = false;
             foreach (string mode in expectedModes)
             {
                 sqlite.ElectricalTestProcessRow row = rows
                     .Where(item => string.Equals(item.TestMode, mode, StringComparison.OrdinalIgnoreCase))
+                    .Where(item => item.Id >= roundStartRow.Id)
                     .OrderByDescending(item => item.Id)
                     .FirstOrDefault();
-                if (row == null || BusbarCompressionSystem.Utils.TvStatusTranslator.IsCommunicationFailure(row.TVInfo))
+                if (row == null)
                 {
-                    return true;
+                    anyMissing = true;
+                    continue;
+                }
+
+                if (BusbarCompressionSystem.Utils.TvStatusTranslator.IsCommunicationFailure(row.TVInfo))
+                {
+                    anyCommunicationFailure = true;
                 }
             }
 
-            return false;
+            if (anyCommunicationFailure)
+            {
+                return StandardTvReportKind.CommunicationFailure;
+            }
+
+            if (anyMissing)
+            {
+                return StandardTvReportKind.NotTested;
+            }
+
+            return StandardTvReportKind.Trusted;
         }
 
         /// <summary>
-        /// 判断标准产线本轮期望的ACW/DCW记录中是否存在明确电测通信异常。
-        /// 仅识别当前 SN 最新非 IR 记录中带模式前缀且 TVInfo 标记“通信异常”的记录；
-        /// 历史复测记录、普通耐压NG、阻值/压力NG和缺少记录保持各自现有口径。
+        /// 将通信异常 / 本轮未测映射为机器人 NG3 与可区分的 MES 原因文案。
+        /// checkCode=1（无产品记录、TAKEPHOTO1 空/假等）一律不改写，保持更改前 NG1 机器人回包与「拍照留底不良」文案；
+        /// 本轮未测的新增报工只覆盖原先会落到 NG2/NG3 文案却因缺可信耐压而跳过报工的路径。
         /// </summary>
-        /// <param name="wocode">当前产品工单号，用于定位SQLite工单库。</param>
-        /// <param name="partnoid">当前产品规格编码。</param>
+        /// <param name="kind">ClassifyStandardTvReportKind 的归类结果。</param>
+        /// <param name="checkCode">sqlite.Check1/Check2 返回码：0合格，1拍照，2耐压，3阻值或压力，4AOI。</param>
+        /// <param name="msg">机器人回包，可被改写为 NG3。</param>
+        /// <param name="resultstr">MES 报工与界面校验结果文案。</param>
+        /// <param name="stageTag">CHECK1 或 CHECK2，写入现场日志。</param>
         /// <param name="sn">当前产品序列号。</param>
-        /// <returns>任一期望耐压模式存在明确通信异常记录时返回true。</returns>
-        private bool HasStandardTvCommunicationFailure(string wocode, string partnoid, string sn)
+        private void ApplyStandardIncompleteTvReportOutcome(
+            StandardTvReportKind kind,
+            int checkCode,
+            ref string msg,
+            ref string resultstr,
+            string stageTag,
+            string sn)
         {
-            if (IsAoiOnlyMode)
+            // NG1 口径冻结：不改机器人码、不改 MES 原因文案；报工是否跳过由调用方按更改前门禁处理。
+            if (checkCode == 1)
             {
+                return;
+            }
+
+            if (kind == StandardTvReportKind.CommunicationFailure)
+            {
+                msg = "NG3";
+                resultstr = StandardTvCommunicationFailureResult;
+                writeLog($"[{stageTag}] 电测通讯异常按NG3分流并报工，SN={sn}", true);
+                return;
+            }
+
+            if (kind == StandardTvReportKind.NotTested)
+            {
+                msg = "NG3";
+                resultstr = StandardTvNotTestedResult;
+                writeLog($"[{stageTag}] 本轮电测未测试按NG3分流并报工，SN={sn}", true);
+            }
+        }
+
+        /// <summary>
+        /// 标准产线 CHECK 报工门禁：NG1 且耐压未形成可信结束态时跳过报工，与更改前 ShouldSkip 对拍照不良路径一致；
+        /// 其余（含本轮未测、通信异常改写后的 NG3）执行报工。点检不报工规则仍由调用方单独处理。
+        /// </summary>
+        /// <param name="checkCode">sqlite.Check1/Check2 返回码。</param>
+        /// <param name="tvReportKind">耐压可信态归类。</param>
+        /// <param name="stageTag">CHECK1 或 CHECK2。</param>
+        /// <param name="sn">当前产品序列号。</param>
+        /// <returns>true 表示应调用 report/report2；false 表示跳过报工。</returns>
+        private bool ShouldReportStandardCheckOutcome(
+            int checkCode,
+            StandardTvReportKind tvReportKind,
+            string stageTag,
+            string sn)
+        {
+            if (checkCode == 1 && tvReportKind != StandardTvReportKind.Trusted)
+            {
+                writeLog(
+                    $"[{stageTag}] 拍照留底不良且耐压未取得仪器可信结束态，保留MES过程数据，跳过报工（保持NG1原口径），SN={sn}",
+                    true);
                 return false;
             }
 
-            List<sqlite.ElectricalTestProcessRow> rows = sqlite.GetStandardElectricalTestProcessRows(wocode, partnoid, sn);
-            List<string> expectedModes = GetStandardExpectedElectricalModes(includeIr: false);
-            long latestAttemptRecordId = sqlite.GetLatestStandardAttemptRecordId(wocode, partnoid, sn);
-            if (latestAttemptRecordId <= 0)
-            {
-                return false;
-            }
-
-            return rows.Any(row =>
-                row.Id == latestAttemptRecordId
-                && expectedModes.Contains(row.TestMode, StringComparer.OrdinalIgnoreCase)
-                && BusbarCompressionSystem.Utils.TvStatusTranslator.IsCommunicationFailure(row.TVInfo));
+            return true;
         }
 
         /// <summary>
@@ -969,10 +1062,6 @@ namespace BusbarCompressionSystem.ViewModel
                             DataModel.Processmodel.ResParameter.Max_Res,
                             aoiOnlyMode: isAoiOnlyMode,
                             expectedElectricalModes: expectedElectricalModes);
-                        bool hasTvCommunicationFailure = HasStandardTvCommunicationFailure(
-                            DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE,
-                            DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID,
-                            DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN);
                         string MSG = "NG1";
                         // 初始化resultstr为"拍照留底不良"作为默认值（兜底）
                         // 实际会根据Check1返回值在switch中被覆盖
@@ -1014,19 +1103,23 @@ namespace BusbarCompressionSystem.ViewModel
                                 }
                         }
 
-                        // CHECK1原判定为耐压异常且本轮有明确通信标记时，复用NG3下料分流；
-                        // 阻值或压力不合格仍使用原NG3描述，仪器明确返回的耐压NG仍使用NG2。
-                        bool reportTvCommunicationAsNg3 = r == 2 && hasTvCommunicationFailure;
-                        if (reportTvCommunicationAsNg3)
-                        {
-                            MSG = "NG3";
-                            resultstr = "电测通讯异常（待复测）";
-                            writeLog($"[CHECK1] 电测通讯异常按NG3分流并报工，SN={DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN}", true);
-                        }
+                        // 通信异常 / 本轮未测：机器人 NG3 分流，MES 用独立原因报工，与真阻值压力 NG、真耐压 NG 区分。
+                        StandardTvReportKind tvReportKind = ClassifyStandardTvReportKind(
+                            DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE,
+                            DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID,
+                            DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN);
+                        ApplyStandardIncompleteTvReportOutcome(
+                            tvReportKind,
+                            r,
+                            ref MSG,
+                            ref resultstr,
+                            "CHECK1",
+                            DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN);
 
                         // CHECK1=0 表示前置电测、阻值、压力和拍照留底均已满足 AOI 放行条件。
                         // 在发送机器人 OK 前累计一次 AOI 入口；后续 A1/A2/A3 指令属于同一轮 AOI，不再重复计数。
                         if (r == 0
+                            && tvReportKind == StandardTvReportKind.Trusted
                             && !RecordRetestEntry(
                                 AoiRetestScope,
                                 "AOI",
@@ -1037,9 +1130,6 @@ namespace BusbarCompressionSystem.ViewModel
                             // AOI 入口超限沿用 CHECK1 读码失败的交互约定：界面报警并结束本次机器人交互。
                             return;
                         }
-
-                        //if (MSG != "OK")
-                        //{
 
                         #region 保存过程数据到服务器
 
@@ -1054,24 +1144,16 @@ namespace BusbarCompressionSystem.ViewModel
                             uploadAllModes: true);
                         #endregion
                         #region 汇报结果数据
-                        if (reportTvCommunicationAsNg3)
-                        {
-                            report(ss[1], ss[0], resultstr);
-                        }
-                        else if (ShouldSkipStandardReportForTv(
-                            DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE,
-                            DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID,
+                        // NG1+未可信耐压：跳过报工（更改前口径）；本轮未测/通信异常在非 NG1 路径上改写为 NG3 后报工。
+                        if (ShouldReportStandardCheckOutcome(
+                            r,
+                            tvReportKind,
+                            "CHECK1",
                             DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN))
-                        {
-                            writeLog($"[CHECK1] 耐压本轮未取得仪器可信结束态，保留MES过程数据，跳过报工，SN={DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN}", true);
-                        }
-                        else
                         {
                             report(ss[1], ss[0], resultstr);
                         }
                         #endregion
-
-                        //}
 
                         writeLog($"数据校验1->结果:{resultstr}");
                         SendMsgRobot(MSG);
@@ -1274,6 +1356,19 @@ namespace BusbarCompressionSystem.ViewModel
                                 }
                         }
 
+                        // 与 CHECK1 同口径：非 NG1 的未测/通信异常改写报工2；NG1 且未可信耐压仍跳过报工2。
+                        StandardTvReportKind tvReportKind = ClassifyStandardTvReportKind(
+                            DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE,
+                            DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID,
+                            DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN);
+                        ApplyStandardIncompleteTvReportOutcome(
+                            tvReportKind,
+                            r,
+                            ref MSG,
+                            ref resultstr,
+                            "CHECK2",
+                            DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN);
+
                         writeLog($"数据校验2->结果:{resultstr}");
                         SendMsgRobot(MSG);
 
@@ -1291,16 +1386,16 @@ namespace BusbarCompressionSystem.ViewModel
 
                         #endregion
                         #region 汇报结果数据
-                        if (ShouldSkipStandardReportForTv(
-                            DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE,
-                            DataModel.Processmodel.TakePhotoTestMode2.Productinfo.PartNOID,
+                        if (ShouldReportStandardCheckOutcome(
+                            r,
+                            tvReportKind,
+                            "CHECK2",
                             DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN))
                         {
-                            writeLog($"[CHECK2] 耐压本轮未取得仪器可信结束态，保留MES过程数据，跳过报工2，SN={DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN}", true);
-                        }
-                        else
-                        {
-                            report2(DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE, DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN, resultstr);
+                            report2(
+                                DataModel.Processmodel.TakePhotoTestMode2.Productinfo.WOCODE,
+                                DataModel.Processmodel.TakePhotoTestMode2.Productinfo.SN,
+                                resultstr);
                         }
                         #endregion
                     }
